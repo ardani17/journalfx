@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { fmtUSDdelta } from "@/lib/money";
 
 import { cn } from "@/lib/utils";
+import { EventsPanel } from "./events-panel";
+import { listEvents } from "@/server/services/economic-events";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export const metadata = { title: "Kalender Trading" };
@@ -29,6 +31,7 @@ export default async function CalendarPage({
   const from = new Date(Date.UTC(yy, mm - 1, 1));
   const to = new Date(Date.UTC(yy, mm, 1));
   const days = await dailyPnl(user.id, from, to);
+  const events = await listEvents(user.id, { from, to });
 
   // calendar grid: Monday-first
   const lead = (from.getUTCDay() + 6) % 7;
@@ -64,6 +67,8 @@ export default async function CalendarPage({
         {best.pnl > -Infinity && best.pnl !== 0 ? <Badge tone="success">Terbaik: {fmtUSDdelta(best.pnl)} ({best.date.slice(8)})</Badge> : null}
         {worst.pnl < Infinity && worst.pnl !== 0 ? <Badge tone="danger">Terburuk: {fmtUSDdelta(worst.pnl)} ({worst.date.slice(8)})</Badge> : null}
       </div>
+
+      <EventsPanel events={events.map((e) => ({ id: e.id, at: e.at.toISOString(), currency: e.currency, title: e.title, impact: e.impact }))} />
 
       <Card>
         <CardContent className="p-3">

@@ -6,6 +6,8 @@ import { StatCard } from "@/components/ui/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
 import { DailyPnlChart } from "./daily-pnl-chart";
+import { InsightsPanel } from "./insights-panel";
+import { buildInsights } from "@/server/services/economic-events";
 import { fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { startOfUTCDay, addUTCDays } from "@/lib/dates";
 import { Activity, Percent, Scale, Target, TrendingUp } from "lucide-react";
@@ -16,10 +18,11 @@ export default async function AnalyticsPage() {
   const user = await requireUser();
   const to = addUTCDays(startOfUTCDay(new Date()), 1);
   const from30 = addUTCDays(to, -30);
-  const [core, strategies, days] = await Promise.all([
+  const [core, strategies, days, insights] = await Promise.all([
     coreMetrics(user.id),
     byStrategy(user.id),
     dailyPnl(user.id, from30, to),
+    buildInsights(user.id),
   ]);
 
   return (
@@ -105,6 +108,8 @@ export default async function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <InsightsPanel insights={insights.insights} coverage={insights.dataCoverage} />
     </PageShell>
   );
 }
