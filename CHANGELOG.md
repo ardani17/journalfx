@@ -9,7 +9,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ### Planned (sequential, no skipping)
 
-- v0.4.0 Financial Management
 - v0.5.0 Dashboard, Review & Reports
 - v0.6.0 Production Readiness & Visual QA
 - v1.0.0 Stable MVP Release
@@ -17,6 +16,33 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 - v1.2.0 Telegram & Push Notifications
 - v1.3.0 Economic Calendar & AI Journal
 - v1.4.0 Monte Carlo & Portfolio Analytics
+
+## [0.4.0] — 2026-11-16
+
+Financial Management.
+
+### Added
+
+- Dynamic withdrawal engine: profit-only rule, cumulative-P&L high-water mark with loss recovery
+  (derived from completed WDs against the ledger timeline — never stored), eligibility never
+  reused, weekly period-profit gate, subtraction of WD already taken, min(eligible×ratio, needs,
+  cash−reserve) caps, stale/unknown data warnings.
+- WD lifecycle RECOMMENDED→REQUESTED→COMPLETED/CANCELLED with FX snapshot (immutable historical
+  rate), receipt reconciliation (kurs, dana diterima, biaya), ledger WITHDRAWAL posting and
+  personal-income linkage; versioned withdrawal rules.
+- Budget with monthly categories (auto-carried each month), funding coverage from tracked income,
+  expense tracking with reversals, cashflow page.
+- Debt tracker: principal/interest/fee separation (only principal reduces debt), payments,
+  straight-line projection with unknown-terms incompleteness flag.
+- Financial buckets (living/debt/emergency/savings/trading/unallocated) & allocation engine with
+  per-(bucket,period) unique constraint and unallocated-profit validation — no double allocation.
+
+### Verified
+
+- typecheck 0 · lint 0 · 46/46 unit tests · build OK · all 5 finance pages 200.
+- Live: cum P&L +101 → eligible 101 → rec 50.50; over-limit request rejected; completion posts
+  ledger −50.50, HWM→101, next eligible 0; debt payment 1,000,000 (bunga 200,000) → principal
+  −800,000 → remaining 4,200,000 (exact PRD gate).
 
 ## [0.3.0] — 2026-11-16
 
