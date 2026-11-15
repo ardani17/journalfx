@@ -22,6 +22,21 @@ artifacts, approval.
 
 ---
 
+## v0.6.0 — Production Readiness & Visual QA (2026-11-16)
+
+- Previous tag: v0.5.0 → current tag: v0.6.0 (minor +1, sequential)
+- Issues: ARD-278 (engine test suite), ARD-279 (security/a11y/E2E) + production checklist items
+  from the PRD "Remaining backlog" register (Docker+Nginx, backup/restore, docs)
+- Gates: typecheck 0 · lint 0 · 54/54 Vitest · build OK · 12/12 Playwright (chromium)
+- Visual QA: desktop 1440 PASS + mobile 390 PASS vs docs/design reference; captures stored in
+  e2e/visual/ as regression evidence. Polish backlog (non-blocking): sidebar section header
+  contrast, equity subtext wrap, rose card saturation, "—" empty-value treatment.
+- Security: headers live; private attachments verified never served raw; API auth 401s; CSP set
+- Migrations: none · Deployment: production stack defined (docker-compose.prod.yml) but NOT
+  deployed — no production claims; local verification only
+- Approval: owner instruction (sequential plan); stable v1.0.0 promotion awaits this tag's
+  acceptance
+
 ## v0.5.0 — Dashboard, Review & Reports (2026-11-16)
 
 - Previous tag: v0.4.0 → current tag: v0.5.0 (minor +1, sequential)

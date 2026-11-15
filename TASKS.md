@@ -43,11 +43,11 @@ Status legend: ⬜ backlog · 🟡 in progress · ✅ done (issue Done in Linear
 
 ## v0.6.0 — Production Readiness & Visual QA (Milestone 06)
 
-- ⬜ ARD-278 Financial engine unit and integration test suite
-- ⬜ ARD-279 Security, accessibility and end-to-end testing
-- ⬜ Docker Compose + Nginx, HTTPS, health checks, backup/restore runbooks
+- ✅ ARD-278 Financial engine unit and integration test suite
+- ✅ ARD-279 Security, accessibility and end-to-end testing
+- ✅ Docker Compose + Nginx, HTTPS, health checks, backup/restore runbooks
   (tracked in PRD "Remaining backlog" until a Linear issue can be created)
-- ⬜ Visual QA gates at 1440/1280/390px with user approval
+- ✅ Visual QA gates at 1440/1280/390px with user approval
 
 ## v1.0.0 — Stable MVP Release
 
