@@ -9,8 +9,6 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ### Planned (sequential, no skipping)
 
-
-- v0.3.0 Compounding & Risk
 - v0.4.0 Financial Management
 - v0.5.0 Dashboard, Review & Reports
 - v0.6.0 Production Readiness & Visual QA
@@ -19,6 +17,30 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 - v1.2.0 Telegram & Push Notifications
 - v1.3.0 Economic Calendar & AI Journal
 - v1.4.0 Monte Carlo & Portfolio Analytics
+
+## [0.3.0] — 2026-11-16
+
+Compounding & Risk.
+
+### Added
+
+- Deterministic compounding simulator: fixed/variable/negative returns, NONE/FIXED/DYNAMIC
+  withdrawal modes with profit-only rule, needs cap, per-cycle costs, deposit schedule, stress
+  overrides, horizon guard ("target belum tercapai"), zero cycles when target already reached.
+- Scenario CRUD with saved parameters and per-run projection curve + cycle table.
+- Roadmap page: 12 PRD milestones with historical achievement dates, phase timeline, progress
+  ring driven by actual ledger balance, illustrative 5%/week duration estimate.
+- Broker-aware position size calculator: risk/(SL distance × contract size + cost/lot) floored
+  to lot step; rejects below minimum lot; warning-only tick/margin/stale-equity validations.
+- Risk settings (1%/2%/5%/10%/2% defaults) with live usage bars, open-risk tracking and
+  cash-flow-adjusted drawdown (deposits don't mask DD, withdrawals don't fake it).
+
+### Verified
+
+- typecheck 0 · lint 0 · 30/30 unit tests · build OK · pages 200.
+- PRD acceptance live: $200×5% → $10 profit, 50% cap → $5 WD, closing $205; target-already-
+  reached → 0 cycles; minimum-lot-exceeds-risk rejected; $200→$1M @5% = 175 weeks (mockup's
+  161 corrected — PRD formulas override illustrative figures).
 
 ## [0.2.0] — 2026-11-16
 

@@ -21,10 +21,10 @@ Status legend: ⬜ backlog · 🟡 in progress · ✅ done (issue Done in Linear
 
 ## v0.3.0 — Compounding & Risk (Milestone 03)
 
-- ⬜ ARD-265 Implement deterministic compounding simulator
-- ⬜ ARD-266 Build roadmap milestones and scenario comparison
-- ⬜ ARD-267 Build broker-aware position sizing calculator
-- ⬜ ARD-268 Implement risk limits and adjusted drawdown
+- ✅ ARD-265 Implement deterministic compounding simulator
+- ✅ ARD-266 Build roadmap milestones and scenario comparison
+- ✅ ARD-267 Build broker-aware position sizing calculator
+- ✅ ARD-268 Implement risk limits and adjusted drawdown
 
 ## v0.4.0 — Financial Management (Milestone 04)
 
