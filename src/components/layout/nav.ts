@@ -38,9 +38,9 @@ export const NAV: NavGroup[] = [
   {
     label: "Plan & Strategi",
     items: [
-      { label: "Compounding", href: "/simulator", icon: TrendingUp, since: "v0.3.0" },
+      { label: "Compounding", href: "/simulator", icon: TrendingUp },
       { label: "Withdrawal (WD)", href: "/withdrawals", icon: Wallet, since: "v0.4.0" },
-      { label: "Target Project", href: "/roadmap", icon: Target, since: "v0.3.0" },
+      { label: "Target Project", href: "/roadmap", icon: Target },
     ],
   },
   {
