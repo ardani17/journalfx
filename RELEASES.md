@@ -22,6 +22,17 @@ artifacts, approval.
 
 ---
 
+## v0.4.0 — Financial Management (2026-11-16)
+
+- Previous tag: v0.3.0 → current tag: v0.4.0 (minor +1, sequential)
+- Issues: ARD-269, ARD-270, ARD-271, ARD-272, ARD-273 — branches merged `--no-ff`
+- Gates: typecheck 0 · lint 0 · 46/46 Vitest · build OK · /withdrawals,/expenses,/debts,
+  /finance/cashflow,/finance/allocation 200
+- PRD acceptance verified live: HWM recovery sequence (−20,+10→0 eligible; +30→20 eligible unit
+  tested), WD lifecycle caps + ledger posting + FX snapshot, debt principal-only reduction
+  (1jt incl. 200k interest → −800k), deposit/WD never touches trading P&L (ledger types separate)
+- Migrations: none · Deployment: local only · Approval: owner instruction (sequential plan)
+
 ## v0.3.0 — Compounding & Risk (2026-11-16)
 
 - Previous tag: v0.2.0 → current tag: v0.3.0 (minor +1, sequential)

@@ -28,11 +28,11 @@ Status legend: ⬜ backlog · 🟡 in progress · ✅ done (issue Done in Linear
 
 ## v0.4.0 — Financial Management (Milestone 04)
 
-- ⬜ ARD-269 Implement dynamic withdrawal and high-water mark engine
-- ⬜ ARD-270 Implement withdrawal lifecycle and FX reconciliation
-- ⬜ ARD-271 Build budget, expense and income tracking
-- ⬜ ARD-272 Build debt tracker and repayment projection
-- ⬜ ARD-273 Implement financial buckets and allocation engine
+- ✅ ARD-269 Implement dynamic withdrawal and high-water mark engine
+- ✅ ARD-270 Implement withdrawal lifecycle and FX reconciliation
+- ✅ ARD-271 Build budget, expense and income tracking
+- ✅ ARD-272 Build debt tracker and repayment projection
+- ✅ ARD-273 Implement financial buckets and allocation engine
 
 ## v0.5.0 — Dashboard, Review & Reports (Milestone 05)
 
