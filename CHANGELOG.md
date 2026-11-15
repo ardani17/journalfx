@@ -9,10 +9,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ### Planned (sequential, no skipping)
 
-- v1.1.0 MT5 Integration (read-only)
-- v1.2.0 Telegram & Push Notifications
-- v1.3.0 Economic Calendar & AI Journal
 - v1.4.0 Monte Carlo & Portfolio Analytics
+
+## [1.3.0] — 2026-11-16
+
+Economic Calendar & AI Journal.
+
+### Added
+
+- Economic calendar: manual entry of high-impact events (NFP/FOMC/CPI…) with currency and
+  impact levels; calendar page panel; events within ±2h of a trade entry available as journal
+  context (source-attributed, never a trading signal).
+- Explainable AI journal insights: deterministic rule-based analysis over the user's own
+  journal — session performance gaps, FOMO impact, missing stop-loss, revenge-pattern
+  detection, mistake ranking, journal completeness — each with explicit evidence string,
+  sample size, and missing-data handling (no black-box model, no predictions). Analytics panel.
+- 5 unit tests for the insight engine (no fabricated insights from thin data).
+
+### Verified
+
+- typecheck 0 · lint 0 · 59/59 Vitest · build OK · live event create/list + both panels render.
 
 ## [1.2.0] — 2026-11-16
 
