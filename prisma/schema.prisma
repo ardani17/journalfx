@@ -92,6 +92,9 @@ model TradingAccount {
   notes         String?
   isActive      Boolean  @default(true)
   isProp        Boolean  @default(false) // prop firm account flag (v1.4 analytics)
+  propMaxDailyLossPct Decimal? @db.Decimal(9, 4) // e.g. 5 = 5%
+  propMaxTotalDdPct   Decimal? @db.Decimal(9, 4) // e.g. 10 = 10%
+  propTargetPct       Decimal? @db.Decimal(9, 4) // e.g. 10 = 10% profit target
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

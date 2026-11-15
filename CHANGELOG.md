@@ -9,7 +9,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ### Planned (sequential, no skipping)
 
-- v1.4.0 Monte Carlo & Portfolio Analytics
+_(roadmap lengkap — v0.0.0 hingga v1.4.0 — telah dirilis)_
+
+## [1.4.0] — 2026-11-16
+
+Monte Carlo & Portfolio Analytics.
+
+### Added
+
+- Monte Carlo engine: seeded deterministic bootstrap (mulberry32) over the user's historical
+  R-multiples; percentile bands p10/p25/p50/p75/p90, risk-of-ruin (DD ≥30%), median max drawdown,
+  small-sample caveat. Reproducible per seed (identical seed+data → identical paths).
+- Monte Carlo panel on analytics (configurable risk%/trade count, 800 paths, band chart).
+- Portfolio & prop-firm analytics: per-account balance/P&L/win-rate/trade table; prop accounts
+  evaluate configurable challenge rules (target %, max daily loss %, max total DD %) with
+  passed/breach/progress states.
+- Migration: optional prop challenge fields on TradingAccount.
+- 8 unit tests for the Monte Carlo engine (determinism, band ordering, growth, caveats).
+
+### Verified
+
+- typecheck 0 · lint 0 · 67/67 Vitest · build OK · 12/12 Playwright E2E.
+- Live: MC run over historical R sample with caveat; portfolio endpoint lists typed accounts;
+  analytics renders both panels.
 
 ## [1.3.0] — 2026-11-16
 
