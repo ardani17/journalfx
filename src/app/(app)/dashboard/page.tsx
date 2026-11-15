@@ -10,6 +10,13 @@ import {
 import { requireUser } from "@/server/auth";
 import { getDefaultProject } from "@/server/services/projects";
 import { balanceSeries, computeBalance, weeklySummary } from "@/server/services/ledger";
+import { getRecommendation } from "@/server/services/withdrawals";
+import { budgetOverview } from "@/server/services/finance";
+import { prisma } from "@/server/db";
+import { simulate } from "@/lib/finance/compounding";
+
+import { refreshNotifications } from "@/server/services/reviews";
+import { checkMilestones } from "@/server/services/ledger";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
@@ -24,14 +31,19 @@ export const metadata = { title: "Dashboard" };
 export default async function DashboardPage() {
   const user = await requireUser();
   const project = await getDefaultProject(user.id);
-  const [balances, weekly, series] = await Promise.all([
+  await checkMilestones(user.id);
+  await refreshNotifications(user.id).catch(() => undefined);
+
+  const [balances, weekly, series, wdBundle, budget, debts] = await Promise.all([
     computeBalance(user.id),
     weeklySummary(user.id),
     balanceSeries(user.id),
+    getRecommendation(user.id),
+    budgetOverview(user.id).catch(() => null),
+    prisma.debt.findMany({ where: { userId: user.id, status: "ACTIVE" } }),
   ]);
 
   const balance = balances.balance;
-  const equity = balance; // + unrealized P&L — trades arrive in v0.2.0
   const target = D(project.targetAmount);
   const progressPct = target.isZero() ? D(0) : balance.div(target).times(100);
   const nextMilestone =
@@ -42,6 +54,27 @@ export default async function DashboardPage() {
     ? null
     : balance.minus(balances.deposits).plus(balances.withdrawals).div(balances.deposits).times(100);
 
+  // illustrative projection (5%/week, no WD) for the actual-vs-projected overlay
+  const proj = simulate({
+    initialCapital: D(project.initialCapital),
+    target,
+    returnPerCyclePct: 5,
+    wdMode: "NONE",
+    maxCycles: 260,
+  });
+  const projByWeek = new Map<number, number>();
+  proj.cycles.forEach((c) => projByWeek.set(c.cycle, Number(c.closing.toFixed(2))));
+  const actualWithProj = series.map((p, i) => ({
+    date: p.date,
+    balance: p.balance,
+    projected: projByWeek.get(i + 1) ?? null,
+  }));
+
+  const debtRemaining = debts.reduce((s, d) => s.add(D(d.principalRemaining)), D(0));
+  const debtOriginal = debts.reduce((s, d) => s.add(D(d.principalOriginal)), D(0));
+  const debtPaidPct = debtOriginal.isZero() ? null : Number(debtOriginal.minus(debtRemaining).div(debtOriginal).times(100));
+  const monthlyNeedsIdr = budget ? budget.planned : null;
+
   return (
     <PageShell>
       <PageHeader
@@ -49,7 +82,6 @@ export default async function DashboardPage() {
         subtitle="Ringkasan proyek trading, performa, dan rencana menuju $1.000.000"
       />
 
-      {/* Project banner */}
       <section
         aria-label="Project banner"
         className="banner-gradient flex flex-wrap items-center gap-3 rounded-[14px] px-5 py-4"
@@ -61,15 +93,14 @@ export default async function DashboardPage() {
           <h2 className="text-base font-bold text-white">{project.name}</h2>
           <p className="text-xs text-white/80">
             Forex XAUUSD · Modal Awal {fmtUSD(project.initialCapital)} · Target{" "}
-            {fmtUSD(project.targetAmount, { compact: true })}
+            {fmtUSD(target, { compact: true })}
           </p>
         </div>
         <Badge className="border-white/30 bg-white/15 !text-white" tone="success">
-          {progressPct.gt(0) ? "● Berjalan" : "● Dimulai"}
+          {weekly.realizedPnl.isPositive() ? "● Minggu Profit" : "● Berjalan"}
         </Badge>
       </section>
 
-      {/* KPI row */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Balance Saat Ini"
@@ -84,7 +115,7 @@ export default async function DashboardPage() {
             ) : undefined
           }
         />
-        <StatCard label="Equity" value={fmtUSD(equity)} tone="info" icon={Activity} />
+        <StatCard label="Equity" value={fmtUSD(balance)} tone="info" icon={Activity} sub="Unrealized: 0 (belum ada harga berjalan)" />
         <StatCard
           label="Total WD (Aktual)"
           value={fmtUSD(balances.withdrawals)}
@@ -101,27 +132,19 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {/* Middle: chart + weekly summary */}
       <div className="grid gap-3 xl:grid-cols-[68fr_32fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Pertumbuhan Balance (Aktual)</CardTitle>
+            <CardTitle>Pertumbuhan Balance — Aktual vs Proyeksi (ilustratif 5%/mgg)</CardTitle>
           </CardHeader>
           <CardContent>
-            {series.length > 1 ? (
-              <BalanceChart data={series} />
-            ) : series.length === 1 ? (
-              <>
-                <BalanceChart data={series} />
-                <p className="mt-2 text-center text-[11px] text-faint">
-                  Baru 1 titik data — kurva tumbuh seiring transaksi berikutnya.
-                </p>
-              </>
+            {actualWithProj.length > 1 ? (
+              <BalanceChart data={actualWithProj} showProjection />
             ) : (
               <EmptyState
                 icon={<TrendingUp className="h-8 w-8" />}
-                title="Belum ada data balance"
-                description="Balance akan tumbuh seiring transaksi di ledger: deposit, WD, dan P&L realisasi dari jurnal trading."
+                title="Belum cukup data balance"
+                description="Kurva tumbuh seiring transaksi ledger: deposit, WD, dan P&L realisasi dari jurnal trading."
               />
             )}
           </CardContent>
@@ -153,16 +176,15 @@ export default async function DashboardPage() {
         </Card>
       </div>
 
-      {/* Bottom plan cards */}
       <PlanCards
         data={{
           nextMilestone: nextMilestone
             ? { amount: D(nextMilestone.amount), label: nextMilestone.label ?? fmtNum(D(nextMilestone.amount), 0) }
             : null,
-          wdRecommended: null, // withdrawal engine ships in v0.4.0
-          monthlyNeedsIdr: null, // finance pages ship in v0.4.0
-          debtRemainingIdr: null,
-          debtPaidPct: null,
+          wdRecommended: wdBundle.recommendation.recommended,
+          monthlyNeedsIdr,
+          debtRemainingIdr: debtOriginal.isZero() ? null : debtRemaining,
+          debtPaidPct,
         }}
       />
     </PageShell>

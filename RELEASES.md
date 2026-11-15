@@ -22,6 +22,14 @@ artifacts, approval.
 
 ---
 
+## v0.5.0 — Dashboard, Review & Reports (2026-11-16)
+
+- Previous tag: v0.4.0 → current tag: v0.5.0 (minor +1, sequential)
+- Issues: ARD-274, ARD-275, ARD-276, ARD-277 — branches merged `--no-ff`
+- Gates: typecheck 0 · lint 0 · 50/50 Vitest · build OK · 6 pages 200
+- Live: immutable close + double-close rejection verified; discipline engine unit-verified
+- Migrations: none · Deployment: local only · Approval: owner instruction (sequential plan)
+
 ## v0.4.0 — Financial Management (2026-11-16)
 
 - Previous tag: v0.3.0 → current tag: v0.4.0 (minor +1, sequential)
