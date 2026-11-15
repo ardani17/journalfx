@@ -1,4 +1,0 @@
-created=20261116-012535
-db=pg_dump -Fc
-uploads=tar
-retention=keep at least 2 latest; verify restore before deleting any
