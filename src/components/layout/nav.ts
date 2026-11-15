@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
+  CalendarRange,
   BookOpen,
   CalendarDays,
   CreditCard,
@@ -56,6 +57,7 @@ export const NAV: NavGroup[] = [
     items: [
       { label: "Laporan & Analisis", href: "/analytics", icon: BarChart3 },
       { label: "Kalender", href: "/calendar", icon: CalendarDays },
+      { label: "Review Periodik", href: "/reports", icon: CalendarRange },
       { label: "Pengaturan", href: "/settings", icon: Settings },
     ],
   },
