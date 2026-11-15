@@ -9,12 +9,37 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ### Planned (sequential, no skipping)
 
-- v0.6.0 Production Readiness & Visual QA
 - v1.0.0 Stable MVP Release
 - v1.1.0 MT5 Integration (read-only)
 - v1.2.0 Telegram & Push Notifications
 - v1.3.0 Economic Calendar & AI Journal
 - v1.4.0 Monte Carlo & Portfolio Analytics
+
+## [0.6.0] — 2026-11-16
+
+Production Readiness & Visual QA (staging-grade).
+
+### Added
+
+- Playwright E2E suite (12 tests): auth redirects, API 401s, private-attachment non-serving
+  (never raw bytes), full page-render sweep across 18 routes, a11y landmarks, and visual
+  evidence captures at 1440×900 / 1280×800 / 390×844.
+- Visual QA evidence reviewed against the mandatory mockup: desktop PASS (section order,
+  68/32 grid, 4 gradient plan cards, sidebar proportions) and mobile PASS (stacked cards,
+  collapsed nav, no overflow). Minor polish items recorded in RELEASES.md backlog.
+- Security headers (CSP, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy).
+- Production stack: multi-stage Dockerfile (non-root user, healthcheck), docker-compose.prod.yml
+  (postgres + app + nginx reverse proxy, versioned image tags), nginx.conf.
+- Backup/restore runbooks: scripts/backup.sh (pg_dump + uploads tar + manifest, dev/prod aware)
+  and scripts/restore.sh (typed confirmation, migrate deploy after restore); tested live.
+- Engine suite deepened: debt projection edges (interest extension, unknown terms, unpayable
+  installment) — 54 unit tests total covering every PRD acceptance formula.
+
+### Verified
+
+- typecheck 0 · lint 0 · 54/54 Vitest · build OK · 12/12 Playwright E2E.
+- Live: backup produced db.dump + uploads.tar; security headers observed on responses;
+  CSP present.
 
 ## [0.5.0] — 2026-11-16
 
