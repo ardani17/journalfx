@@ -20,7 +20,7 @@ never executes broker actions.
 | v0.2.0 | Trading Journal | ✅ released |
 | v0.3.0 | Compounding & Risk | ✅ released |
 | v0.4.0 | Financial Management | ✅ released |
-| v0.5.0 | Dashboard, Review & Reports | ⬜ |
+| v0.5.0 | Dashboard, Review & Reports | ✅ released |
 | v0.6.0 | Production Readiness & Visual QA | ⬜ |
 | v1.0.0 | Stable MVP Release | ⬜ |
 | v1.1.0 | MT5 Integration (read-only) | ⬜ |

@@ -36,10 +36,10 @@ Status legend: ⬜ backlog · 🟡 in progress · ✅ done (issue Done in Linear
 
 ## v0.5.0 — Dashboard, Review & Reports (Milestone 05)
 
-- ⬜ ARD-274 Implement daily/weekly/monthly period reviews
-- ⬜ ARD-275 Build advanced performance analytics and discipline scoring
-- ⬜ ARD-276 Build integrated dashboard and weekly action center
-- ⬜ ARD-277 Implement notifications and reports
+- ✅ ARD-274 Implement daily/weekly/monthly period reviews
+- ✅ ARD-275 Build advanced performance analytics and discipline scoring
+- ✅ ARD-276 Build integrated dashboard and weekly action center
+- ✅ ARD-277 Implement notifications and reports
 
 ## v0.6.0 — Production Readiness & Visual QA (Milestone 06)
 

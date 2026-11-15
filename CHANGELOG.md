@@ -9,13 +9,35 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ### Planned (sequential, no skipping)
 
-- v0.5.0 Dashboard, Review & Reports
 - v0.6.0 Production Readiness & Visual QA
 - v1.0.0 Stable MVP Release
 - v1.1.0 MT5 Integration (read-only)
 - v1.2.0 Telegram & Push Notifications
 - v1.3.0 Economic Calendar & AI Journal
 - v1.4.0 Monte Carlo & Portfolio Analytics
+
+## [0.5.0] — 2026-11-16
+
+Dashboard, Review & Reports.
+
+### Added
+
+- Discipline score engine (risk 30% · setup 25% · SL 15% · emotions 15% · completeness 10% ·
+  frequency 5%) with missing-data flags and weight renormalization.
+- Periodic reviews (daily/weekly/monthly): auto facts (trades, P&L, WD actual vs recommended,
+  compounded amount, budget coverage), immutable CLOSED snapshots, audited corrections via
+  correction-of copies, review history page.
+- Integrated dashboard: actual balance curve with illustrative projection overlay (dashed),
+  plan cards wired to real WD recommendation, monthly budget, and debt totals; milestone
+  achievement scan + notification refresh on load.
+- Notifications: review/debt/risk reminders deduped on refresh; mark-all-read API.
+- Reports page linking reviews + trades CSV export.
+
+### Verified
+
+- typecheck 0 · lint 0 · 50/50 unit tests · build OK · all pages 200.
+- Live: weekly review close froze snapshot (trades 1, discipline 35, WD 50.50); double-close
+  rejected (400 immutable); discipline weights unit-verified (perfect=100, renormalized 72.7).
 
 ## [0.4.0] — 2026-11-16
 
