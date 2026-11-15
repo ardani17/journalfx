@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mdtp-postgres
+    environment:
+      POSTGRES_USER: mdtp
+      POSTGRES_PASSWORD: mdtp
+      POSTGRES_DB: mdtp
+    ports:
+      - "5433:5432" # host 5433 — avoids clashing with local PostgreSQL services (e.g. Laragon on 5432)
+    volumes:
+      - mdtp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mdtp -d mdtp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  mdtp_pgdata:

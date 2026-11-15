@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/*
+ * MDTP design tokens — mandatory visual baseline
+ * (docs/design/MDTP-UI-UX-reference.png)
+ */
+@theme {
+  --color-bg: #0b1020;
+  --color-surface: #0d1424;
+  --color-panel: #192237;
+  --color-panel-2: #131b2e;
+  --color-line: #303b50;
+  --color-line-soft: #232d42;
+  --color-primary: #22e69a;
+  --color-primary-dim: #16b377;
+  --color-primary-deep: #0b3b2a;
+  --color-indigo: #5145a5;
+  --color-indigo-soft: #6d5fd4;
+  --color-loss: #f87171;
+  --color-loss-deep: #3b1520;
+  --color-warn: #fbbf24;
+  --color-info: #60a5fa;
+  --color-info-deep: #12294a;
+  --color-ink: #f8fafc;
+  --color-muted: #a8b3c7;
+  --color-faint: #6b7a93;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --radius-card: 14px;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* tabular figures for all financial numbers */
+.tnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* thin dark scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2b3550 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2b3550;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* accessible focus */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* subtle card gradient used across panels */
+.panel-gradient {
+  background:
+    linear-gradient(180deg, rgba(34, 230, 154, 0.03), rgba(34, 230, 154, 0) 40%),
+    var(--color-panel);
+}
+
+/* project banner gradient (green → teal) */
+.banner-gradient {
+  background: linear-gradient(90deg, #16a34a 0%, #0d9488 70%, #0f766e 100%);
+}
+
+.plan-green {
+  background: linear-gradient(135deg, #14532d 0%, #166534 55%, #0f3d2a 100%);
+}
+.plan-purple {
+  background: linear-gradient(135deg, #312e81 0%, #4338ca 55%, #3730a3 100%);
+}
+.plan-blue {
+  background: linear-gradient(135deg, #1e3a8a 0%, #1d4ed8 55%, #1e40af 100%);
+}
+.plan-rose {
+  background: linear-gradient(135deg, #7f1d1d 0%, #9f1239 55%, #881337 100%);
+}
+
+/* recharts polish */
+.recharts-cartesian-grid line {
+  stroke: #232d42;
+}
+.recharts-text {
+  fill: #a8b3c7;
+  font-size: 11px;
+}
