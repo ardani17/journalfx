@@ -33,7 +33,7 @@ export const NAV: NavGroup[] = [
   },
   {
     label: "",
-    items: [{ label: "Jurnal Trading", href: "/journal", icon: BookOpen, since: "v0.2.0" }],
+    items: [{ label: "Jurnal Trading", href: "/journal", icon: BookOpen },],
   },
   {
     label: "Plan & Strategi",
@@ -54,8 +54,8 @@ export const NAV: NavGroup[] = [
   {
     label: "",
     items: [
-      { label: "Laporan & Analisis", href: "/analytics", icon: BarChart3, since: "v0.5.0" },
-      { label: "Kalender", href: "/calendar", icon: CalendarDays, since: "v0.2.0" },
+      { label: "Laporan & Analisis", href: "/analytics", icon: BarChart3 },
+      { label: "Kalender", href: "/calendar", icon: CalendarDays },
       { label: "Pengaturan", href: "/settings", icon: Settings },
     ],
   },
