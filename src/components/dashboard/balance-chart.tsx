@@ -13,6 +13,7 @@ import {
 export interface BalancePointDTO {
   date: string;
   balance: number;
+  projected?: number | null;
 }
 
 function fmtTick(v: number): string {
@@ -25,7 +26,7 @@ function fmtDateLabel(iso: string): string {
   return `${Number(d)} ${months[Number(m) - 1] ?? ""}`;
 }
 
-export function BalanceChart({ data }: { data: BalancePointDTO[] }) {
+export function BalanceChart({ data, showProjection }: { data: BalancePointDTO[]; showProjection?: boolean }) {
   return (
     <div className="h-[260px] w-full" role="img" aria-label="Grafik pertumbuhan balance">
       <ResponsiveContainer width="100%" height="100%">
@@ -72,6 +73,19 @@ export function BalanceChart({ data }: { data: BalancePointDTO[] }) {
             dot={{ r: 2.5, fill: "#22e69a", strokeWidth: 0 }}
             activeDot={{ r: 4 }}
           />
+          {showProjection ? (
+            <Area
+              type="monotone"
+              dataKey="projected"
+              stroke="#6d5fd4"
+              strokeWidth={1.5}
+              strokeDasharray="5 4"
+              fill="none"
+              dot={false}
+              connectNulls
+              name="Proyeksi"
+            />
+          ) : null}
         </AreaChart>
       </ResponsiveContainer>
     </div>
