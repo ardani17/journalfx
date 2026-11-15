@@ -48,3 +48,5 @@ desktop.ini
 docs/design/*
 !docs/design/MDTP-UI-UX-reference.png
 .runtime*
+backups/
+playwright-report/
