@@ -22,6 +22,17 @@ artifacts, approval.
 
 ---
 
+## v0.3.0 — Compounding & Risk (2026-11-16)
+
+- Previous tag: v0.2.0 → current tag: v0.3.0 (minor +1, sequential)
+- Issues: ARD-265, ARD-266, ARD-267, ARD-268 — branches merged `--no-ff` to develop
+- Gates: typecheck 0 · lint 0 · 30/30 Vitest · build OK · /simulator,/roadmap,/risk,/risk/calculator 200
+- PRD acceptance verified via API: compounding cycle-1 formula exact (10/5/205), zero-cycle
+  already-reached, minimum-lot rejection, adjusted drawdown unit tests
+- Mockup deviation recorded: "$1M in 161 weeks" is arithmetically wrong (ln(5000)/ln(1.05)=174.6);
+  implementation shows 175 weeks per PRD "formulas override mockup figures" rule
+- Migrations: none · Deployment: local only · Approval: owner instruction (sequential plan)
+
 ## v0.2.0 — Trading Journal (2026-11-16)
 
 - Previous tag: v0.1.0 → current tag: v0.2.0 (minor +1, sequential policy respected)
