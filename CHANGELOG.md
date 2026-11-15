@@ -14,6 +14,26 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 - v1.3.0 Economic Calendar & AI Journal
 - v1.4.0 Monte Carlo & Portfolio Analytics
 
+## [1.2.0] — 2026-11-16
+
+Telegram & Push Notifications.
+
+### Added
+
+- Opt-in Telegram channel: bot token + chat ID stored server-side only and always masked
+  in responses; user-local quiet hours (default 22:00–07:00, overnight windows supported);
+  3-attempt retry with backoff; per-channel dedupe key (no duplicate delivery).
+- New notifications now dispatch to Telegram automatically when configured (quiet hours and
+  dedupe aware); in-app notifications remain the default push channel.
+- Settings section with Save & Test flow reporting exact suppression reasons.
+- Migration: NotificationChannel + EconomicEvent tables (economic calendar ships in v1.3.0).
+
+### Verified
+
+- typecheck 0 · lint 0 · 54/54 Vitest · build OK · settings 200.
+- Live: masked token round-trip; test send correctly suppressed by quiet hours at 01:30
+  user-local; failure path (invalid token) does not crash the API.
+
 ## [1.1.0] — 2026-11-16
 
 MT5 Integration (read-only sync).

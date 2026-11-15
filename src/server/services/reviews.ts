@@ -242,7 +242,15 @@ export async function refreshNotifications(userId: string) {
   const have = new Set(existing.map((e) => e.title));
   const fresh = notes.filter((n) => !have.has(n.title));
   if (fresh.length > 0) {
-    await prisma.notification.createMany({ data: fresh.map((n) => ({ userId, ...n })) });
+    const created = await Promise.all(
+      fresh.map((n) => prisma.notification.create({ data: { userId, ...n } })),
+    );
+    // dispatch to outbound channels (Telegram) — quiet hours + dedupe aware
+    const { dispatchNotification } = await import("./notify-channels");
+    const u = await prisma.user.findUnique({ where: { id: userId }, select: { timezone: true } });
+    for (const n of created) {
+      void dispatchNotification(userId, n, u?.timezone ?? "Asia/Jakarta").catch(() => undefined);
+    }
   }
 }
 

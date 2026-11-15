@@ -22,6 +22,15 @@ artifacts, approval.
 
 ---
 
+## v1.2.0 — Telegram & Push Notifications (2026-11-16)
+
+- Previous tag: v1.1.0 → current tag: v1.2.0 (sequential minor)
+- Scope: MDTP-EXT-04 register task (opt-in, quiet hours, retry/dedupe, secure tokens)
+- Gates: typecheck 0 · lint 0 · 54/54 Vitest · build OK · live quiet-hours suppression verified
+- Migration: 20261115183338_notification_channels_economic_events (NotificationChannel + EconomicEvent)
+- Note: web-push (VAPID) intentionally not enabled — no keys configured; in-app + Telegram cover the register scope
+- Approval: owner instruction (sequential plan)
+
 ## v1.1.0 — MT5 Integration read-only (2026-11-16)
 
 - Previous tag: v1.0.0 → current tag: v1.1.0 (first future enhancement, sequential)
