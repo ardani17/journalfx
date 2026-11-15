@@ -22,6 +22,26 @@ artifacts, approval.
 
 ---
 
+## v0.1.0 — Foundation & UI shell (2026-11-16)
+
+- Previous tag: v0.0.0 → current tag: v0.1.0 (minor +1, sequential policy respected)
+- Issues included: ARD-254, ARD-255, ARD-256, ARD-257, ARD-258
+- Feature branches merged to develop (`--no-ff`, per-issue conventional commits):
+  feature/ARD-254-nextjs-ci, feature/ARD-255-prisma-schema, feature/ARD-256-auth,
+  feature/ARD-258-ledger, feature/ARD-257-app-shell
+- Gates: typecheck 0 errors · lint 0 problems · `next build` OK · `prisma migrate dev` applied
+  (`20261115171807_init`) · seed OK · smoke tests green (auth, onboarding single-shot, ledger
+  arithmetic incl. reversal idempotency and net attribution)
+- Migrations: initial migration only; rollback = drop database volume (pre-production)
+- Visual: dashboard screenshot at 1440×900 reviewed against docs/design reference — layout,
+  colors and section order conform; 3 findings (KPI icon tint, weekly net WD, single-point chart
+  hint) fixed before tagging. Formal multi-viewport visual QA + user approval consolidated at the
+  v0.6.0 Visual QA gate per release plan.
+- Deployment: local only (docker compose postgres :5433 + `npm start` :3100); no production deploy
+  authorized yet — none claimed
+- Approval: repository owner instruction "kerjakan plan-nya sampai selesai" (2026-11-16); final
+  user visual acceptance deferred to v0.6.0 gate as documented
+
 ## v0.0.0 — Repository initialization (2026-11-15)
 
 - Previous tag: none (bootstrap baseline)

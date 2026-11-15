@@ -4,11 +4,11 @@ Status legend: ⬜ backlog · 🟡 in progress · ✅ done (issue Done in Linear
 
 ## v0.1.0 — Foundation & UI shell (Milestone 01 — Foundation)
 
-- ⬜ ARD-254 Initialize Next.js application and CI
-- ⬜ ARD-255 Design Prisma schema and migrations
-- ⬜ ARD-256 Implement authentication and ownership
-- ⬜ ARD-258 Implement trading account ledger
-- ⬜ ARD-257 Build responsive app shell and onboarding
+- ✅ ARD-254 Initialize Next.js application and CI
+- ✅ ARD-255 Design Prisma schema and migrations
+- ✅ ARD-256 Implement authentication and ownership
+- ✅ ARD-258 Implement trading account ledger
+- ✅ ARD-257 Build responsive app shell and onboarding
 
 ## v0.2.0 — Trading Journal (Milestone 02)
 
