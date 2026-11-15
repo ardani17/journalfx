@@ -9,7 +9,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ### Planned (sequential, no skipping)
 
-- v0.2.0 Trading Journal
+
 - v0.3.0 Compounding & Risk
 - v0.4.0 Financial Management
 - v0.5.0 Dashboard, Review & Reports
@@ -19,6 +19,32 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 - v1.2.0 Telegram & Push Notifications
 - v1.3.0 Economic Calendar & AI Journal
 - v1.4.0 Monte Carlo & Portfolio Analytics
+
+## [0.2.0] — 2026-11-16
+
+Trading Journal.
+
+### Added
+
+- Deterministic trade pricing engine (weighted entries, partial-close recognition,
+  proportional entry-cost allocation, planned/actual R) with 11 unit tests.
+- Trade lifecycle: create with pre-trade checklist, partial/full closes posting
+  net REALIZED_PNL to the ledger atomically, derived status machine, cancellation.
+- Psychology journal: emotions, confidence/stress, FOMO/revenge/overtrading flags,
+  mistake tags, lessons, post-trade checklist; strategy CRUD.
+- Private screenshot uploads (PNG/JPEG/WebP ≤5 MB) stored outside static serving,
+  delivered only through ownership-checked API route (401 without session).
+- MT4 history + MT5 deals import with FIFO deal pairing and idempotent dedupe on
+  external IDs (re-import = no-op); trade list CSV export.
+- Monthly P&L calendar grid; analytics page with core metrics, strategy breakdown,
+  daily P&L bars, sample-size warnings.
+
+### Verified
+
+- typecheck 0 · lint 0 · 14/14 unit tests · build OK.
+- E2E smoke: partial close +23.00/+78.25 net of commission share; ledger
+  REALIZED_PNL +101.00; import 2 trades → re-import 2 duplicates (no-op);
+  screenshot 200 with session / 401 without.
 
 ## [0.1.0] — 2026-11-16
 

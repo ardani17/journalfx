@@ -17,7 +17,7 @@ never executes broker actions.
 | --- | --- | --- |
 | v0.0.0 | Repository initialization | ✅ baseline |
 | v0.1.0 | Foundation & UI shell | 🚧 |
-| v0.2.0 | Trading Journal | ⬜ |
+| v0.2.0 | Trading Journal | ✅ released |
 | v0.3.0 | Compounding & Risk | ⬜ |
 | v0.4.0 | Financial Management | ⬜ |
 | v0.5.0 | Dashboard, Review & Reports | ⬜ |
