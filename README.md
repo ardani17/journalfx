@@ -23,7 +23,7 @@ never executes broker actions.
 | v0.5.0 | Dashboard, Review & Reports | ✅ released |
 | v0.6.0 | Production Readiness & Visual QA | ✅ released |
 | v1.0.0 | Stable MVP Release | ✅ released |
-| v1.1.0 | MT5 Integration (read-only) | ⬜ |
+| v1.1.0 | MT5 Integration (read-only) | ✅ released |
 | v1.2.0 | Telegram & Push Notifications | ⬜ |
 | v1.3.0 | Economic Calendar & AI Journal | ⬜ |
 | v1.4.0 | Monte Carlo & Portfolio Analytics | ⬜ |

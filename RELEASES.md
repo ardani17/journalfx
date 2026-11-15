@@ -22,6 +22,13 @@ artifacts, approval.
 
 ---
 
+## v1.1.0 — MT5 Integration read-only (2026-11-16)
+
+- Previous tag: v1.0.0 → current tag: v1.1.0 (first future enhancement, sequential)
+- Scope: MDTP-EXT register task (read-only sync, dedupe, incremental, stale warning)
+- Gates: typecheck 0 · lint 0 · build OK · live idempotency verified (no duplicate P&L)
+- Migrations: none · Approval: owner instruction (sequential plan)
+
 ## v1.0.0 — Stable MVP Release (2026-11-16)
 
 - Previous tag: v0.6.0 → current tag: v1.0.0 (major promotion after all v0.6.x gates accepted)
