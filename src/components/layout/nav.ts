@@ -39,16 +39,16 @@ export const NAV: NavGroup[] = [
     label: "Plan & Strategi",
     items: [
       { label: "Compounding", href: "/simulator", icon: TrendingUp },
-      { label: "Withdrawal (WD)", href: "/withdrawals", icon: Wallet, since: "v0.4.0" },
+      { label: "Withdrawal (WD)", href: "/withdrawals", icon: Wallet },
       { label: "Target Project", href: "/roadmap", icon: Target },
     ],
   },
   {
     label: "Keuangan Pribadi",
     items: [
-      { label: "Kebutuhan Bulanan", href: "/expenses", icon: PiggyBank, since: "v0.4.0" },
-      { label: "Hutang", href: "/debts", icon: CreditCard, since: "v0.4.0" },
-      { label: "Arus Kas", href: "/finance/cashflow", icon: Landmark, since: "v0.4.0" },
+      { label: "Kebutuhan Bulanan", href: "/expenses", icon: PiggyBank },
+      { label: "Hutang", href: "/debts", icon: CreditCard },
+      { label: "Arus Kas", href: "/finance/cashflow", icon: Landmark },
     ],
   },
   {
