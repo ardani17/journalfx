@@ -22,6 +22,14 @@ artifacts, approval.
 
 ---
 
+## v1.3.0 — Economic Calendar & AI Journal (2026-11-16)
+
+- Previous tag: v1.2.0 → current tag: v1.3.0 (sequential minor)
+- Scope: MDTP-EXT-05 register task (news context + explainable insights; no signals)
+- Gates: typecheck 0 · lint 0 · 59/59 Vitest · build OK · live verification
+- Migrations: none (EconomicEvent shipped in the v1.2.0 migration)
+- Approval: owner instruction (sequential plan)
+
 ## v1.2.0 — Telegram & Push Notifications (2026-11-16)
 
 - Previous tag: v1.1.0 → current tag: v1.2.0 (sequential minor)

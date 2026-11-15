@@ -25,7 +25,7 @@ never executes broker actions.
 | v1.0.0 | Stable MVP Release | ✅ released |
 | v1.1.0 | MT5 Integration (read-only) | ✅ released |
 | v1.2.0 | Telegram & Push Notifications | ✅ released |
-| v1.3.0 | Economic Calendar & AI Journal | ⬜ |
+| v1.3.0 | Economic Calendar & AI Journal | ✅ released |
 | v1.4.0 | Monte Carlo & Portfolio Analytics | ⬜ |
 
 ## Tech stack
