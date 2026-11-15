@@ -1,22 +1,38 @@
 import { requireUser } from "@/server/auth";
 import { getDefaultProject } from "@/server/services/projects";
+import { listAccounts } from "@/server/services/accounts";
+import { mt5SyncStatus } from "@/server/services/mt5-sync";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { SettingsClient } from "./settings-client";
+import { Mt5SyncSection } from "./mt5-sync-section";
 
 export const metadata = { title: "Pengaturan" };
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const project = await getDefaultProject(user.id);
+  const [project, accounts, syncStatus] = await Promise.all([
+    getDefaultProject(user.id),
+    listAccounts(user.id),
+    mt5SyncStatus(user.id),
+  ]);
   return (
     <PageShell>
-      <PageHeader title="Pengaturan" subtitle="Profil, preferensi tampilan, dan konfigurasi project." />
+      <PageHeader title="Pengaturan" subtitle="Profil, preferensi tampilan, integrasi, dan konfigurasi project." />
       <SettingsClient
         user={{ name: user.name, email: user.email, timezone: user.timezone, locale: user.locale }}
         project={{
           name: project.name,
           targetAmount: Number(project.targetAmount),
           initialCapital: Number(project.initialCapital),
+        }}
+      />
+      <Mt5SyncSection
+        accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
+        status={{
+          lastSyncAt: syncStatus.lastSyncAt?.toISOString() ?? null,
+          lastSyncResult: syncStatus.lastSyncResult,
+          stale: syncStatus.stale,
+          staleHours: syncStatus.staleHours,
         }}
       />
     </PageShell>

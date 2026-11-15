@@ -14,6 +14,23 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 - v1.3.0 Economic Calendar & AI Journal
 - v1.4.0 Monte Carlo & Portfolio Analytics
 
+## [1.1.0] — 2026-11-16
+
+MT5 Integration (read-only sync).
+
+### Added
+
+- MT5 read-only sync: upload Deals/History export through Settings — audit-logged sync
+  history, incremental dedupe on external execution IDs (repeated sync = no duplicate P&L),
+  stale-data badge when last sync >72h, notifications for new/unknown-symbol results.
+  Never sends orders (import direction only, PRD guardrail).
+
+### Verified
+
+- typecheck 0 · lint 0 · build OK · settings 200.
+- Live: sync #1 → 1 new; sync #2 same file → 0 new/1 duplicate skipped; status endpoint
+  reports last sync + freshness.
+
 ## [1.0.0] — 2026-11-16
 
 Stable MVP Release — all six MVP milestones (26/26 Linear issues Done) with sequential
