@@ -1,0 +1,677 @@
+// MDTP — Prisma schema
+// Money: Decimal(18,2) USD ledger base / Decimal(18,2) IDR personal finance
+// Rates: Decimal(18,8). Percentages: Decimal(9,4) stored as percent value (5.0000 = 5%).
+// All timestamps UTC. All user-owned rows carry userId; ownership enforced in services.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────── Identity ───────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  timezone     String   @default("Asia/Jakarta")
+  locale       String   @default("id") // "id" | "en"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  projects           Project[]
+  tradingAccounts    TradingAccount[]
+  strategies         Strategy[]
+  trades             Trade[]
+  accountTransactions AccountTransaction[]
+  equitySnapshots    EquitySnapshot[]
+  withdrawals        Withdrawal[]
+  withdrawalRules    WithdrawalRule[]
+  compoundingScenarios CompoundingScenario[]
+  riskSettings       RiskSettings?
+  exchangeRates      ExchangeRate[]
+  debts              Debt[]
+  debtPayments       DebtPayment[]
+  budgets            Budget[]
+  expenseCategories  ExpenseCategory[]
+  financialTransactions FinancialTransaction[]
+  financialBuckets   FinancialBucket[]
+  financialAllocations FinancialAllocation[]
+  periodReviews      PeriodReview[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+
+  @@index([email])
+}
+
+// ─────────────────────────────── Trading ───────────────────────────────
+
+model Project {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  initialCapital Decimal  @db.Decimal(18, 2)
+  targetAmount   Decimal  @db.Decimal(18, 2) @default(1000000)
+  startDate      DateTime?
+  targetDate     DateTime?
+  isDefault      Boolean  @default(true)
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  accounts   TradingAccount[]
+  scenarios  CompoundingScenario[]
+  milestones Milestone[]
+  withdrawals Withdrawal[]
+  withdrawalRules WithdrawalRule[]
+  buckets    FinancialBucket[]
+  reviews    PeriodReview[]
+
+  @@index([userId, isActive])
+}
+
+model TradingAccount {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name          String
+  broker        String?
+  accountNumber String?
+  currency      String   @default("USD")
+  notes         String?
+  isActive      Boolean  @default(true)
+  isProp        Boolean  @default(false) // prop firm account flag (v1.4 analytics)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  trades       Trade[]
+  transactions AccountTransaction[]
+  snapshots    EquitySnapshot[]
+  withdrawals  Withdrawal[]
+
+  @@index([userId, projectId])
+}
+
+// Reference instrument specifications (global config data, not personal)
+model Instrument {
+  id            String  @id @default(cuid())
+  symbol        String  @unique
+  name          String
+  category      String // "metal" | "forex" | "index" | "crypto"
+  quoteCurrency String  @default("USD")
+  contractSize  Decimal @db.Decimal(18, 4) @default(100)
+  tickSize      Decimal @db.Decimal(18, 6) @default(0.01)
+  tickValue     Decimal @db.Decimal(18, 6) @default(1) // USD per tick per 1 lot
+  lotMin        Decimal @db.Decimal(18, 2) @default(0.01)
+  lotMax        Decimal @db.Decimal(18, 2) @default(100)
+  lotStep       Decimal @db.Decimal(18, 2) @default(0.01)
+  pricePrecision Int    @default(2)
+
+  trades Trade[]
+}
+
+model Strategy {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  timeframe   String?
+  rules       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  trades Trade[]
+
+  @@unique([userId, name])
+}
+
+enum TradeDirection {
+  LONG
+  SHORT
+}
+
+enum TradeStatus {
+  PLANNED
+  OPEN
+  PARTIAL
+  CLOSED
+  CANCELLED
+}
+
+model Trade {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId       String
+  account         TradingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  instrumentId    String
+  instrument      Instrument    @relation(fields: [instrumentId], references: [id])
+  strategyId      String?
+  strategy        Strategy?     @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+  ticket          String? // broker ticket (dedupe key with account when present)
+  direction       TradeDirection
+  status          TradeStatus   @default(OPEN)
+  lot             Decimal       @db.Decimal(18, 2)
+  entryPrice      Decimal       @db.Decimal(18, 6)
+  exitPrice       Decimal?      @db.Decimal(18, 6)
+  initialStopLoss Decimal?      @db.Decimal(18, 6)
+  initialTakeProfit Decimal?    @db.Decimal(18, 6)
+  initialRisk     Decimal?      @db.Decimal(18, 2) // USD planned risk
+  plannedRR       Decimal?      @db.Decimal(9, 4)
+  actualR         Decimal?      @db.Decimal(9, 4)
+  session         String? // "asian" | "london" | "newyork"
+  timeframe       String? // "M15" | "H1" | "H4" | "D1" ...
+  commission      Decimal       @db.Decimal(18, 2) @default(0)
+  swap            Decimal       @db.Decimal(18, 2) @default(0)
+  fees            Decimal       @db.Decimal(18, 2) @default(0)
+  realizedPnl     Decimal?      @db.Decimal(18, 2) // net realized incl. costs (from executions)
+  entryAt         DateTime
+  exitAt          DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  executions  TradeExecution[]
+  journal     TradeJournal?
+  attachments TradeAttachment[]
+
+  @@unique([accountId, ticket])
+  @@index([userId, accountId, entryAt])
+  @@index([userId, status])
+}
+
+enum ExecutionKind {
+  ENTRY
+  PARTIAL_ENTRY
+  CLOSE
+  PARTIAL_CLOSE
+}
+
+model TradeExecution {
+  id          String        @id @default(cuid())
+  userId      String
+  tradeId     String
+  trade       Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  kind        ExecutionKind
+  quantity    Decimal       @db.Decimal(18, 2)
+  price       Decimal       @db.Decimal(18, 6)
+  commission  Decimal       @db.Decimal(18, 2) @default(0)
+  swap        Decimal       @db.Decimal(18, 2) @default(0)
+  fees        Decimal       @db.Decimal(18, 2) @default(0)
+  realizedPnl Decimal?      @db.Decimal(18, 2) // set on (partial) close
+  executedAt  DateTime
+  externalId  String? // importer dedupe key
+  createdAt   DateTime      @default(now())
+
+  @@unique([userId, externalId])
+  @@index([tradeId, executedAt])
+}
+
+model TradeJournal {
+  id            String   @id @default(cuid())
+  tradeId       String   @unique
+  trade         Trade    @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  marketContext String?
+  entryReason   String?
+  exitReason    String?
+  emotionBefore String? // "calm" | "anxious" | "excited" | "fomo" | "angry" | ...
+  emotionDuring String?
+  emotionAfter  String?
+  confidence    Int? // 1–5
+  stressLevel   Int? // 1–5
+  fomo          Boolean  @default(false)
+  revenge       Boolean  @default(false)
+  overtrading   Boolean  @default(false)
+  compliant     Boolean? // followed plan?
+  mistakes      String[] // tags
+  lessons       String?
+  improvement   String?
+  tags          String[]
+  preChecklist  Json? // pre-trade checklist answers
+  postChecklist Json? // post-trade checklist answers
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+enum AttachmentKind {
+  BEFORE
+  ENTRY
+  DURING
+  EXIT
+}
+
+model TradeAttachment {
+  id        String         @id @default(cuid())
+  tradeId   String
+  trade     Trade          @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  kind      AttachmentKind @default(ENTRY)
+  fileName  String
+  mimeType  String
+  sizeBytes Int
+  storagePath String // private storage, served only through authenticated route
+  createdAt DateTime       @default(now())
+
+  @@index([tradeId])
+}
+
+// Immutable ledger. Corrections create reversal rows, never mutate.
+enum LedgerEntryType {
+  DEPOSIT
+  WITHDRAWAL
+  REALIZED_PNL
+  ADJUSTMENT
+  FEE
+  REVERSAL
+}
+
+model AccountTransaction {
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId     String
+  account       TradingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  type          LedgerEntryType
+  amount        Decimal        @db.Decimal(18, 2) // signed: +deposit, −withdrawal, ±pnl/adjustment, −fee
+  currency      String         @default("USD")
+  occurredAt    DateTime
+  note          String?
+  sourceTradeId String? // trade that produced REALIZED_PNL
+  withdrawalId  String?
+  withdrawal    Withdrawal?    @relation(fields: [withdrawalId], references: [id], onDelete: SetNull)
+  reversalOfId  String? @unique // this row reverses that row
+  reversalOf    AccountTransaction? @relation("Reversal", fields: [reversalOfId], references: [id])
+  createdAt     DateTime       @default(now())
+
+  reversals AccountTransaction[] @relation("Reversal")
+
+  @@index([userId, accountId, occurredAt])
+  @@index([type, occurredAt])
+}
+
+model EquitySnapshot {
+  id       String   @id @default(cuid())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId String
+  account  TradingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  at       DateTime
+  balance  Decimal  @db.Decimal(18, 2)
+  equity   Decimal  @db.Decimal(18, 2)
+  openRisk Decimal? @db.Decimal(18, 2)
+  note     String?
+
+  @@unique([accountId, at])
+  @@index([userId, accountId, at])
+}
+
+// ─────────────────────────────── Planning ───────────────────────────────
+
+enum CompoundingFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum WdMode {
+  NONE
+  FIXED
+  DYNAMIC
+}
+
+model CompoundingScenario {
+  id             String              @id @default(cuid())
+  userId         String
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId      String
+  project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name           String
+  initialCapital Decimal             @db.Decimal(18, 2)
+  targetAmount   Decimal             @db.Decimal(18, 2)
+  returnPerCycle Decimal             @db.Decimal(9, 4) // percent per cycle, e.g. 5.0000
+  frequency      CompoundingFrequency @default(WEEKLY)
+  wdMode         WdMode              @default(DYNAMIC)
+  fixedWdAmount  Decimal?            @db.Decimal(18, 2)
+  wdRatio        Decimal?            @db.Decimal(9, 4) // max WD ratio of profit, e.g. 50.0000
+  costPerCycle   Decimal             @db.Decimal(18, 2) @default(0)
+  deposits       Json? // [{cycle, amount}] additional deposits schedule
+  stressReturns  Json? // variable returns per cycle incl. negative weeks
+  notes          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([userId, projectId])
+}
+
+model Milestone {
+  id            String    @id @default(cuid())
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  order         Int
+  amount        Decimal   @db.Decimal(18, 2)
+  label         String?
+  achievedAt    DateTime? // historical achievement retained
+  balanceAtHit  Decimal?  @db.Decimal(18, 2)
+
+  @@unique([projectId, order])
+}
+
+model RiskSettings {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  riskPerTrade    Decimal  @db.Decimal(9, 4) @default(1.0000) // percent
+  dailyLossLimit  Decimal  @db.Decimal(9, 4) @default(2.0000)
+  weeklyLossLimit Decimal  @db.Decimal(9, 4) @default(5.0000)
+  ddReview        Decimal  @db.Decimal(9, 4) @default(10.0000)
+  maxOpenRisk     Decimal  @db.Decimal(9, 4) @default(2.0000)
+  equityMode      String   @default("balance") // "balance" | "equity"
+  updatedAt       DateTime @updatedAt
+}
+
+// ─────────────────────────────── Finance ───────────────────────────────
+
+enum WithdrawalStatus {
+  RECOMMENDED
+  REQUESTED
+  COMPLETED
+  CANCELLED
+}
+
+model Withdrawal {
+  id            String           @id @default(cuid())
+  userId        String
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  accountId     String?
+  account       TradingAccount?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  status        WithdrawalStatus @default(RECOMMENDED)
+  amountUSD     Decimal          @db.Decimal(18, 2)
+  fxRate        Decimal?         @db.Decimal(18, 4) // USDIDR at completion
+  rateAt        DateTime?        // historical snapshot time
+  receivedAmount Decimal?        @db.Decimal(18, 2) // actual received in IDR
+  receivedCurrency String        @default("IDR")
+  fees          Decimal?         @db.Decimal(18, 2)
+  note          String?
+  recommendedAt DateTime?
+  requestedAt   DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  transactions AccountTransaction[]
+
+  @@index([userId, projectId, status])
+}
+
+model WithdrawalRule {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  maxWdRatio     Decimal  @db.Decimal(9, 4) @default(50.0000) // percent of eligible profit
+  needsTargetIdr Decimal? @db.Decimal(18, 2) // monthly needs converted weekly via ×12/52
+  reserveUsd     Decimal  @db.Decimal(18, 2) @default(0) // cash floor
+  minBalanceUsd  Decimal? @db.Decimal(18, 2)
+  activeFrom     DateTime @default(now())
+  note           String?
+  createdAt      DateTime @default(now())
+
+  @@index([userId, projectId])
+}
+
+// Historical FX snapshot — immutable once referenced
+model ExchangeRate {
+  id     String   @id @default(cuid())
+  userId String?
+  user   User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pair   String // "USDIDR"
+  rate   Decimal  @db.Decimal(18, 4)
+  at     DateTime
+  source String?
+
+  @@index([pair, at])
+}
+
+model Debt {
+  id                String    @id @default(cuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  creditor          String?
+  currency          String    @default("IDR")
+  principalOriginal Decimal   @db.Decimal(18, 2)
+  principalRemaining Decimal  @db.Decimal(18, 2)
+  interestRate      Decimal?  @db.Decimal(9, 4) // annual percent, unknown → null
+  installmentAmount Decimal?  @db.Decimal(18, 2) // required installment, unknown → null
+  installmentFreq   String?   // "monthly" | "weekly"
+  dueDay            Int? // day of month
+  startDate         DateTime?
+  targetDate        DateTime?
+  notes             String?
+  status            String    @default("ACTIVE") // ACTIVE | PAID
+  paidOffAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  payments DebtPayment[]
+  financialTxs FinancialTransaction[] @relation("DebtPaymentsFromFinance")
+
+  @@index([userId, status])
+}
+
+model DebtPayment {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  debtId           String
+  debt             Debt     @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  paidAt           DateTime
+  totalAmount      Decimal  @db.Decimal(18, 2)
+  interestPortion  Decimal  @db.Decimal(18, 2) @default(0)
+  feePortion       Decimal  @db.Decimal(18, 2) @default(0)
+  principalPortion Decimal  @db.Decimal(18, 2) // principalPortion = total − interest − fees
+  note             String?
+  reversalOfId     String?  @unique
+  createdAt        DateTime @default(now())
+
+  @@index([userId, debtId, paidAt])
+}
+
+model Budget {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String   @default("Kebutuhan Bulanan")
+  periodStart DateTime
+  periodEnd   DateTime
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  categories ExpenseCategory[]
+
+  @@unique([userId, periodStart, periodEnd])
+}
+
+model ExpenseCategory {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  budgetId      String
+  budget        Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  name          String
+  plannedAmount Decimal  @db.Decimal(18, 2)
+  order         Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  transactions FinancialTransaction[]
+
+  @@index([userId, budgetId])
+}
+
+enum FinancialTxKind {
+  INCOME
+  EXPENSE
+  ALLOCATION
+  REVERSAL
+}
+
+model FinancialTransaction {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind        FinancialTxKind
+  amount      Decimal          @db.Decimal(18, 2) // positive; direction from kind
+  currency    String           @default("IDR")
+  fxRate      Decimal?         @db.Decimal(18, 4) // to USD if needed
+  occurredAt  DateTime
+  description String?
+  categoryId  String?
+  category    ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  debtId      String?
+  debt        Debt?            @relation("DebtPaymentsFromFinance", fields: [debtId], references: [id], onDelete: SetNull)
+  withdrawalId String?
+  bucketId    String?
+  reversalOfId String?         @unique
+  createdAt   DateTime         @default(now())
+
+  @@index([userId, occurredAt])
+  @@index([userId, kind])
+}
+
+enum BucketKind {
+  LIVING
+  DEBT
+  EMERGENCY
+  SAVINGS
+  TRADING
+  UNALLOCATED
+}
+
+model FinancialBucket {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind          BucketKind
+  name          String
+  targetPercent Decimal?   @db.Decimal(9, 4)
+  priority      Int        @default(100) // lower = allocated first
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  allocations FinancialAllocation[]
+
+  @@unique([projectId, kind])
+}
+
+model FinancialAllocation {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bucketId        String
+  bucket          FinancialBucket @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  amount          Decimal  @db.Decimal(18, 2) // USD from realized profit
+  sourcePeriodStart DateTime // profit period this allocation draws from
+  sourcePeriodEnd   DateTime
+  financialTxId   String?  @unique
+  reversedById    String?  @unique
+  createdAt       DateTime @default(now())
+
+  // no double allocation: one allocation per bucket per source period
+  @@unique([bucketId, sourcePeriodStart, sourcePeriodEnd])
+}
+
+// ─────────────────────────────── Reviews & ops ───────────────────────────────
+
+enum ReviewKind {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum ReviewStatus {
+  OPEN
+  CLOSED
+}
+
+model PeriodReview {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId       String
+  project         Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind            ReviewKind
+  periodStart     DateTime
+  periodEnd       DateTime
+  status          ReviewStatus @default(OPEN)
+  snapshot        Json? // immutable metrics captured at close
+  performance     String?
+  riskNotes       String?
+  reflections     String?
+  nextPlan        String?
+  wdActual        Decimal?    @db.Decimal(18, 2)
+  wdRecommended   Decimal?    @db.Decimal(18, 2)
+  compoundedAmount Decimal?   @db.Decimal(18, 2)
+  budgetCoverage  Json?
+  disciplineScore Json?
+  closedAt        DateTime?
+  correctionOfId  String?     @unique
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@unique([userId, kind, periodStart])
+  @@index([userId, status])
+}
+
+enum NotificationSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model Notification {
+  id        String               @id @default(cuid())
+  userId    String
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind      String // "review" | "debt" | "risk" | "milestone" | "wd" | "journal"
+  title     String
+  body      String?
+  severity  NotificationSeverity @default(INFO)
+  link      String?
+  readAt    DateTime?
+  createdAt DateTime             @default(now())
+
+  @@index([userId, readAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String // "create" | "update" | "delete" | "reverse" | "close" | "correct" | ...
+  entity    String
+  entityId  String?
+  before    Json?
+  after     Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([entity, entityId])
+}
