@@ -47,3 +47,4 @@ desktop.ini
 # Design working files (keep the approved reference only)
 docs/design/*
 !docs/design/MDTP-UI-UX-reference.png
+.runtime*
