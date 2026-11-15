@@ -7,6 +7,7 @@ import { ChevronDown, TrendingUp } from "lucide-react";
 import { NAV } from "./nav";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/misc";
+import { appVersion } from "@/lib/version";
 
 export interface SidebarUser {
   name: string;
@@ -112,6 +113,7 @@ export function SidebarContent({
           <Progress value={progressPct} className="mt-2 h-1.5" label="Progress project" />
           <p className="tnum mt-1.5 text-[10px] text-faint">{progressLabel} dari target</p>
         </div>
+        <p className="mt-2 text-center text-[10px] text-faint">MDTP v{appVersion} · single source: ledger</p>
       </div>
     </div>
   );
