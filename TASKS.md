@@ -12,12 +12,12 @@ Status legend: ⬜ backlog · 🟡 in progress · ✅ done (issue Done in Linear
 
 ## v0.2.0 — Trading Journal (Milestone 02)
 
-- ⬜ ARD-259 Implement trade and execution CRUD
-- ⬜ ARD-260 Build trading journal and psychology checklist
-- ⬜ ARD-261 Implement secure trade screenshot uploads
-- ⬜ ARD-262 Build trade list and MT4/MT5 import/export
-- ⬜ ARD-263 Build trading calendar and daily journal
-- ⬜ ARD-264 Implement strategy management and basic analytics
+- ✅ ARD-259 Implement trade and execution CRUD
+- ✅ ARD-260 Build trading journal and psychology checklist
+- ✅ ARD-261 Implement secure trade screenshot uploads
+- ✅ ARD-262 Build trade list and MT4/MT5 import/export
+- ✅ ARD-263 Build trading calendar and daily journal
+- ✅ ARD-264 Implement strategy management and basic analytics
 
 ## v0.3.0 — Compounding & Risk (Milestone 03)
 

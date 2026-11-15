@@ -22,6 +22,23 @@ artifacts, approval.
 
 ---
 
+## v0.2.0 — Trading Journal (2026-11-16)
+
+- Previous tag: v0.1.0 → current tag: v0.2.0 (minor +1, sequential policy respected)
+- Issues included: ARD-259, ARD-260, ARD-261, ARD-262, ARD-263, ARD-264
+- Feature branches merged to develop (`--no-ff`): ARD-259-trade-crud, ARD-260-journal-psychology,
+  ARD-261-screenshots, ARD-262-import-export, ARD-263-calendar, ARD-264-analytics
+- Gates: typecheck 0 · lint 0 · 14/14 Vitest (trade engine + import parsers) · build OK
+- Migrations: none (v0.1.0 schema already covered trades)
+- PRD acceptance verified live: partial closes recognize only the closed portion
+  (+23.00/+78.25 net incl. commission share → ledger +101.00, R = 1.870); duplicate
+  import no-op (2 imported → 0 imported/2 duplicates on re-run); deposits/WD leave
+  trading P&L unchanged; attachments private (401 unauthenticated)
+- Visual: /journal at 1440px reviewed — toolbar, KPI strip, table with direction
+  pills and colored P/L conform to mockup style; formal visual QA gate remains v0.6.0
+- Deployment: local only; no production claims
+- Approval: repository owner instruction "kerjakan plan-nya sampai selesai"
+
 ## v0.1.0 — Foundation & UI shell (2026-11-16)
 
 - Previous tag: v0.0.0 → current tag: v0.1.0 (minor +1, sequential policy respected)
