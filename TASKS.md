@@ -58,4 +58,4 @@ Status legend: ⬜ backlog · 🟡 in progress · ✅ done (issue Done in Linear
 - ✅ v1.1.0 MT5 Integration (read-only sync)
 - ⬜ v1.2.0 Telegram & Push Notifications
 - ✅ v1.3.0 Economic Calendar & AI Journal
-- ⬜ v1.4.0 Monte Carlo & Portfolio Analytics
+- ✅ v1.4.0 Monte Carlo & Portfolio Analytics

@@ -7,6 +7,8 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
 import { DailyPnlChart } from "./daily-pnl-chart";
 import { InsightsPanel } from "./insights-panel";
+import { MonteCarloPanel } from "@/components/analytics/montecarlo-panel";
+import { portfolioOverview } from "@/server/services/portfolio";
 import { buildInsights } from "@/server/services/economic-events";
 import { fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { startOfUTCDay, addUTCDays } from "@/lib/dates";
@@ -18,11 +20,12 @@ export default async function AnalyticsPage() {
   const user = await requireUser();
   const to = addUTCDays(startOfUTCDay(new Date()), 1);
   const from30 = addUTCDays(to, -30);
-  const [core, strategies, days, insights] = await Promise.all([
+  const [core, strategies, days, insights, portfolio] = await Promise.all([
     coreMetrics(user.id),
     byStrategy(user.id),
     dailyPnl(user.id, from30, to),
     buildInsights(user.id),
+    portfolioOverview(user.id),
   ]);
 
   return (
@@ -110,6 +113,43 @@ export default async function AnalyticsPage() {
       </div>
 
       <InsightsPanel insights={insights.insights} coverage={insights.dataCoverage} />
+
+      {/* Portfolio & prop firm */}
+      <div>
+        <h2 className="mb-2 text-sm font-semibold">Portfolio & Prop Firm</h2>
+        <TableWrap>
+          <Table>
+            <THead>
+              <TR><TH>Akun</TH><TH>Tipe</TH><TH className="text-right">Balance</TH><TH className="text-right">P&L Realisasi</TH><TH className="text-right">Win Rate</TH><TH className="text-right">Trade</TH>{portfolio.some((p) => p.isProp) ? <TH>Challenge</TH> : null}</TR>
+            </THead>
+            <TBody>
+              {portfolio.map((p) => (
+                <TR key={p.id}>
+                  <TD className="text-xs font-medium">{p.name}{p.broker ? <span className="ml-1 text-faint">· {p.broker}</span> : null}</TD>
+                  <TD>{p.isProp ? <Badge tone="purple">Prop</Badge> : <Badge tone="neutral">Personal</Badge>}</TD>
+                  <TD className="tnum text-right text-xs">{fmtUSD(p.balance)}</TD>
+                  <TD className={`tnum text-right text-xs font-semibold ${p.realizedPnl.isPositive() ? "text-primary" : p.realizedPnl.isNegative() ? "text-loss" : ""}`}>{fmtUSDdelta(p.realizedPnl)}</TD>
+                  <TD className="tnum text-right text-xs">{p.winRate !== null ? `${fmtNum(p.winRate, 1)}%` : "—"}</TD>
+                  <TD className="tnum text-right text-xs">{p.trades}</TD>
+                  {portfolio.some((x) => x.isProp) ? (
+                    <TD className="text-xs">
+                      {p.prop
+                        ? p.prop.passed
+                          ? <Badge tone="success">Target tercapai</Badge>
+                          : p.prop.breached
+                            ? <Badge tone="danger">Breach</Badge>
+                            : `Progress ${p.prop.progressPct !== null ? fmtNum(p.prop.progressPct, 1) : "—"}%${p.prop.targetUsd ? ` dari ${fmtUSD(p.prop.targetUsd)}` : ""}`
+                        : "—"}
+                    </TD>
+                  ) : null}
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        </TableWrap>
+      </div>
+
+      <MonteCarloPanel />
     </PageShell>
   );
 }

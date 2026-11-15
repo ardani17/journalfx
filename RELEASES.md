@@ -22,6 +22,17 @@ artifacts, approval.
 
 ---
 
+## v1.4.0 — Monte Carlo & Portfolio Analytics (2026-11-16)
+
+- Previous tag: v1.3.0 → current tag: v1.4.0 (sequential minor — final roadmap release)
+- Scope: MDTP-EXT-06 register task (seeded simulation, uncertainty bands, multi-account,
+  configurable challenge rules)
+- Gates: typecheck 0 · lint 0 · 67/67 Vitest · build OK · 12/12 Playwright · live verification
+- Migration: 20261115185108_prop_challenge_fields (optional TradingAccount prop columns)
+- Limitations stated in-app: bootstrap dari sampel historis terbatas bersifat ilustratif,
+  bukan prediksi (caveat ditampilkan saat n<30)
+- Approval: owner instruction (sequential plan)
+
 ## v1.3.0 — Economic Calendar & AI Journal (2026-11-16)
 
 - Previous tag: v1.2.0 → current tag: v1.3.0 (sequential minor)
