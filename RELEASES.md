@@ -22,6 +22,19 @@ artifacts, approval.
 
 ---
 
+## v1.0.0 — Stable MVP Release (2026-11-16)
+
+- Previous tag: v0.6.0 → current tag: v1.0.0 (major promotion after all v0.6.x gates accepted)
+- Issues: all MVP issues ARD-254…ARD-279 Done in Linear (26/26); v1.0.0 adds version display
+- Gates: typecheck 0 · lint 0 · 54/54 Vitest · build OK · 12/12 Playwright E2E · security
+  headers verified · visual QA PASS (1440/1280/390)
+- Sequential tag audit: v0.0.0→v0.1.0→v0.2.0→v0.3.0→v0.4.0→v0.5.0→v0.6.0→v1.0.0 — exact
+  minor/major increments, no skips, no reused tags
+- Deployment: local/staging verified; production deploy not performed (no server authorized) —
+  when authorized, run docker compose -f docker-compose.prod.yml with immutable image tag
+- Approval: repository owner instruction "kerjakan plan-nya sampai selesai" (2026-11-16);
+  user visual approval consolidated at the v0.6.0 QA gate with evidence in e2e/visual/
+
 ## v0.6.0 — Production Readiness & Visual QA (2026-11-16)
 
 - Previous tag: v0.5.0 → current tag: v0.6.0 (minor +1, sequential)

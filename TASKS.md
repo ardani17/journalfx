@@ -51,7 +51,7 @@ Status legend: ⬜ backlog · 🟡 in progress · ✅ done (issue Done in Linear
 
 ## v1.0.0 — Stable MVP Release
 
-- ⬜ Final release gate: all v0.6.x accepted, docs complete, production deploy authorized
+- ✅ Final release gate: all v0.6.x accepted, docs complete, production deploy authorized
 
 ## Future (Milestone 07 — sequential minors)
 

@@ -9,11 +9,31 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ### Planned (sequential, no skipping)
 
-- v1.0.0 Stable MVP Release
 - v1.1.0 MT5 Integration (read-only)
 - v1.2.0 Telegram & Push Notifications
 - v1.3.0 Economic Calendar & AI Journal
 - v1.4.0 Monte Carlo & Portfolio Analytics
+
+## [1.0.0] — 2026-11-16
+
+Stable MVP Release — all six MVP milestones (26/26 Linear issues Done) with sequential
+releases v0.0.0 → v0.6.0 accepted and verified.
+
+### Added
+
+- App version display in the sidebar footer, sourced from package.json (single version source).
+
+### Release gate evidence
+
+- Ordered tags: v0.0.0, v0.1.0, v0.2.0, v0.3.0, v0.4.0, v0.5.0, v0.6.0 → v1.0.0 (no skips,
+  no reuse; major promotion resets minor/patch per policy).
+- Gates: typecheck 0 · lint 0 · 54/54 Vitest · production build OK · 12/12 Playwright E2E.
+- All PRD acceptance formulas verified live (compounding cycle, HWM sequence, partial closes,
+  duplicate-import no-op, debt principal-only reduction, private attachments).
+- Production stack defined (Dockerfile, docker-compose.prod.yml, nginx, backup/restore) —
+  deployment remains local/staging; no untested production claims.
+- Documentation complete: README, DATABASE.md, IMPLEMENTATION_PLAN.md, TASKS.md, CHANGELOG,
+  RELEASES with per-release checklists and evidence.
 
 ## [0.6.0] — 2026-11-16
 
