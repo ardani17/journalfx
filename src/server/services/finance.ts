@@ -1,14 +1,30 @@
+import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
 import { D, Decimal } from "@/lib/money";
 import { splitDebtPayment, projectRepayment } from "@/lib/finance/debt";
-import { utcMonth } from "@/lib/dates";
+import { zonedPeriod } from "@/lib/dates";
+
+/** Reversals cancel the original entry in reports, including across date windows. */
+export async function effectiveFinancialTransactions(userId: string) {
+  const rows = await prisma.financialTransaction.findMany({ where: { userId } });
+  const reversed = new Set(rows.flatMap((r) => r.reversalOfId ? [r.reversalOfId] : []));
+  return rows.filter((r) => !r.reversalOfId && !reversed.has(r.id));
+}
+
+export async function financialTotals(userId: string) {
+  const rows = await effectiveFinancialTransactions(userId);
+  const sumKind = (kind: "INCOME" | "EXPENSE") => rows
+    .filter((r) => r.kind === kind && r.currency === "IDR")
+    .reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  return { income: sumKind("INCOME"), expense: sumKind("EXPENSE") };
+}
 
 /* ───────────────────────── Budget & expenses ───────────────────────── */
 
 export async function ensureCurrentBudget(userId: string) {
-  const { start, end } = utcMonth(new Date());
+  const { start, end } = zonedPeriod("MONTHLY", new Date(), await userTimezone(userId));
   let budget = await prisma.budget.findFirst({
     where: { userId, periodStart: start, periodEnd: end, isActive: true },
     include: { categories: { orderBy: { order: "asc" } } },
@@ -47,23 +63,17 @@ export async function budgetOverview(userId: string) {
   const planned = budget.categories
     .filter((c) => c.isActive)
     .reduce((s, c) => s.add(D(c.plannedAmount)), new Decimal(0));
-  const spentAgg = await prisma.financialTransaction.groupBy({
-    by: ["categoryId"],
-    where: {
-      userId,
-      kind: "EXPENSE",
-      occurredAt: { gte: budget.periodStart, lt: budget.periodEnd },
-      reversalOfId: null,
-    },
-    _sum: { amount: true },
-  });
-  const spentByCat = new Map(spentAgg.map((r) => [r.categoryId, D(r._sum.amount ?? 0)]));
+  const rows = (await effectiveFinancialTransactions(userId)).filter((r) =>
+    r.currency === "IDR" && r.occurredAt >= budget.periodStart && r.occurredAt < budget.periodEnd);
+  const spentByCat = new Map<string | null, Decimal>();
+  for (const r of rows.filter((r) => r.kind === "EXPENSE" && !r.debtId)) {
+    spentByCat.set(r.categoryId, (spentByCat.get(r.categoryId) ?? D(0)).plus(D(r.amount)));
+  }
   const totalSpent = [...spentByCat.values()].reduce((s, v) => s.add(v), new Decimal(0));
-  const incomeAgg = await prisma.financialTransaction.aggregate({
-    where: { userId, kind: "INCOME", occurredAt: { gte: budget.periodStart, lt: budget.periodEnd } },
-    _sum: { amount: true },
-  });
-  const funded = D(incomeAgg._sum.amount);
+  const livingBuckets = await prisma.financialBucket.findMany({ where: { userId, kind: "LIVING" }, select: { id: true } });
+  const livingIds = new Set(livingBuckets.map((b) => b.id));
+  const funded = rows.filter((r) => r.kind === "ALLOCATION" && r.bucketId && livingIds.has(r.bucketId))
+    .reduce((sum, r) => sum.plus(D(r.amount)), D(0));
   return {
     budget,
     planned,
@@ -104,6 +114,13 @@ export async function addFinancialTransaction(
   input: { kind: "INCOME" | "EXPENSE"; amount: number; currency?: string; description?: string; categoryId?: string; occurredAt?: string },
   req?: Request,
 ) {
+  if (input.categoryId) {
+    const category = await prisma.expenseCategory.findFirst({ where: { id: input.categoryId, userId, isActive: true } });
+    if (!category) throw new ApiError(404, "Kategori tidak ditemukan");
+  }
+  if (input.currency && input.currency !== "IDR") {
+    throw new ApiError(400, "Transaksi keuangan pribadi menggunakan IDR; konversikan nilai aktual terlebih dahulu");
+  }
   const tx = await prisma.financialTransaction.create({
     data: {
       userId,
@@ -122,6 +139,9 @@ export async function addFinancialTransaction(
 export async function reverseFinancialTransaction(userId: string, id: string, req?: Request) {
   const t = await prisma.financialTransaction.findFirst({ where: { id, userId } });
   if (!t) throw new ApiError(404, "Transaksi tidak ditemukan");
+  if (t.debtId || t.withdrawalId || t.kind === "ALLOCATION") {
+    throw new ApiError(400, "Transaksi terhubung memerlukan koreksi pada sumbernya agar ledger tetap konsisten");
+  }
   if (t.reversalOfId) throw new ApiError(400, "Baris reversal tidak dapat dibalik lagi");
   const dup = await prisma.financialTransaction.findFirst({ where: { reversalOfId: id } });
   if (dup) throw new ApiError(400, "Transaksi sudah dibatalkan");
@@ -141,12 +161,17 @@ export async function reverseFinancialTransaction(userId: string, id: string, re
 }
 
 export async function listFinancialTransactions(userId: string, limit = 100) {
-  return prisma.financialTransaction.findMany({
+  const rows = await prisma.financialTransaction.findMany({
     where: { userId },
     orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
     take: limit,
     include: { category: { select: { name: true } } },
   });
+  const reversals = await prisma.financialTransaction.findMany({
+    where: { userId, reversalOfId: { in: rows.map((r) => r.id) } }, select: { reversalOfId: true },
+  });
+  const reversed = new Set(reversals.map((r) => r.reversalOfId));
+  return rows.map((r) => ({ ...r, reversed: reversed.has(r.id) }));
 }
 
 /* ───────────────────────── Debts ───────────────────────── */
@@ -193,18 +218,25 @@ export async function payDebt(
   input: { totalAmount: number; interestPortion: number; feePortion: number; paidAt?: string; note?: string },
   req?: Request,
 ) {
-  const debt = await prisma.debt.findFirst({ where: { id: debtId, userId } });
-  if (!debt) throw new ApiError(404, "Hutang tidak ditemukan");
-  if (debt.status === "PAID") throw new ApiError(400, "Hutang sudah lunas");
-
-  const split = splitDebtPayment({
-    totalAmount: input.totalAmount,
-    interestPortion: input.interestPortion,
-    feePortion: input.feePortion,
-    principalRemaining: debt.principalRemaining,
-  });
-
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    const debt = await tx.debt.findFirst({ where: { id: debtId, userId } });
+    if (!debt) throw new ApiError(404, "Hutang tidak ditemukan");
+    if (debt.status === "PAID") throw new ApiError(400, "Hutang sudah lunas");
+
+    if (D(input.totalAmount).minus(input.interestPortion).minus(input.feePortion).gt(D(debt.principalRemaining))) {
+      throw new ApiError(400, "Pembayaran pokok melebihi sisa hutang");
+    }
+    if (D(input.interestPortion).plus(input.feePortion).gt(input.totalAmount)) {
+      throw new ApiError(400, "Porsi bunga dan biaya melebihi pembayaran");
+    }
+    const split = splitDebtPayment({
+      totalAmount: input.totalAmount,
+      interestPortion: input.interestPortion,
+      feePortion: input.feePortion,
+      principalRemaining: debt.principalRemaining,
+    });
+
     const payment = await tx.debtPayment.create({
       data: {
         userId,
@@ -279,8 +311,8 @@ export async function listBucketsWithAllocated(userId: string) {
 }
 
 /**
- * Allocate realized profit of a period into buckets by priority & target %.
- * Idempotent per (bucket, period) via unique constraint — no double allocation.
+ * Allocate received withdrawal cash, expressed in USD at receipt FX, into buckets.
+ * Financial transactions retain the IDR value and historical FX for coverage.
  */
 export async function allocateProfit(
   userId: string,
@@ -302,44 +334,63 @@ export async function allocateProfit(
     throw new ApiError(400, `Total targetPercent bucket harus 100% (sekarang ${pctSum.toFixed(2)}%)`);
   }
 
-  // verify the period has unallocated realized profit of at least `amount`
-  const realized = await prisma.accountTransaction.aggregate({
-    where: {
-      userId,
-      type: "REALIZED_PNL",
-      occurredAt: { gte: new Date(input.periodStart), lt: new Date(input.periodEnd) },
-    },
-    _sum: { amount: true },
-  });
-  const periodPnl = D(realized._sum.amount);
-  const priorAllocations = await prisma.financialAllocation.aggregate({
-    where: { userId, bucket: { projectId: project.id }, sourcePeriodStart: new Date(input.periodStart), sourcePeriodEnd: new Date(input.periodEnd) },
-    _sum: { amount: true },
-  });
-  const allocatedSoFar = D(priorAllocations._sum.amount);
-  const available = periodPnl.minus(allocatedSoFar);
-  if (amount.gt(available)) {
-    throw new ApiError(
-      400,
-      `Alokasi ${amount.toFixed(2)} melebihi profit periode yang belum dialokasikan (${available.toFixed(2)})`,
-    );
-  }
-
   const results = await prisma.$transaction(async (tx) => {
+    // Serialize competing allocations for this user, including overlapping periods.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    const completed = await tx.withdrawal.findMany({ where: { userId, projectId: project.id, status: "COMPLETED" }, select: { id: true } });
+    const income = await tx.financialTransaction.findMany({
+      where: { userId, kind: "INCOME", withdrawalId: { in: completed.map((w) => w.id) }, currency: "IDR" },
+    });
+    let receivedUsd = D(0);
+    let receivedIdr = D(0);
+    for (const receipt of income) {
+      if (!receipt.fxRate || D(receipt.fxRate).lte(0)) continue;
+      receivedUsd = receivedUsd.plus(D(receipt.amount).div(D(receipt.fxRate)));
+      receivedIdr = receivedIdr.plus(D(receipt.amount));
+    }
+    const prior = await tx.financialAllocation.aggregate({
+      where: { userId, bucket: { projectId: project.id }, reversedById: null }, _sum: { amount: true },
+    });
+    const priorRows = await tx.financialAllocation.findMany({
+      where: { userId, bucket: { projectId: project.id }, reversedById: null }, select: { financialTxId: true },
+    });
+    if (priorRows.some((r) => !r.financialTxId)) {
+      throw new ApiError(400, "Alokasi lama belum memiliki rekonsiliasi penerimaan IDR — koreksi data lama terlebih dahulu");
+    }
+    const allocatedIdr = await tx.financialTransaction.aggregate({
+      where: { userId, id: { in: priorRows.flatMap((r) => r.financialTxId ? [r.financialTxId] : []) } }, _sum: { amount: true },
+    });
+    const available = receivedUsd.minus(D(prior._sum.amount));
+    if (amount.gt(available) || receivedUsd.lte(0)) {
+      throw new ApiError(400, `Alokasi melebihi dana withdrawal yang sudah diterima dan belum dialokasikan (${Decimal.max(available, 0).toFixed(2)} USD)`);
+    }
+    const remainingIdr = Decimal.max(receivedIdr.minus(D(allocatedIdr._sum.amount)), 0);
+    const rate = remainingIdr.div(available);
+    const allocationIdr = amount.times(rate).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+    let remainingAllocationIdr = allocationIdr;
     const rows: { bucketId: string; amount: Decimal }[] = [];
-    for (const b of withPercent) {
-      const share = amount.times(D(b.targetPercent)).div(100);
-      const alloc = await tx.financialAllocation.create({
+    let remaining = amount;
+    for (const [index, b] of withPercent.entries()) {
+      const share = index === withPercent.length - 1 ? remaining : amount.times(D(b.targetPercent)).div(100).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+      remaining = remaining.minus(share);
+      const shareIdr = index === withPercent.length - 1 ? remainingAllocationIdr
+        : share.times(rate).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+      remainingAllocationIdr = remainingAllocationIdr.minus(shareIdr);
+      const cashEntry = await tx.financialTransaction.create({ data: {
+        userId, kind: "ALLOCATION", bucketId: b.id, amount: shareIdr,
+        currency: "IDR", fxRate: rate, occurredAt: new Date(), description: input.note ?? "Alokasi dana withdrawal diterima",
+      } });
+      await tx.financialAllocation.create({
         data: {
           userId,
           bucketId: b.id,
           amount: share,
+          financialTxId: cashEntry.id,
           sourcePeriodStart: new Date(input.periodStart),
           sourcePeriodEnd: new Date(input.periodEnd),
         },
       });
       rows.push({ bucketId: b.id, amount: share });
-      void alloc;
     }
     return rows;
   });
@@ -355,4 +406,20 @@ export async function listAllocations(userId: string) {
     take: 100,
     include: { bucket: { select: { name: true, kind: true } } },
   });
+}
+
+export async function updateBucketPercentages(userId: string, entries: { id: string; targetPercent: number }[]) {
+  const project = await prisma.project.findFirst({ where: { userId, isActive: true } });
+  if (!project) throw new ApiError(404, "Project belum ada");
+  const buckets = await prisma.financialBucket.findMany({ where: { userId, projectId: project.id, isActive: true } });
+  if (new Set(entries.map((e) => e.id)).size !== entries.length || entries.length !== buckets.length ||
+      entries.some((e) => !buckets.some((b) => b.id === e.id))) throw new ApiError(400, "Daftar bucket tidak valid");
+  if (!entries.reduce((sum, e) => sum.plus(e.targetPercent), D(0)).eq(100)) {
+    throw new ApiError(400, "Total target bucket harus 100%");
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    for (const entry of entries) await tx.financialBucket.update({ where: { id: entry.id }, data: { targetPercent: D(entry.targetPercent) } });
+  });
+  await audit({ userId, action: "update", entity: "FinancialBucket", after: entries });
 }

@@ -19,7 +19,7 @@ export const createTradeSchema = z.object({
   marketContext: z.string().trim().max(2000).optional(),
   entryReason: z.string().trim().max(2000).optional(),
   commission: z.coerce.number().min(0).default(0),
-  swap: z.coerce.number().min(0).default(0),
+  swap: z.coerce.number().default(0), // negative cost represents a swap credit
   fees: z.coerce.number().min(0).default(0),
   preChecklist: z.record(z.string(), z.boolean()).optional(),
 });
@@ -29,7 +29,7 @@ export const addExecutionSchema = z.object({
   quantity: z.coerce.number().positive("Quantity harus positif"),
   price: z.coerce.number().positive("Price harus positif"),
   commission: z.coerce.number().min(0).default(0),
-  swap: z.coerce.number().min(0).default(0),
+  swap: z.coerce.number().default(0),
   fees: z.coerce.number().min(0).default(0),
   executedAt: isoDate.optional(),
   externalId: z.string().trim().max(120).optional(),

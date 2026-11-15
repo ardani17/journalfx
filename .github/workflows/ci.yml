@@ -25,6 +25,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://mdtp:mdtp@localhost:5432/mdtp_test
       AUTH_SECRET: ci-only-secret-not-for-production
+      RUN_DB_TESTS: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

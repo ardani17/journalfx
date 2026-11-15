@@ -1,6 +1,6 @@
 import { requireUser } from "@/server/auth";
-import { allocateProfit, listAllocations, listBucketsWithAllocated } from "@/server/services/finance";
-import { allocationSchema } from "@/lib/validation/finance";
+import { allocateProfit, listAllocations, listBucketsWithAllocated, updateBucketPercentages } from "@/server/services/finance";
+import { allocationSchema, bucketPercentSchema } from "@/lib/validation/finance";
 import { handleRouteError, ok, parseBody } from "@/lib/api";
 
 export async function GET() {
@@ -25,4 +25,13 @@ export async function POST(req: Request) {
   } catch (e) {
     return handleRouteError(e);
   }
+}
+
+export async function PUT(req: Request) {
+  try {
+    const user = await requireUser();
+    const input = await parseBody(req, bucketPercentSchema);
+    await updateBucketPercentages(user.id, input.buckets);
+    return ok({ saved: true });
+  } catch (e) { return handleRouteError(e); }
 }

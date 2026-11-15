@@ -1,40 +1,20 @@
+import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
 import { D, Decimal } from "@/lib/money";
-import { hwmAfterCompletion, monthlyToWeekly, needsCapForWindow, wdRecommendation } from "@/lib/finance/withdrawal";
-import { computeBalance } from "./ledger";
-import { utcWeek, utcMonth } from "@/lib/dates";
+import { monthlyToWeekly, needsCapForWindow, wdRecommendation } from "@/lib/finance/withdrawal";
+import { attributedLedger, computeBalance } from "./ledger";
+import { effectiveFinancialTransactions } from "./finance";
+import { zonedPeriod } from "@/lib/dates";
 import type { WdRecommendation } from "@/lib/finance/withdrawal";
 
 /**
  * Withdrawal lifecycle service.
  * RECOMMENDED → REQUESTED → COMPLETED (ledger posting + FX snapshot + finance income)
- * or CANCELLED. HWM is DERIVED from completed withdrawals against the cumulative
- * realized P&L timeline — never stored, so corrections stay auditable.
+ * or CANCELLED. HWM is derived from cumulative net P&L at closed weekly boundaries.
+ * Current-week reservations consume the allowance without resetting the HWM.
  */
-
-async function cumulativePnlTimeline(userId: string) {
-  const rows = await prisma.accountTransaction.findMany({
-    where: { userId, type: "REALIZED_PNL" },
-    orderBy: { occurredAt: "asc" },
-    select: { occurredAt: true, amount: true },
-  });
-  let cum = new Decimal(0);
-  return rows.map((r) => {
-    cum = cum.add(D(r.amount));
-    return { at: r.occurredAt, cum };
-  });
-}
-
-function cumAt(timeline: { at: Date; cum: Decimal }[], t: Date): Decimal {
-  let out = new Decimal(0);
-  for (const p of timeline) {
-    if (p.at <= t) out = p.cum;
-    else break;
-  }
-  return out;
-}
 
 export async function getActiveRule(userId: string) {
   const project = await prisma.project.findFirst({ where: { userId, isActive: true } });
@@ -95,63 +75,65 @@ export interface RecommendationBundle {
 
 export async function getRecommendation(userId: string): Promise<RecommendationBundle> {
   const rule = await getActiveRule(userId);
-  const timeline = await cumulativePnlTimeline(userId);
-  const cumulative = timeline.at(-1)?.cum ?? new Decimal(0);
-
-  // HWM = cumulative P&L at each COMPLETED withdrawal (max), floor 0
-  const completed = await prisma.withdrawal.findMany({
-    where: { userId, status: "COMPLETED", completedAt: { not: null } },
-    select: { completedAt: true },
-  });
-  let hwm = new Decimal(0);
-  for (const c of completed) {
-    if (c.completedAt) hwm = hwmAfterCompletion(hwm, cumAt(timeline, c.completedAt));
+  const timezone = await userTimezone(userId);
+  const now = new Date();
+  const { start: weekStart, end: weekEnd } = zonedPeriod("WEEKLY", now, timezone);
+  const ledger = (await attributedLedger(userId)).filter((r) => r.occurredAt <= now);
+  const pnlRows = ledger.filter((r) => r.type === "REALIZED_PNL" || r.type === "FEE");
+  let cumulative = D(0);
+  let hwm = D(0);
+  let periodProfit = D(0);
+  let previousWeek: number | null = null;
+  for (const row of pnlRows) {
+    const rowWeek = zonedPeriod("WEEKLY", row.occurredAt, timezone).start.getTime();
+    if (previousWeek !== null && rowWeek !== previousWeek && previousWeek < weekStart.getTime()) {
+      hwm = Decimal.max(hwm, cumulative);
+    }
+    cumulative = cumulative.plus(D(row.amount));
+    if (row.occurredAt >= weekStart && row.occurredAt < weekEnd) periodProfit = periodProfit.plus(D(row.amount));
+    previousWeek = rowWeek;
   }
+  if (previousWeek !== null && previousWeek < weekStart.getTime()) hwm = Decimal.max(hwm, cumulative);
 
-  const { start: weekStart } = utcWeek(new Date());
-  const weekPnlRows = await prisma.accountTransaction.findMany({
-    where: { userId, type: "REALIZED_PNL", occurredAt: { gte: weekStart } },
-    select: { amount: true },
-  });
-  const periodProfit = weekPnlRows.reduce((s, r) => s.add(D(r.amount)), new Decimal(0));
-
-  const takenRows = await prisma.withdrawal.findMany({
-    where: { userId, status: { in: ["RECOMMENDED", "REQUESTED", "COMPLETED"] }, createdAt: { gte: weekStart } },
-    select: { amountUSD: true },
-  });
-  const periodTaken = takenRows.reduce((s, w) => s.add(D(w.amountUSD)), new Decimal(0));
-
+  const withdrawals = await prisma.withdrawal.findMany({ where: { userId, projectId: rule.projectId } });
+  const periodTaken = withdrawals.filter((w) =>
+    w.status === "REQUESTED" || w.status === "RECOMMENDED" ||
+    (w.status === "COMPLETED" && w.completedAt && w.completedAt >= weekStart && w.completedAt < weekEnd))
+    .reduce((sum, w) => sum.plus(D(w.amountUSD)), D(0));
   const balances = await computeBalance(userId);
-
-  // needs: outstanding budget of current month (planned − funded) + debt installments due
-  const { start: mStart, end: mEnd } = utcMonth(new Date());
+  const { start: mStart, end: mEnd } = zonedPeriod("MONTHLY", now, timezone);
   const budget = await prisma.budget.findFirst({
-    where: { userId, periodStart: mStart, periodEnd: mEnd, isActive: true },
-    include: { categories: true },
+    where: { userId, periodStart: mStart, periodEnd: mEnd, isActive: true }, include: { categories: true },
   });
   const planned = budget
-    ? budget.categories.filter((c) => c.isActive).reduce((s, c) => s.add(D(c.plannedAmount)), new Decimal(0))
-    : new Decimal(0);
-  const spent = budget
-    ? await prisma.financialTransaction.aggregate({
-        where: { userId, kind: "EXPENSE", occurredAt: { gte: mStart, lt: mEnd } },
-        _sum: { amount: true },
-      })
-    : { _sum: { amount: null } };
-  const outstanding = Decimal.max(planned.minus(D(spent._sum.amount)), new Decimal(0));
-
+    ? budget.categories.filter((c) => c.isActive).reduce((sum, c) => sum.plus(D(c.plannedAmount)), D(0))
+    : D(rule.needsTargetIdr);
+  const personal = (await effectiveFinancialTransactions(userId)).filter((r) =>
+    r.currency === "IDR" && r.occurredAt >= mStart && r.occurredAt < mEnd);
+  const buckets = await prisma.financialBucket.findMany({ where: { userId, projectId: rule.projectId } });
+  const livingIds = new Set(buckets.filter((b) => b.kind === "LIVING").map((b) => b.id));
+  const debtIds = new Set(buckets.filter((b) => b.kind === "DEBT").map((b) => b.id));
+  const funded = personal.filter((r) => r.kind === "ALLOCATION" && r.bucketId && livingIds.has(r.bucketId))
+    .reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  const otherIncome = personal.filter((r) => r.kind === "INCOME" && !r.withdrawalId)
+    .reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  const debtFunds = personal.filter((r) => r.kind === "ALLOCATION" && r.bucketId && debtIds.has(r.bucketId))
+    .reduce((sum, r) => sum.plus(D(r.amount)), D(0));
   const debts = await prisma.debt.findMany({ where: { userId, status: "ACTIVE" } });
-  let debtDue = new Decimal(0);
-  for (const d of debts) {
-    if (d.installmentAmount) debtDue = debtDue.add(D(d.installmentAmount));
-  }
-  const needsIdr = needsCapForWindow(outstanding, debtDue); // IDR domain
+  const debtDue = debts.reduce((sum, d) => sum.plus(
+    d.installmentAmount ? D(d.installmentAmount).times(d.installmentFreq === "weekly" ? D(52).div(12) : 1) : 0), D(0));
+  const paidDebt = personal.filter((r) => r.kind === "EXPENSE" && r.debtId)
+    .reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  const outstanding = Decimal.max(planned.minus(funded).minus(otherIncome), 0);
+  const outstandingDebt = Decimal.max(debtDue.minus(Decimal.max(debtFunds, paidDebt)), 0);
+  const needsIdr = needsCapForWindow(outstanding, outstandingDebt);
   const fx = await prisma.exchangeRate.findFirst({
-    where: { pair: "USDIDR" },
-    orderBy: { at: "desc" },
+    where: { pair: "USDIDR", OR: [{ userId }, { userId: null }] }, orderBy: { at: "desc" },
   });
-  const fxRate = fx ? D(fx.rate) : null;
-  const needsWeeklyUsd = fxRate && !needsIdr.isZero() ? needsIdr.div(fxRate) : null;
+  const fxRate = fx && D(fx.rate).gt(0) ? D(fx.rate) : null;
+  const weeklyIdr = Decimal.min(monthlyToWeekly(planned.plus(debtDue)), needsIdr);
+  const configuredCap = rule.needsTargetIdr == null ? weeklyIdr : Decimal.min(weeklyIdr, monthlyToWeekly(rule.needsTargetIdr));
+  const needsWeeklyUsd = fxRate ? configuredCap.div(fxRate) : D(0);
 
   const rec = wdRecommendation({
     cumulativeRealizedPnl: cumulative,
@@ -161,8 +143,8 @@ export async function getRecommendation(userId: string): Promise<RecommendationB
     maxWdRatioPct: rule.maxWdRatio,
     needsTargetUsd: needsWeeklyUsd ?? undefined,
     availableCash: balances.balance,
-    reserveUsd: rule.reserveUsd,
-    dataUnknown: !budget,
+    reserveUsd: Decimal.max(D(rule.reserveUsd), D(rule.minBalanceUsd)),
+    dataUnknown: (!budget && rule.needsTargetIdr == null) || !fxRate,
     dataStale: false,
   });
 
@@ -191,26 +173,37 @@ export async function listWithdrawals(userId: string) {
   });
 }
 
-export async function requestWithdrawal(userId: string, amountUsd: number, note?: string, req?: Request) {
-  const { recommendation } = await getRecommendation(userId);
-  if (D(amountUsd).gt(recommendation.recommended)) {
-    throw new ApiError(
-      400,
-      `Jumlah ${amountUsd} melebihi rekomendasi ${recommendation.recommended.toFixed(2)} — kurangi jumlah atau perbaiki data`,
-    );
-  }
-  const project = await prisma.project.findFirst({ where: { userId, isActive: true } });
-  if (!project) throw new ApiError(404, "Project belum ada");
-  const w = await prisma.withdrawal.create({
-    data: {
-      userId,
-      projectId: project.id,
-      status: "REQUESTED",
-      amountUSD: new Decimal(amountUsd),
-      note: note ?? null,
-      requestedAt: new Date(),
-    },
+export async function requestWithdrawal(userId: string, amountUsd: number, note?: string, req?: Request, accountId?: string) {
+  const w = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    const { recommendation } = await getRecommendation(userId);
+    if (D(amountUsd).gt(recommendation.recommended)) {
+      throw new ApiError(
+        400,
+        `Jumlah ${amountUsd} melebihi rekomendasi ${recommendation.recommended.toFixed(2)} — kurangi jumlah atau perbaiki data`,
+      );
+    }
+    const project = await prisma.project.findFirst({ where: { userId, isActive: true } });
+    if (!project) throw new ApiError(404, "Project belum ada");
+    const accounts = await tx.tradingAccount.findMany({ where: { userId, projectId: project.id, isActive: true } });
+    const account = accountId ? accounts.find((a) => a.id === accountId) : accounts.length === 1 ? accounts[0] : null;
+    if (!account) throw new ApiError(400, "Pilih akun sumber withdrawal yang aktif");
+    const cash = await tx.accountTransaction.aggregate({ where: { userId, accountId: account.id }, _sum: { amount: true } });
+    if (D(cash._sum.amount).lt(amountUsd)) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
+    const w = await tx.withdrawal.create({
+      data: {
+        userId,
+        projectId: project.id,
+        accountId: account.id,
+        status: "REQUESTED",
+        amountUSD: new Decimal(amountUsd),
+        note: note ?? null,
+        requestedAt: new Date(),
+      },
+    });
+    return w;
   });
+
   await audit({ userId, action: "create", entity: "Withdrawal", entityId: w.id, after: { amountUsd, note }, req });
   return w;
 }
@@ -231,6 +224,17 @@ export async function completeWithdrawal(
   if (!account) throw new ApiError(400, "Tidak ada akun trading aktif");
 
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    const current = await tx.withdrawal.findFirst({ where: { id, userId } });
+    if (!current || current.status === "COMPLETED" || current.status === "CANCELLED") {
+      throw new ApiError(409, "Withdrawal sudah diproses atau dibatalkan");
+    }
+    const source = current.accountId
+      ? await tx.tradingAccount.findFirst({ where: { id: current.accountId, userId, projectId: current.projectId } })
+      : accounts.length === 1 ? account : null;
+    if (!source) throw new ApiError(400, "Akun sumber withdrawal harus ditentukan");
+    const cash = await tx.accountTransaction.aggregate({ where: { userId, accountId: source.id }, _sum: { amount: true } });
+    if (D(cash._sum.amount).lt(D(current.amountUSD))) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
     // historical FX snapshot (immutable once referenced)
     const at = new Date();
     await tx.exchangeRate.create({
@@ -240,6 +244,7 @@ export async function completeWithdrawal(
       where: { id },
       data: {
         status: "COMPLETED",
+        accountId: source.id,
         fxRate: new Decimal(input.fxRate),
         rateAt: at,
         receivedAmount: new Decimal(input.receivedAmount),
@@ -252,7 +257,7 @@ export async function completeWithdrawal(
     const ledgerRow = await tx.accountTransaction.create({
       data: {
         userId,
-        accountId: account.id,
+        accountId: source.id,
         type: "WITHDRAWAL",
         amount: D(w.amountUSD).neg(),
         occurredAt: at,
@@ -281,10 +286,14 @@ export async function completeWithdrawal(
 }
 
 export async function cancelWithdrawal(userId: string, id: string, req?: Request) {
-  const w = await prisma.withdrawal.findFirst({ where: { id, userId } });
-  if (!w) throw new ApiError(404, "Withdrawal tidak ditemukan");
-  if (w.status === "COMPLETED") throw new ApiError(400, "Withdrawal selesai tidak dapat dibatalkan — buat koreksi");
-  const updated = await prisma.withdrawal.update({ where: { id }, data: { status: "CANCELLED" } });
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    const w = await tx.withdrawal.findFirst({ where: { id, userId } });
+    if (!w) throw new ApiError(404, "Withdrawal tidak ditemukan");
+    if (w.status === "COMPLETED") throw new ApiError(400, "Withdrawal selesai tidak dapat dibatalkan — buat koreksi");
+    return tx.withdrawal.update({ where: { id }, data: { status: "CANCELLED" } });
+  });
+
   await audit({ userId, action: "cancel", entity: "Withdrawal", entityId: id, req });
   return updated;
 }

@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+.env
+.env.*
+!.env.example
+uploads
+backups
+test-results
+playwright-report
+e2e/visual
+.runtime-*
+.zcode
+*.tsbuildinfo

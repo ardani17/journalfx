@@ -1,4 +1,4 @@
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, fmtNum } from "@/lib/money";
 
 /**
  * Risk engine — position sizing and cash-flow-adjusted drawdown.
@@ -74,11 +74,11 @@ export function positionSize(input: PositionSizeInput): PositionSizeResult {
 
   if (lots.lt(lotMin)) {
     reasons.push(
-      `Lot hasil hitung ${lots.toFixed(2)} di bawah minimum broker ${lotMin.toFixed(2)} — minimum lot melebihi batas risiko, transaksi DITOLAK`,
+      `Lot hasil hitung ${fmtNum(lots, 2)} di bawah minimum broker ${fmtNum(lotMin, 2)} — minimum lot melebihi batas risiko, transaksi DITOLAK`,
     );
   }
   if (lots.gt(lotMax)) {
-    reasons.push(`Lot melebihi maksimum broker ${lotMax.toFixed(2)}`);
+    reasons.push(`Lot melebihi maksimum broker ${fmtNum(lotMax, 2)}`);
   }
 
   // warning-only validations (never block)

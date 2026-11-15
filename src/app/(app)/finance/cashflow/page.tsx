@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { requireUser } from "@/server/auth";
-import { listFinancialTransactions } from "@/server/services/finance";
+import { financialTotals, listFinancialTransactions } from "@/server/services/finance";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
-import { D, Decimal, fmtIDR } from "@/lib/money";
+import { fmtIDR } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
 import { CashflowActions } from "./cashflow-actions";
@@ -15,15 +15,9 @@ export const metadata = { title: "Arus Kas" };
 
 export default async function CashflowPage() {
   const user = await requireUser();
-  const txs = await listFinancialTransactions(user.id);
-
-  let income = new Decimal(0);
-  let expense = new Decimal(0);
-  for (const t of txs) {
-    if (t.reversalOfId) continue;
-    if (t.kind === "INCOME") income = income.add(D(t.amount));
-    if (t.kind === "EXPENSE") expense = expense.add(D(t.amount));
-  }
+  const [txs, { income, expense }] = await Promise.all([
+    listFinancialTransactions(user.id), financialTotals(user.id),
+  ]);
 
   return (
     <PageShell>
@@ -65,15 +59,16 @@ export default async function CashflowPage() {
                   <TD>
                     {t.kind === "INCOME" ? <Badge tone="success">Pemasukan</Badge>
                       : t.kind === "EXPENSE" ? <Badge tone="danger">Pengeluaran</Badge>
-                      : <Badge tone="warn">Pembatalan</Badge>}
+                      : <Badge tone="warn">{t.kind === "ALLOCATION" ? "Alokasi" : "Pembatalan"}</Badge>}
+                    {t.reversed ? <span className="ml-1 text-xs text-muted">Dibatalkan</span> : null}
                   </TD>
                   <TD className="text-xs text-muted">{t.category?.name ?? (t.debtId ? "Hutang" : t.withdrawalId ? "WD Trading" : "—")}</TD>
                   <TD className={`tnum text-right text-xs font-semibold ${t.kind === "INCOME" || t.kind === "REVERSAL" ? "text-primary" : "text-loss"}`}>
-                    {t.kind === "INCOME" || t.kind === "REVERSAL" ? "+" : "−"}{fmtIDR(t.amount)}
+                    {t.kind === "INCOME" ? "+" : t.kind === "EXPENSE" ? "−" : ""}{fmtIDR(t.amount)}
                   </TD>
                   <TD className="max-w-56 truncate text-xs text-faint">{t.description ?? "—"}</TD>
                   <TD className="text-right">
-                    {(t.kind === "INCOME" || t.kind === "EXPENSE") && !t.reversalOfId ? (
+                    {(t.kind === "INCOME" || t.kind === "EXPENSE") && !t.reversalOfId && !t.reversed && !t.withdrawalId && !t.debtId ? (
                       <ReverseTxButton id={t.id} />
                     ) : null}
                   </TD>

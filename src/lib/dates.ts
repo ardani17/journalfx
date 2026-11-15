@@ -12,6 +12,35 @@ import {
 /** All storage is UTC; formatting uses the user's timezone (default Asia/Jakarta). */
 export const DEFAULT_TZ = "Asia/Jakarta";
 
+export function isValidTimezone(timezone: string): boolean {
+  try { new Intl.DateTimeFormat("en", { timeZone: timezone }).format(); return true; }
+  catch { return false; }
+}
+
+/** Calendar wall time represented in UTC fields; never use as a stored instant. */
+export function calendarDate(at: Date, timezone = DEFAULT_TZ): Date {
+  const parts = new Intl.DateTimeFormat("en-GB", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }).formatToParts(at);
+  const n = (kind: string) => Number(parts.find((p) => p.type === kind)?.value ?? 0);
+  return new Date(Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute"), n("second")));
+}
+
+function calendarInstant(wall: Date, timezone: string): Date {
+  let instant = wall;
+  for (let i = 0; i < 3; i++) {
+    const offset = calendarDate(instant, timezone).getTime() - Math.floor(instant.getTime() / 1000) * 1000;
+    instant = new Date(wall.getTime() - offset);
+  }
+  return instant;
+}
+
+export function zonedPeriod(kind: "DAILY" | "WEEKLY" | "MONTHLY", at = new Date(), timezone = DEFAULT_TZ) {
+  const wall = calendarDate(at, timezone);
+  const window = kind === "WEEKLY" ? utcWeek(wall) : kind === "MONTHLY" ? utcMonth(wall)
+    : { start: startOfUTCDay(wall), end: addUTCDays(startOfUTCDay(wall), 1) };
+  return { start: calendarInstant(window.start, timezone), end: calendarInstant(window.end, timezone) };
+}
+
 export function utcNow(): Date {
   return new Date();
 }

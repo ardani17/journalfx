@@ -84,6 +84,7 @@ export function simulate(input: SimulateInput): SimulateResult {
   let totalProfit = new Decimal(0);
   let totalDeposits = new Decimal(0);
   let reached = false;
+  let profitHighWaterMark = new Decimal(0);
 
   for (let n = 1; n <= maxCycles; n++) {
     const opening = balance;
@@ -103,11 +104,12 @@ export function simulate(input: SimulateInput): SimulateResult {
         wd = Decimal.min(fixed, profit, closingBeforeWd.minus(reserve).gte(0) ? closingBeforeWd.minus(reserve) : new Decimal(0));
       } else if (input.wdMode === "DYNAMIC") {
         const ratio = D(input.wdRatioPct ?? 0);
-        let candidate = profit.times(ratio).div(100);
+        const eligible = Decimal.max(totalProfit.plus(profit).minus(profitHighWaterMark), 0);
+        let candidate = eligible.times(ratio).div(100);
         if (input.needsCap !== undefined) {
           candidate = Decimal.min(candidate, D(input.needsCap));
         }
-        wd = Decimal.min(candidate, profit);
+        wd = Decimal.min(candidate, profit, Decimal.max(closingBeforeWd.minus(reserve), 0));
       }
       wd = Decimal.max(wd, new Decimal(0));
     }
@@ -129,6 +131,7 @@ export function simulate(input: SimulateInput): SimulateResult {
 
     totalWd = totalWd.add(wd);
     totalProfit = totalProfit.add(profit);
+    profitHighWaterMark = Decimal.max(profitHighWaterMark, totalProfit);
     totalDeposits = totalDeposits.add(deposit);
     balance = closing;
 

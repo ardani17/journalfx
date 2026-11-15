@@ -1,0 +1,132 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { D } from "@/lib/money";
+
+const db = vi.hoisted(() => {
+  const model = () => ({ findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), aggregate: vi.fn(),
+    groupBy: vi.fn(), create: vi.fn(), update: vi.fn(), upsert: vi.fn(), count: vi.fn() });
+  return { user: model(), trade: model(), expenseCategory: model(), financialTransaction: model(), budget: model(),
+    project: model(), financialBucket: model(), financialAllocation: model(),
+    accountTransaction: model(), riskSettings: model(), periodReview: model(),
+    withdrawalRule: model(), withdrawal: model(), debt: model(), exchangeRate: model(),
+    $transaction: vi.fn(), $executeRaw: vi.fn() };
+});
+vi.mock("@/server/db", () => ({ prisma: db }));
+vi.mock("@/server/audit", () => ({ audit: vi.fn() }));
+import { addFinancialTransaction, allocateProfit, budgetOverview, financialTotals } from "@/server/services/finance";
+import { cancelTrade, listTrades } from "@/server/services/trades";
+import { getRecommendation } from "@/server/services/withdrawals";
+import { riskStatus } from "@/server/services/risk";
+
+beforeEach(() => {
+  vi.resetAllMocks();
+  db.user.findUnique.mockResolvedValue({ timezone: "Asia/Jakarta" });
+  db.$transaction.mockImplementation(async (fn) => fn(db));
+  db.financialAllocation.findMany.mockResolvedValue([]);
+  db.financialTransaction.aggregate.mockResolvedValue({ _sum: { amount: null } });
+});
+
+describe("weekly withdrawal and risk reconciliation", () => {
+  function setupLedger() {
+    db.project.findFirst.mockResolvedValue({ id: "project" });
+    db.withdrawalRule.findFirst.mockResolvedValue({ maxWdRatio: D(50), reserveUsd: D(0), needsTargetIdr: D(520000), minBalanceUsd: null });
+    db.withdrawal.findMany.mockResolvedValue([]);
+    db.periodReview.findMany.mockResolvedValue([]);
+    db.budget.findFirst.mockResolvedValue(null);
+    db.debt.findMany.mockResolvedValue([]);
+    db.exchangeRate.findFirst.mockResolvedValue({ rate: D(10000), at: new Date() });
+    db.financialTransaction.findMany.mockResolvedValue([]);
+    db.financialBucket.findMany.mockResolvedValue([]);
+    db.riskSettings.findUnique.mockResolvedValue({ dailyLossLimit: D(2), weeklyLossLimit: D(5), maxOpenRisk: D(2), ddReview: D(10) });
+    db.trade.findMany.mockResolvedValue([]);
+  }
+
+  it("unwithdrawn profit from a closed week is not eligible again next week", async () => {
+    setupLedger();
+    const now = new Date();
+    const previous = new Date(now.getTime() - 14 * 86400000);
+    db.accountTransaction.findMany.mockResolvedValue([
+      { id: "deposit", type: "DEPOSIT", amount: D(200), occurredAt: previous, reversalOfId: null },
+      { id: "old", type: "REALIZED_PNL", amount: D(100), occurredAt: previous, reversalOfId: null },
+      { id: "new", type: "REALIZED_PNL", amount: D(10), occurredAt: now, reversalOfId: null },
+    ]);
+    const result = await getRecommendation("owner");
+    expect(result.hwm.toNumber()).toBe(100);
+    expect(result.recommendation.eligibleProfit.toNumber()).toBe(10);
+    expect(result.recommendation.recommended.toNumber()).toBeLessThanOrEqual(5);
+  });
+
+  it("withdrawals do not manufacture drawdown and initial funding preserves its denominator", async () => {
+    setupLedger();
+    db.accountTransaction.findMany.mockResolvedValue([
+      { id: "deposit", type: "DEPOSIT", amount: D(200), occurredAt: new Date("2026-11-01"), reversalOfId: null },
+      { id: "loss", type: "REALIZED_PNL", amount: D(-20), occurredAt: new Date("2026-11-02"), reversalOfId: null },
+      { id: "wd", type: "WITHDRAWAL", amount: D(-50), occurredAt: new Date("2026-11-03"), reversalOfId: null },
+    ]);
+    const result = await riskStatus("owner");
+    expect(result.currentDdPct.toNumber()).toBe(10);
+  });
+});
+
+describe("service integrity", () => {
+  it("cashflow totals cancel reversed income instead of keeping it as available cash", async () => {
+    db.financialTransaction.findMany.mockResolvedValue([
+      { id: "income", kind: "INCOME", amount: D(100), currency: "IDR", reversalOfId: null },
+      { id: "expense", kind: "EXPENSE", amount: D(50), currency: "IDR", reversalOfId: null },
+      { id: "reverse", kind: "REVERSAL", amount: D(-100), currency: "IDR", reversalOfId: "income" },
+    ]);
+    const totals = await financialTotals("owner");
+    expect(totals.income.toNumber()).toBe(0);
+    expect(totals.expense.toNumber()).toBe(50);
+  });
+  it("rejects a category belonging to another user before creating a financial entry", async () => {
+    db.expenseCategory.findFirst.mockResolvedValue(null);
+    db.financialTransaction.create.mockResolvedValue({ id: "entry" });
+    await expect(addFinancialTransaction("owner", { kind: "EXPENSE", amount: 10, categoryId: "foreign" }))
+      .rejects.toMatchObject({ status: 404 });
+    expect(db.financialTransaction.create).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel a partially realized trade and orphan its ledger", async () => {
+    db.trade.findFirst.mockResolvedValue({ id: "trade", status: "PARTIAL", realizedPnl: D(5) });
+    db.trade.update.mockResolvedValue({});
+    await expect(cancelTrade("owner", "trade", "mistake")).rejects.toMatchObject({ status: 400 });
+    expect(db.trade.update).not.toHaveBeenCalled();
+  });
+
+  it("searches journal text for the requested term", async () => {
+    db.trade.findMany.mockResolvedValue([]); db.trade.count.mockResolvedValue(0);
+    await listTrades("owner", { q: "breakout", limit: 10, offset: 0 });
+    expect(db.trade.findMany.mock.calls[0]![0].where.OR).toContainEqual({
+      journal: { is: { entryReason: { contains: "breakout", mode: "insensitive" } } },
+    });
+  });
+
+  it("does not allocate broker profit that has not actually been withdrawn", async () => {
+    db.project.findFirst.mockResolvedValue({ id: "project" });
+    db.financialBucket.findMany.mockResolvedValue([{ id: "living", targetPercent: D(100) }]);
+    db.accountTransaction.aggregate.mockResolvedValue({ _sum: { amount: D(100) } });
+    db.financialTransaction.findMany.mockResolvedValue([]);
+    db.withdrawal.findMany.mockResolvedValue([]);
+    db.financialAllocation.aggregate.mockResolvedValue({ _sum: { amount: null } });
+    db.financialAllocation.create.mockResolvedValue({});
+    await expect(allocateProfit("owner", { periodStart: "2026-11-16", periodEnd: "2026-11-23", amount: 50 }))
+      .rejects.toMatchObject({ status: 400 });
+  });
+
+  it("budget totals exclude reversed expenses and use living allocations for coverage", async () => {
+    db.budget.findFirst.mockResolvedValue({ id: "budget", periodStart: new Date("2026-11-01"),
+      periodEnd: new Date("2026-12-01"), categories: [{ id: "food", isActive: true, plannedAmount: D(100) }] });
+    db.financialTransaction.findMany.mockResolvedValue([
+      { id: "spent", kind: "EXPENSE", amount: D(40), currency: "IDR", categoryId: "food", reversalOfId: null, occurredAt: new Date("2026-11-16") },
+      { id: "reverse", kind: "REVERSAL", amount: D(-40), currency: "IDR", reversalOfId: "spent", occurredAt: new Date("2026-11-17") },
+      { id: "allocated", kind: "ALLOCATION", amount: D(20), currency: "IDR", bucketId: "living", occurredAt: new Date("2026-11-16") },
+    ]);
+    db.financialBucket.findMany.mockResolvedValue([{ id: "living" }]);
+    db.financialTransaction.groupBy.mockResolvedValue([{ categoryId: "food", _sum: { amount: D(40) } }]);
+    db.financialTransaction.aggregate.mockResolvedValue({ _sum: { amount: D(100) } });
+    db.financialAllocation.aggregate.mockResolvedValue({ _sum: { amount: D(20) } });
+    const result = await budgetOverview("owner");
+    expect(result.totalSpent.toNumber()).toBe(0);
+    expect(result.coveragePct).toBe(20);
+  });
+});

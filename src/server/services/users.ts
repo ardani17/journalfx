@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/api";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import type { LoginInput, OnboardInput } from "@/lib/validation/auth";
 import { audit } from "@/server/audit";
+import { fmtUSD0 } from "@/lib/money";
 
 /** PRD roadmap milestone amounts (USD): 200 → 1m */
 export const ROADMAP_AMOUNTS = [
@@ -63,7 +64,7 @@ export async function onboard(input: OnboardInput, req?: Request) {
         create: ROADMAP_AMOUNTS.map((amount, i) => ({
           order: i + 1,
           amount,
-          label: `$${amount.toLocaleString("en-US")}`,
+          label: fmtUSD0(amount),
         })),
       },
       buckets: {

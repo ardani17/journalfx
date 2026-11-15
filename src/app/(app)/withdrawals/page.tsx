@@ -2,14 +2,16 @@ import { requireUser } from "@/server/auth";
 import { getRecommendation, listWithdrawals } from "@/server/services/withdrawals";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { WithdrawalsClient } from "./withdrawals-client";
+import { listAccounts } from "@/server/services/accounts";
 
 export const metadata = { title: "Withdrawal Plan (WD)" };
 
 export default async function WithdrawalsPage() {
   const user = await requireUser();
-  const [bundle, history] = await Promise.all([
+  const [bundle, history, accounts] = await Promise.all([
     getRecommendation(user.id),
     listWithdrawals(user.id),
+    listAccounts(user.id),
   ]);
 
   return (
@@ -19,6 +21,7 @@ export default async function WithdrawalsPage() {
         subtitle="Penarikan profit-only dengan pemulihan loss (high-water mark). Rekomendasi — eksekusi tetap manual di broker."
       />
       <WithdrawalsClient
+        accounts={accounts.filter((a) => a.isActive).map((a) => ({ id: a.id, name: a.name }))}
         rec={{
           eligible: bundle.recommendation.eligibleProfit.toString(),
           recommended: bundle.recommendation.recommended.toString(),

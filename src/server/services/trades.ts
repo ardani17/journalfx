@@ -43,6 +43,10 @@ export async function createTrade(userId: string, input: CreateTradeInput, req?:
     where: { id: input.accountId, userId },
   });
   if (!account) throw new ApiError(404, "Akun tidak ditemukan");
+  if (input.strategyId) {
+    const strategy = await prisma.strategy.findFirst({ where: { id: input.strategyId, userId } });
+    if (!strategy) throw new ApiError(404, "Strategi tidak ditemukan");
+  }
   const instrument = await resolveInstrument(input);
 
   if (input.ticket) {
@@ -169,7 +173,7 @@ export async function listTrades(userId: string, filter: ListTradesFilter) {
       ? {
           OR: [
             { ticket: { contains: filter.q, mode: "insensitive" } },
-            { journal: { isNot: { entryReason: null } } },
+            { journal: { is: { entryReason: { contains: filter.q, mode: "insensitive" } } } },
           ],
         }
       : {}),
@@ -198,59 +202,61 @@ export async function addExecution(
   input: AddExecutionInput,
   req?: Request,
 ) {
-  const trade = await prisma.trade.findFirst({
-    where: { id: tradeId, userId },
-    include: { executions: true, instrument: true },
-  });
-  if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
-  if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
-
-  if (input.externalId) {
-    const dup = await prisma.tradeExecution.findFirst({
-      where: { userId, externalId: input.externalId },
-    });
-    if (dup) throw new ApiError(409, "Eksekusi dengan ID eksternal tersebut sudah ada (dedup)");
-  }
-
-  const spec = { contractSize: trade.instrument.contractSize };
-  const isClose = input.kind === "CLOSE" || input.kind === "PARTIAL_CLOSE";
-  const qty = D(input.quantity);
-
-  const rollupBefore = rollupExecutions(trade.direction, trade.executions, spec);
-  if (isClose) {
-    if (qty.gt(rollupBefore.openQty)) {
-      throw new ApiError(
-        400,
-        `Quantity close (${qty}) melebihi posisi terbuka (${rollupBefore.openQty})`,
-      );
-    }
-  } else {
-    const enteredTotal = rollupBefore.openQty.add(rollupBefore.closedQty).add(qty);
-    if (enteredTotal.gt(D(trade.lot))) {
-      throw new ApiError(400, `Total entry (${enteredTotal}) melebihi lot trade (${trade.lot})`);
-    }
-  }
-
-  const entryAvg = avgEntryPrice(
-    trade.executions.filter((e) => e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY"),
-  );
-
-  let closeNet: Decimal | null = null;
-  if (isClose) {
-    // Net P&L includes the proportional share of entry-leg costs
-    // (commission/swap/fees) plus this close's own costs — so the ledger
-    // REALIZED_PNL row always reflects the fully netted figure.
-    const enteredBefore = rollupBefore.openQty.add(rollupBefore.closedQty);
-    const entryCosts = trade.executions
-      .filter((e) => e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY")
-      .reduce((s, e) => s.add(D(e.commission)).add(D(e.swap)).add(D(e.fees)), new Decimal(0));
-    const entryCostShare = enteredBefore.isZero()
-      ? new Decimal(0)
-      : entryCosts.times(qty.div(enteredBefore));
-    closeNet = closePnl(trade.direction, entryAvg, input, spec).minus(entryCostShare);
-  }
-
   const result = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    const trade = await tx.trade.findFirst({
+      where: { id: tradeId, userId },
+      include: { executions: true, instrument: true },
+    });
+    if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
+    if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
+    if (trade.status === "CLOSED") throw new ApiError(400, "Trade sudah ditutup");
+
+    if (input.externalId) {
+      const dup = await tx.tradeExecution.findFirst({
+        where: { userId, externalId: input.externalId },
+      });
+      if (dup) throw new ApiError(409, "Eksekusi dengan ID eksternal tersebut sudah ada (dedup)");
+    }
+
+    const spec = { contractSize: trade.instrument.contractSize };
+    const isClose = input.kind === "CLOSE" || input.kind === "PARTIAL_CLOSE";
+    const qty = D(input.quantity);
+
+    const rollupBefore = rollupExecutions(trade.direction, trade.executions, spec);
+    if (isClose) {
+      if (qty.gt(rollupBefore.openQty)) {
+        throw new ApiError(
+          400,
+          `Quantity close (${qty}) melebihi posisi terbuka (${rollupBefore.openQty})`,
+        );
+      }
+    } else {
+      const enteredTotal = rollupBefore.openQty.add(rollupBefore.closedQty).add(qty);
+      if (enteredTotal.gt(D(trade.lot))) {
+        throw new ApiError(400, `Total entry (${enteredTotal}) melebihi lot trade (${trade.lot})`);
+      }
+    }
+
+    const entryAvg = avgEntryPrice(
+      trade.executions.filter((e) => e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY"),
+    );
+
+    let closeNet: Decimal | null = null;
+    if (isClose) {
+      // Net P&L includes the proportional share of entry-leg costs
+      // (commission/swap/fees) plus this close's own costs — so the ledger
+      // REALIZED_PNL row always reflects the fully netted figure.
+      const enteredBefore = rollupBefore.openQty.add(rollupBefore.closedQty);
+      const entryCosts = trade.executions
+        .filter((e) => e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY")
+        .reduce((s, e) => s.add(D(e.commission)).add(D(e.swap)).add(D(e.fees)), new Decimal(0));
+      const entryCostShare = enteredBefore.isZero()
+        ? new Decimal(0)
+        : entryCosts.times(qty.div(enteredBefore));
+      closeNet = closePnl(trade.direction, entryAvg, input, spec).minus(entryCostShare);
+    }
+
     const execution = await tx.tradeExecution.create({
       data: {
         userId,
@@ -314,7 +320,7 @@ export async function addExecution(
     return { execution, trade: updated, rollup };
   });
 
-  await audit({ userId, action: "create", entity: "TradeExecution", entityId: result.execution.id, after: { ...input, realizedPnl: closeNet?.toString() }, req });
+  await audit({ userId, action: "create", entity: "TradeExecution", entityId: result.execution.id, after: { ...input, realizedPnl: result.execution.realizedPnl?.toString() }, req });
   return result;
 }
 
@@ -322,6 +328,9 @@ export async function cancelTrade(userId: string, tradeId: string, reason: strin
   const trade = await prisma.trade.findFirst({ where: { id: tradeId, userId } });
   if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
   if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
+  if (trade.status === "PARTIAL" || trade.status === "CLOSED" || trade.realizedPnl != null) {
+    throw new ApiError(400, "Trade terealisasi tidak dapat dibatalkan — gunakan koreksi ledger yang diaudit");
+  }
   const updated = await prisma.trade.update({
     where: { id: tradeId },
     data: { status: "CANCELLED" },

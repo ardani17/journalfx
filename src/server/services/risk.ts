@@ -1,10 +1,11 @@
+import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 
 import { audit } from "@/server/audit";
 import { D, Decimal } from "@/lib/money";
 import { adjustedDrawdown } from "@/lib/finance/risk";
-import { balanceSeries, computeBalance } from "./ledger";
-import { utcWeek, startOfUTCDay } from "@/lib/dates";
+import { attributedLedger, computeBalance } from "./ledger";
+import { zonedPeriod } from "@/lib/dates";
 
 export async function getRiskSettings(userId: string) {
   let settings = await prisma.riskSettings.findUnique({ where: { userId } });
@@ -67,48 +68,31 @@ export async function riskStatus(userId: string): Promise<RiskStatus> {
   const equity = balance; // unrealized arrives with open trades pricing (v0.5 market data)
 
   const now = new Date();
-  const dayStart = startOfUTCDay(now);
-  const { start: weekStart } = utcWeek(now);
+  const timezone = await userTimezone(userId);
+  const { start: dayStart } = zonedPeriod("DAILY", now, timezone);
+  const { start: weekStart } = zonedPeriod("WEEKLY", now, timezone);
 
-  const [openTrades, dayTx, weekTx, series] = await Promise.all([
+  const [openTrades, ledger] = await Promise.all([
     prisma.trade.findMany({
-      where: { userId, status: { in: ["OPEN", "PARTIAL"] } },
-      select: { initialRisk: true },
+      where: { userId, status: { in: ["OPEN", "PARTIAL"] } }, select: { initialRisk: true },
     }),
-    prisma.accountTransaction.findMany({
-      where: { userId, type: "REALIZED_PNL", occurredAt: { gte: dayStart } },
-      select: { amount: true },
-    }),
-    prisma.accountTransaction.findMany({
-      where: { userId, type: "REALIZED_PNL", occurredAt: { gte: weekStart } },
-      select: { amount: true },
-    }),
-    balanceSeries(userId),
+    attributedLedger(userId),
   ]);
-
-  const openRisk = openTrades.reduce((s, t) => s.add(D(t.initialRisk ?? 0)), new Decimal(0));
-  const dayPnl = dayTx.reduce((s, t) => s.add(D(t.amount)), new Decimal(0));
-  const weekPnl = weekTx.reduce((s, t) => s.add(D(t.amount)), new Decimal(0));
-
-  // cash-flow adjusted drawdown from the daily balance series:
-  // netCashFlow(t) = cumDeposits − cumWithdrawals up to t (approximated from ledger types)
-  const txs = await prisma.accountTransaction.findMany({
-    where: { userId, type: { in: ["DEPOSIT", "WITHDRAWAL"] } },
-    orderBy: { occurredAt: "asc" },
-    select: { occurredAt: true, type: true, amount: true },
-  });
-  // build cumulative net cash flow per day-key
-  const cumFlow = new Map<string, Decimal>();
-  let run = new Decimal(0);
-  for (const t of txs) {
-    run = run.add(t.type === "DEPOSIT" ? D(t.amount) : D(t.amount).neg());
-    cumFlow.set(t.occurredAt.toISOString().slice(0, 10), run);
-  }
-  let flowCarry = new Decimal(0);
-  const points = series.map((p) => {
-    const flow = cumFlow.get(p.date);
-    if (flow !== undefined) flowCarry = flow;
-    return { at: p.date, equity: new Decimal(p.balance), netCashFlow: flowCarry };
+  const openRisk = openTrades.reduce((sum, t) => sum.plus(D(t.initialRisk)), D(0));
+  const realized = ledger.filter((r) => (r.type === "REALIZED_PNL" || r.type === "FEE") && r.occurredAt <= now);
+  const dayPnl = realized.filter((r) => r.occurredAt >= dayStart).reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  const weekPnl = realized.filter((r) => r.occurredAt >= weekStart).reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  let equityRun = D(0);
+  let cashFlow = D(0);
+  let initialFunding = D(0);
+  const points = ledger.filter((r) => r.occurredAt <= now).map((r) => {
+    equityRun = equityRun.plus(D(r.amount));
+    if (r.type === "DEPOSIT" || r.type === "WITHDRAWAL") {
+      // Ledger amounts already carry their cash-flow sign.
+      cashFlow = cashFlow.plus(D(r.amount));
+      if (initialFunding.isZero() && r.type === "DEPOSIT" && D(r.amount).gt(0)) initialFunding = D(r.amount);
+    }
+    return { at: r.occurredAt, equity: equityRun, netCashFlow: cashFlow.minus(initialFunding) };
   });
   const dd = adjustedDrawdown(points);
 

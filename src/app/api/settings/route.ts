@@ -4,12 +4,13 @@ import { changePassword, updateProfile } from "@/server/services/users";
 import { updateProjectSettings } from "@/server/services/projects";
 import { getDefaultProject } from "@/server/services/projects";
 import { handleRouteError, ok, parseBody } from "@/lib/api";
+import { isValidTimezone } from "@/lib/dates";
 
 const settingsSchema = z.object({
   profile: z
     .object({
       name: z.string().trim().min(2).max(80).optional(),
-      timezone: z.string().min(1).max(64).optional(),
+      timezone: z.string().min(1).max(64).refine(isValidTimezone, "Timezone tidak valid").optional(),
       locale: z.enum(["id", "en"]).optional(),
     })
     .optional(),

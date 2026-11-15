@@ -42,6 +42,7 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+.zcode/
 *.swp
 
 # Design working files (keep the approved reference only)

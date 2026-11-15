@@ -11,14 +11,14 @@ import { MonteCarloPanel } from "@/components/analytics/montecarlo-panel";
 import { portfolioOverview } from "@/server/services/portfolio";
 import { buildInsights } from "@/server/services/economic-events";
 import { fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
-import { startOfUTCDay, addUTCDays } from "@/lib/dates";
+import { zonedPeriod, addUTCDays } from "@/lib/dates";
 import { Activity, Percent, Scale, Target, TrendingUp } from "lucide-react";
 
 export const metadata = { title: "Laporan & Analisis" };
 
 export default async function AnalyticsPage() {
   const user = await requireUser();
-  const to = addUTCDays(startOfUTCDay(new Date()), 1);
+  const { end: to } = zonedPeriod("DAILY", new Date(), user.timezone);
   const from30 = addUTCDays(to, -30);
   const [core, strategies, days, insights, portfolio] = await Promise.all([
     coreMetrics(user.id),

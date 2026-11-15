@@ -1,4 +1,5 @@
 
+import { fmtUSD } from "@/lib/money";
 
 /**
  * Explainable journal insights (v1.3.0) — deterministic rule-based analysis,
@@ -88,7 +89,7 @@ export function journalInsights(trades: InsightTrade[]): {
       insights.push({
         id: "fomo-impact",
         severity: "warning",
-        title: `Trade dengan flag FOMO rata-rata ${fomoAvg.toFixed(2)} USD vs ${calmAvg.toFixed(2)} USD tanpa FOMO`,
+        title: `Trade dengan flag FOMO rata-rata ${fmtUSD(fomoAvg)} vs ${fmtUSD(calmAvg)} tanpa FOMO`,
         detail: "Entry saat FOMO berkorelasi dengan hasil lebih buruk di data Anda. Tambahkan jeda sebelum entry saat terburu-buru.",
         evidence: `Sumber: jurnal psikologi — ${fomoTrades.length} trade FOMO vs ${calmTrades.length} trade tanpa flag`,
       });
@@ -103,7 +104,7 @@ export function journalInsights(trades: InsightTrade[]): {
     insights.push({
       id: "missing-sl",
       severity: "warning",
-      title: `${noSl.length} trade tanpa SL awal${noSlAvg !== null && noSlAvg < 0 ? ` — rata-rata ${noSlAvg.toFixed(2)} USD` : ""}`,
+        title: `${noSl.length} trade tanpa SL awal${noSlAvg !== null && noSlAvg < 0 ? ` — rata-rata ${fmtUSD(noSlAvg)}` : ""}`,
       detail: "SL awal yang dicatat membuat risiko terukur dan discipline score akurat. Pasang SL sebelum entry.",
       evidence: `Sumber: data trade — ${noSl.length} tanpa SL dari ${closed.length} trade tertutup${withSl.length ? ` (pembanding ${withSl.length} trade ber-SL)` : ""}`,
     });
@@ -117,7 +118,7 @@ export function journalInsights(trades: InsightTrade[]): {
       id: "revenge-pattern",
       severity: "warning",
       title: `Pola balas dendam terdeteksi ${revenge.length}× (entry setelah loss)`,
-      detail: `Rata-rata hasil trade tersebut ${revengeAvg?.toFixed(2)} USD. Aturan pendinginan 15 menit setelah loss dapat membantu.`,
+      detail: `Rata-rata hasil trade tersebut ${fmtUSD(revengeAvg)}. Aturan pendinginan 15 menit setelah loss dapat membantu.`,
       evidence: `Sumber: urutan waktu trade + flag psikologi — ${revenge.length} trade`,
     });
   }

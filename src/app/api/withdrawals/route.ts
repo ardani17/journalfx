@@ -16,7 +16,7 @@ export async function POST(req: Request) {
   try {
     const user = await requireUser();
     const input = await parseBody(req, wdRequestSchema);
-    return ok(await requestWithdrawal(user.id, input.amountUsd, input.note, req), 201);
+    return ok(await requestWithdrawal(user.id, input.amountUsd, input.note, req, input.accountId), 201);
   } catch (e) {
     return handleRouteError(e);
   }

@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 /** @type {import('next').NextConfig} */
 const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
@@ -27,10 +29,8 @@ const nextConfig = {
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },
-  experimental: {
-    // Keep server external packages out of the bundler (Prisma needs this)
-    serverExternalPackages: ["@prisma/client", "bcryptjs"],
-  },
+  outputFileTracingRoot: fileURLToPath(new URL(".", import.meta.url)),
+  serverExternalPackages: ["@prisma/client", "bcryptjs"],
 };
 
 export default nextConfig;

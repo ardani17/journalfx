@@ -1,6 +1,8 @@
 import { prisma } from "@/server/db";
 import { D, Decimal } from "@/lib/money";
-import { startOfUTCDay, addUTCDays } from "@/lib/dates";
+import { attributedLedger } from "./ledger";
+import { calendarDate, startOfUTCDay, addUTCDays } from "@/lib/dates";
+import { userTimezone } from "./time";
 
 /**
  * Basic performance analytics (v0.2). Advanced breakdowns & discipline score
@@ -49,10 +51,10 @@ export async function coreMetrics(
         : {}),
     },
     orderBy: { exitAt: "asc" },
-    select: { realizedPnl: true, actualR: true, entryAt: true, exitAt: true },
+    select: { status: true, realizedPnl: true, actualR: true, entryAt: true, exitAt: true },
   });
 
-  const closed = trades.filter((t) => t.realizedPnl !== null);
+  const closed = trades.filter((t) => t.status === "CLOSED" && t.realizedPnl !== null);
   let wins = 0;
   let losses = 0;
   let be = 0;
@@ -101,7 +103,11 @@ export async function coreMetrics(
   }
 
   const n = closed.length;
-  const netPnl = grossWin.minus(grossLoss);
+  const periodLedger = (await attributedLedger(userId)).filter((r) =>
+    (r.type === "REALIZED_PNL" || r.type === "FEE") &&
+    (!filter?.accountId || r.accountId === filter.accountId) &&
+    (!filter?.from || r.occurredAt >= filter.from) && (!filter?.to || r.occurredAt < filter.to));
+  const netPnl = periodLedger.reduce((sum, r) => sum.plus(D(r.amount)), D(0));
   return {
     totalTrades: n,
     closedTrades: n,
@@ -117,8 +123,8 @@ export async function coreMetrics(
     avgLoss: losses > 0 ? grossLoss.div(losses) : null,
     expectancy: n > 0 ? netPnl.div(n) : null,
     avgR: rCount > 0 ? Number(rSum.div(rCount).toFixed(2)) : null,
-    bestTrade: best,
-    worstTrade: worst,
+    bestTrade: n ? Decimal.max(...closed.map((t) => D(t.realizedPnl))) : best,
+    worstTrade: n ? Decimal.min(...closed.map((t) => D(t.realizedPnl))) : worst,
     maxWinStreak: maxWin,
     maxLossStreak: maxLoss,
     avgHoldMinutes: holdCount > 0 ? Math.round(holdMs / holdCount / 60000) : null,
@@ -172,31 +178,25 @@ export async function dailyPnl(
   to: Date,
   accountId?: string,
 ): Promise<DayPnl[]> {
-  const trades = await prisma.trade.findMany({
-    where: {
-      userId,
-      status: "CLOSED",
-      realizedPnl: { not: null },
-      exitAt: { gte: from, lt: to },
-      ...(accountId ? { accountId } : {}),
-    },
-    select: { exitAt: true, realizedPnl: true },
-  });
-  const map = new Map<string, { pnl: Decimal; trades: number }>();
-  for (const t of trades) {
-    if (!t.exitAt) continue;
-    const key = startOfUTCDay(t.exitAt).toISOString().slice(0, 10);
-    const cur = map.get(key) ?? { pnl: new Decimal(0), trades: 0 };
-    cur.pnl = cur.pnl.add(D(t.realizedPnl));
-    cur.trades++;
+  const timezone = await userTimezone(userId);
+  const ledger = (await attributedLedger(userId)).filter((r) =>
+    (r.type === "REALIZED_PNL" || r.type === "FEE") && r.occurredAt >= from && r.occurredAt < to &&
+    (!accountId || r.accountId === accountId));
+  const map = new Map<string, { pnl: Decimal; ids: Set<string> }>();
+  for (const row of ledger) {
+    const key = calendarDate(row.occurredAt, timezone).toISOString().slice(0, 10);
+    const cur = map.get(key) ?? { pnl: D(0), ids: new Set<string>() };
+    cur.pnl = cur.pnl.plus(D(row.amount));
+    if (row.sourceTradeId) cur.ids.add(row.sourceTradeId);
     map.set(key, cur);
   }
   // fill continuous range
   const out: DayPnl[] = [];
-  for (let d = startOfUTCDay(from); d < to; d = addUTCDays(d, 1)) {
+  const lastDay = calendarDate(new Date(to.getTime() - 1), timezone).toISOString().slice(0, 10);
+  for (let d = startOfUTCDay(calendarDate(from, timezone)); d.toISOString().slice(0, 10) <= lastDay; d = addUTCDays(d, 1)) {
     const key = d.toISOString().slice(0, 10);
     const v = map.get(key);
-    out.push({ date: key, pnl: v ? Number(v.pnl.toFixed(2)) : 0, trades: v?.trades ?? 0 });
+    out.push({ date: key, pnl: v ? Number(v.pnl.toFixed(2)) : 0, trades: v?.ids.size ?? 0 });
   }
   return out;
 }

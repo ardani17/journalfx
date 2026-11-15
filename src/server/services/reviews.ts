@@ -1,3 +1,4 @@
+import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
@@ -7,15 +8,12 @@ import { coreMetrics } from "./analytics";
 import { computeBalance } from "./ledger";
 import { getRecommendation } from "./withdrawals";
 import { budgetOverview } from "./finance";
-import { utcWeek, utcMonth, startOfUTCDay, addUTCDays } from "@/lib/dates";
+import { zonedPeriod, DEFAULT_TZ } from "@/lib/dates";
 
 export type ReviewKind = "DAILY" | "WEEKLY" | "MONTHLY";
 
-export function periodFor(kind: ReviewKind, at = new Date()): { start: Date; end: Date } {
-  if (kind === "WEEKLY") return utcWeek(at);
-  if (kind === "MONTHLY") return utcMonth(at);
-  const start = startOfUTCDay(at);
-  return { start, end: addUTCDays(start, 1) };
+export function periodFor(kind: ReviewKind, at = new Date(), timezone = DEFAULT_TZ): { start: Date; end: Date } {
+  return zonedPeriod(kind, at, timezone);
 }
 
 export interface PeriodFacts {
@@ -32,7 +30,7 @@ export interface PeriodFacts {
 
 /** Facts assembled from the ledger/analytics — captured immutably at close. */
 export async function collectFacts(userId: string, kind: ReviewKind): Promise<PeriodFacts> {
-  const { start, end } = periodFor(kind);
+  const { start, end } = periodFor(kind, new Date(), await userTimezone(userId));
   const [metrics, balances, wdRec, budget] = await Promise.all([
     coreMetrics(userId, { from: start, to: end }),
     computeBalance(userId),
@@ -96,11 +94,18 @@ export async function collectFacts(userId: string, kind: ReviewKind): Promise<Pe
 }
 
 export async function getOrCreateReview(userId: string, kind: ReviewKind) {
-  const { start } = periodFor(kind);
-  const projectId = (await prisma.project.findFirst({ where: { userId, isActive: true } }))!.id;
+  const { start, end } = periodFor(kind, new Date(), await userTimezone(userId));
+  const latest = await prisma.periodReview.findFirst({
+    where: { userId, kind, periodStart: { gte: start, lt: end } },
+    orderBy: { periodStart: "desc" }, include: { project: { select: { name: true } } },
+  });
+  if (latest) return latest;
+  const project = await prisma.project.findFirst({ where: { userId, isActive: true } });
+  if (!project) throw new ApiError(404, "Project belum ada");
+  const projectId = project.id;
   return prisma.periodReview.upsert({
     where: { userId_kind_periodStart: { userId, kind, periodStart: start } },
-    create: { userId, projectId, kind, periodStart: start, periodEnd: periodFor(kind).end },
+    create: { userId, projectId, kind, periodStart: start, periodEnd: periodFor(kind, new Date(), await userTimezone(userId)).end },
     update: {},
     include: { project: { select: { name: true } } },
   });
@@ -161,14 +166,14 @@ export async function closeReview(userId: string, kind: ReviewKind, req?: Reques
 export async function correctReview(userId: string, kind: ReviewKind, req?: Request) {
   const review = await getOrCreateReview(userId, kind);
   if (review.status !== "CLOSED") throw new ApiError(400, "Review belum ditutup");
-  const { start, end } = periodFor(kind);
+  const { end } = periodFor(kind, new Date(), await userTimezone(userId));
   const projectId = review.projectId;
   const correction = await prisma.periodReview.create({
     data: {
       userId,
       projectId,
       kind,
-      periodStart: new Date(start.getTime() + 1), // unique key differs by 1ms
+      periodStart: new Date(review.periodStart.getTime() + 1), // next audited revision, original snapshot unchanged
       periodEnd: end,
       status: "OPEN",
       correctionOfId: review.id,
@@ -198,7 +203,7 @@ export async function refreshNotifications(userId: string) {
 
   const today = new Date();
   for (const kind of ["DAILY", "WEEKLY", "MONTHLY"] as const) {
-    const { start } = periodFor(kind);
+    const { start } = periodFor(kind, new Date(), await userTimezone(userId));
     const review = await prisma.periodReview.findUnique({
       where: { userId_kind_periodStart: { userId, kind, periodStart: start } },
     });

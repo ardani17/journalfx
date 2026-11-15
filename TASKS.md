@@ -2,6 +2,14 @@
 
 Status legend: ⬜ backlog · 🟡 in progress · ✅ done (issue Done in Linear + gates pass)
 
+## Verification — 16 November 2026
+
+- ✅ Bug terkonfirmasi pada perhitungan finansial, transaksi bersamaan, timezone, impor, review, dan Docker diperbaiki di working tree.
+- ✅ 93 tes unit/integrasi PostgreSQL, 13 E2E, lint, TypeScript, production build lokal/Docker, health check container dan smoke backup/restore fixture lulus.
+- ✅ 14 issue Linear diberi catatan verifikasi dan project update diterbitkan.
+- 🟡 Coverage PRD/integrasi produksi yang belum terbukti tetap dicatat terbuka. Lihat [laporan](docs/verification-2026-11-16.md) untuk bukti, batasan, dan tautan Linear. Kode belum di-release/deploy.
+- Pembuatan issue baru terhalang free issue limit Linear; backlog lanjutan dicatat dalam laporan.
+
 ## v0.1.0 — Foundation & UI shell (Milestone 01 — Foundation)
 
 - ✅ ARD-254 Initialize Next.js application and CI

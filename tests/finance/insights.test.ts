@@ -41,7 +41,7 @@ describe("journalInsights — explainable, evidence-backed", () => {
     const r = journalInsights(trades);
     const f = r.insights.find((i) => i.id === "fomo-impact");
     expect(f?.severity).toBe("warning");
-    expect(f?.title).toContain("-5.00 USD");
+    expect(f?.title).toContain("−$5,00");
   });
 
   it("missing SL flagged", () => {

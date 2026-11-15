@@ -11,6 +11,7 @@ export const wdRuleSchema = z.object({
 });
 
 export const wdRequestSchema = z.object({
+  accountId: z.string().min(1).optional(),
   amountUsd: z.coerce.number().positive(),
   note: z.string().trim().max(300).optional(),
 });
@@ -61,6 +62,8 @@ export const allocationSchema = z.object({
   periodEnd: isoDate,
   amount: z.coerce.number().positive(),
   note: z.string().trim().max(300).optional(),
+}).refine((value) => new Date(value.periodEnd) > new Date(value.periodStart), {
+  message: "Akhir periode harus setelah awal periode", path: ["periodEnd"],
 });
 
 export const bucketPercentSchema = z.object({

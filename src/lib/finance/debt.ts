@@ -66,6 +66,12 @@ export interface ProjectionResult {
 
 export function projectRepayment(input: ProjectionInput): ProjectionResult {
   const remaining0 = D(input.principalRemaining);
+  if (remaining0.lte(0)) {
+    return { complete: true, periods: 0, totalInterest: D(0), schedule: [], note: "Hutang sudah lunas" };
+  }
+  if (input.annualInterestRatePct == null) {
+    return { complete: false, periods: null, totalInterest: null, schedule: [], note: "Bunga belum diketahui — proyeksi belum lengkap (PRD)" };
+  }
   const r = input.annualInterestRatePct !== null && input.annualInterestRatePct !== undefined
     ? D(input.annualInterestRatePct).div(100).div(input.periodsPerYear)
     : null;

@@ -1,4 +1,4 @@
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, fmtUSD } from "@/lib/money";
 
 /**
  * Dynamic withdrawal engine — profit-only, high-water mark loss recovery.
@@ -95,10 +95,11 @@ export function wdRecommendation(input: WdRecommendationInput): WdRecommendation
     caps.byPeriodProfit = true;
   }
 
-  let recommended = Decimal.min(profitOnlyCap, cashCap);
+  const remainingAllowance = Decimal.max(profitOnlyCap.minus(taken), 0);
+  let recommended = Decimal.min(remainingAllowance, cashCap);
   if (needsCap !== null) {
     if (needsCap.lt(recommended)) caps.byNeeds = true;
-    recommended = Decimal.min(recommended, needsCap);
+    recommended = Decimal.min(recommended, Decimal.max(needsCap.minus(taken), 0));
   }
   if (profitOnlyCap.lte(recommended) && !profitOnlyCap.isZero()) caps.byRatio = true;
   if (cashCap.lt(profitOnlyCap)) caps.byCash = true;
@@ -108,13 +109,11 @@ export function wdRecommendation(input: WdRecommendationInput): WdRecommendation
   if (caps.byPeriodProfit || caps.byEligibility) {
     recommended = new Decimal(0);
   }
-  // subtract WD already taken this period
-  recommended = Decimal.max(recommended.minus(taken), new Decimal(0));
 
   if (recommended.isZero() && zeroReasons.length === 0) {
     zeroReasons.push("Rekomendasi menjadi 0 setelah batasan rasio/kebutuhan/kas/taken");
   }
-  if (taken.gt(0)) warnings.push(`Sudah ada WD ${taken.toFixed(2)} USD periode ini — dikurangkan dari rekomendasi`);
+  if (taken.gt(0)) warnings.push(`Sudah ada WD ${fmtUSD(taken)} periode ini — dikurangkan dari rekomendasi`);
 
   return {
     cumulativeProfit: cum,

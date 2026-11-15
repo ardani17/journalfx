@@ -1,9 +1,10 @@
+import { userTimezone } from "./time";
 import { Prisma, type LedgerEntryType } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
-import { D, Decimal } from "@/lib/money";
-import { startOfUTCDay, utcWeek } from "@/lib/dates";
+import { D, Decimal, fmtUSD0 } from "@/lib/money";
+import { startOfUTCDay, zonedPeriod } from "@/lib/dates";
 import type { CreateTransactionInput } from "@/lib/validation/ledger";
 
 /**
@@ -38,6 +39,18 @@ export interface TransactionFilter {
   to?: Date;
   limit?: number;
   offset?: number;
+}
+
+/** Reversals retain their event date while inheriting the original's reporting type. */
+export async function attributedLedger(userId: string) {
+  const rows = await prisma.accountTransaction.findMany({
+    where: { userId }, orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
+  });
+  const originals = new Map(rows.map((r) => [r.id, r]));
+  return rows.map((row) => {
+    const original = row.reversalOfId ? originals.get(row.reversalOfId) : undefined;
+    return original ? { ...row, type: original.type, sourceTradeId: original.sourceTradeId } : row;
+  });
 }
 
 export async function listTransactions(userId: string, filter: TransactionFilter) {
@@ -245,7 +258,7 @@ export interface WeeklySummary {
 }
 
 export async function weeklySummary(userId: string, at = new Date()): Promise<WeeklySummary> {
-  const { start, end } = utcWeek(at);
+  const { start, end } = zonedPeriod("WEEKLY", at, await userTimezone(userId));
   const opening = await computeBalance(userId, undefined, start);
   const rows = await prisma.accountTransaction.findMany({
     where: { userId, occurredAt: { gte: start, lt: end } },
@@ -319,8 +332,8 @@ export async function checkMilestones(userId: string) {
         data: {
           userId,
           kind: "milestone",
-          title: `Milestone tercapai: ${m.label ?? `$${m.amount}`}`,
-          body: `Balance telah mencapai $${Number(m.amount).toLocaleString("en-US")}.`,
+          title: `Milestone tercapai: ${fmtUSD0(m.amount)}`,
+          body: `Balance telah mencapai ${fmtUSD0(m.amount)}.`,
           severity: "INFO",
           link: "/roadmap",
         },

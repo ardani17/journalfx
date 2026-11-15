@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidTimezone } from "@/lib/dates";
 
 export const loginSchema = z.object({
   email: z.string().trim().toLowerCase().email("Email tidak valid"),
@@ -14,7 +15,7 @@ export const onboardSchema = z.object({
     .max(128)
     .regex(/[A-Za-z]/, "Password harus mengandung huruf")
     .regex(/[0-9]/, "Password harus mengandung angka"),
-  timezone: z.string().default("Asia/Jakarta"),
+  timezone: z.string().refine(isValidTimezone, "Timezone tidak valid").default("Asia/Jakarta"),
   locale: z.enum(["id", "en"]).default("id"),
   initialCapital: z.coerce.number().positive("Modal awal harus positif"),
   targetAmount: z.coerce.number().positive("Target harus positif").default(1_000_000),
@@ -33,7 +34,7 @@ export const changePasswordSchema = z.object({
 
 export const updateProfileSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
-  timezone: z.string().min(1).max(64).optional(),
+  timezone: z.string().min(1).max(64).refine(isValidTimezone, "Timezone tidak valid").optional(),
   locale: z.enum(["id", "en"]).optional(),
 });
 

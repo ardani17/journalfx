@@ -7,7 +7,8 @@ export async function GET(req: Request) {
   try {
     const user = await requireUser();
     const kind = (new URL(req.url).searchParams.get("kind") ?? "WEEKLY") as "DAILY" | "WEEKLY" | "MONTHLY";
-    return ok(await getOrCreateReview(user.id, kind));
+    const validated = reviewActionSchema.shape.kind.parse(kind);
+    return ok(await getOrCreateReview(user.id, validated));
   } catch (e) {
     return handleRouteError(e);
   }

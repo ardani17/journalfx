@@ -62,9 +62,13 @@ function norm(h: string): string {
 
 function num(v: string | undefined): number {
   if (!v) return 0;
-  const cleaned = v.replace(/\s/g, "").replace(/\.(?=\d{3}\b)/g, "").replace(",", ".");
+  let cleaned = v.replace(/\s/g, "");
+  if (cleaned.includes(",") && cleaned.includes(".")) {
+    cleaned = cleaned.lastIndexOf(",") > cleaned.lastIndexOf(".")
+      ? cleaned.replace(/\./g, "").replace(",", ".") : cleaned.replace(/,/g, "");
+  } else if (cleaned.includes(",")) cleaned = cleaned.replace(",", ".");
   const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) ? n : NaN;
 }
 
 /** MT4: "2026.01.20 08:30" / MT5: "2026.01.20 08:30:59" / ISO */
@@ -75,7 +79,9 @@ function parseTime(v: string | undefined): string | undefined {
   const m1 = s.match(/^(\d{4})[.\-/](\d{2})[.\-/](\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/);
   if (m1) {
     const [, y, mo, d, h, mi, se] = m1;
-    return new Date(Date.UTC(+y!, +mo! - 1, +d!, +h!, +mi!, se ? +se : 0)).toISOString();
+    const parsed = new Date(Date.UTC(+y!, +mo! - 1, +d!, +h!, +mi!, se ? +se : 0));
+    if (parsed.getUTCMonth() !== +mo! - 1 || parsed.getUTCDate() !== +d! || +h! > 23 || +mi! > 59 || +(se ?? 0) > 59) return undefined;
+    return parsed.toISOString();
   }
   const d = new Date(s);
   return isNaN(d.getTime()) ? undefined : d.toISOString();
@@ -180,12 +186,16 @@ export function parseStatementCsv(text: string): ParseResult {
       continue;
     }
     const closeTime = parseTime(c.closeTime >= 0 ? (cols[c.closeTime] ?? undefined) : undefined);
+    const openTime = parseTime(c.openTime >= 0 ? cols[c.openTime] : undefined);
+    if (!openTime || (c.closeTime >= 0 && cols[c.closeTime]?.trim() && !closeTime)) {
+      errors.push(`Baris ${i + 1}: tanggal transaksi tidak valid`); skipped++; continue;
+    }
     const base: ParsedTradeRow = {
       ticket,
       symbol,
       direction: isBuy ? "LONG" : "SHORT",
       lot: num(c.size >= 0 ? cols[c.size] : undefined),
-      openTime: parseTime(c.openTime >= 0 ? cols[c.openTime] : undefined) ?? new Date().toISOString(),
+      openTime,
       openPrice: num(priceIn >= 0 ? cols[priceIn] : undefined),
       closeTime,
       closePrice: priceOutFinal >= 0 ? num(cols[priceOutFinal]) || undefined : undefined,
@@ -196,6 +206,12 @@ export function parseStatementCsv(text: string): ParseResult {
       fees: num(c.taxes >= 0 ? cols[c.taxes] : undefined),
       profit: num(c.profit >= 0 ? cols[c.profit] : undefined),
     };
+
+    if (!Number.isFinite(base.lot) || base.lot <= 0 || !Number.isFinite(base.openPrice) || base.openPrice <= 0 ||
+        ![base.commission, base.swap, base.fees, base.profit].every(Number.isFinite) ||
+        (closeTime && (!base.closePrice || !Number.isFinite(base.closePrice)))) {
+      errors.push(`Baris ${i + 1}: angka transaksi tidak valid`); skipped++; continue;
+    }
 
     if (directionCol >= 0) {
       const dirRaw = (cols[directionCol] ?? "").toLowerCase();
@@ -224,11 +240,19 @@ export function parseStatementCsv(text: string): ParseResult {
         continue;
       }
       const list = openBySymbol.get(raw.row.symbol);
-      const match = list?.shift();
+      const matchIndex = list?.findIndex((entry) => entry.row.direction !== raw.row.direction) ?? -1;
+      const match = matchIndex >= 0 ? list?.[matchIndex] : undefined;
       if (!match) {
         skipped++; // closing deal without matching entry — skip
         continue;
       }
+      if (Math.abs(match.row.lot - raw.row.lot) > 1e-9) {
+        // The simple paired-trade importer cannot reconstruct partial deal chains.
+        // Reject the statement rather than realize the entire entry quantity.
+        return { platform, rows: [], skipped: lines.length - headerIdx - 1,
+          errors: [...errors, "Statement MT5 berisi partial deal dengan volume berbeda. Gunakan jurnal partial close manual; file ini tidak diimpor agar P&L tidak salah."] };
+      }
+      list!.splice(matchIndex, 1);
       rows.push({
         ...match.row,
         ticket: `${match.row.ticket}-${raw.row.ticket}`, // stable pair key for dedupe

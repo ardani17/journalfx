@@ -54,7 +54,9 @@ export async function importStatement(
       continue;
     }
 
-    const trade = await createTrade(userId, {
+    const existingTrade = await prisma.trade.findFirst({ where: { userId, accountId: account.id, ticket: row.ticket } });
+    if (existingTrade && !row.closeTime) { report.duplicates++; continue; }
+    const trade = existingTrade ?? await createTrade(userId, {
       accountId: account.id,
       instrumentId: instrument.id,
       direction: row.direction,
@@ -64,9 +66,9 @@ export async function importStatement(
       initialStopLoss: row.stopLoss,
       initialTakeProfit: row.takeProfit,
       ticket: row.ticket,
-      commission: row.commission,
-      swap: row.swap,
-      fees: row.fees,
+      commission: Math.abs(row.commission),
+      swap: -row.swap, // broker cash-flow convention → expense convention (credits stay negative)
+      fees: Math.abs(row.fees),
     });
 
     if (row.closeTime && row.closePrice !== undefined) {

@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { EventsPanel } from "./events-panel";
 import { listEvents } from "@/server/services/economic-events";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { calendarDate, zonedPeriod } from "@/lib/dates";
 
 export const metadata = { title: "Kalender Trading" };
 
@@ -23,18 +24,18 @@ export default async function CalendarPage({
 }) {
   const user = await requireUser();
   const { m } = await searchParams;
-  const now = new Date();
+  const now = calendarDate(new Date(), user.timezone);
   const [yy, mm] = m && /^\d{4}-\d{2}$/.test(m)
     ? m.split("-").map(Number) as [number, number]
     : [now.getUTCFullYear(), now.getUTCMonth() + 1];
 
-  const from = new Date(Date.UTC(yy, mm - 1, 1));
-  const to = new Date(Date.UTC(yy, mm, 1));
+  const month = new Date(Date.UTC(yy, mm - 1, 15));
+  const { start: from, end: to } = zonedPeriod("MONTHLY", month, user.timezone);
   const days = await dailyPnl(user.id, from, to);
   const events = await listEvents(user.id, { from, to });
 
   // calendar grid: Monday-first
-  const lead = (from.getUTCDay() + 6) % 7;
+  const lead = (calendarDate(from, user.timezone).getUTCDay() + 6) % 7;
   const cells: ({ date: string; pnl: number; trades: number; day: number } | null)[] = [];
   for (let i = 0; i < lead; i++) cells.push(null);
   for (const d of days) cells.push({ ...d, day: Number(d.date.slice(8)) });

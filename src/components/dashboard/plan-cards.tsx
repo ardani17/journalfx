@@ -1,9 +1,9 @@
 import { CreditCard, PiggyBank, Target, Wallet } from "lucide-react";
-import { fmtIDR, fmtUSD } from "@/lib/money";
+import { fmtIDR, fmtUSD, fmtUSD0 } from "@/lib/money";
 import type { Decimal } from "@/lib/money";
 
 export interface PlanCardsData {
-  nextMilestone: { amount: Decimal; label: string | null } | null;
+  nextMilestone: { amount: Decimal } | null;
   wdRecommended: Decimal | null;
   monthlyNeedsIdr: Decimal | null;
   debtRemainingIdr: Decimal | null;
@@ -27,7 +27,7 @@ export function PlanCards({ data }: { data: PlanCardsData }) {
             {data.nextMilestone ? fmtUSD(data.nextMilestone.amount) : "—"}
           </p>
           <p className="mt-1 text-[11px] text-primary/80">
-            {data.nextMilestone?.label ? `Milestone ${data.nextMilestone.label}` : "Belum ada milestone"}
+            {data.nextMilestone ? `Milestone ${fmtUSD0(data.nextMilestone.amount)}` : "Belum ada milestone"}
           </p>
         </div>
 

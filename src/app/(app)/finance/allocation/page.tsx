@@ -22,7 +22,7 @@ export default async function AllocationPage() {
     <PageShell>
       <PageHeader
         title="Alokasi Profit"
-        subtitle="Bagi profit realisasi ke bucket sesuai prioritas — satu alokasi per bucket per periode (anti alokasi ganda)."
+        subtitle="Alokasikan dana withdrawal yang sudah diterima ke bucket sesuai prioritas."
         actions={
           totalAllocated > 0 ? (
             <Badge tone="success">Total teralokasi: ${totalAllocated.toLocaleString("id-ID", { maximumFractionDigits: 2 })}</Badge>

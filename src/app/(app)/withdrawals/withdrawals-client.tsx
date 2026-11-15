@@ -6,13 +6,14 @@ import { CheckCircle2, Pencil, Wallet, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Field, Input, Textarea } from "@/components/ui/field";
+import { Field, Input, Textarea, Select } from "@/components/ui/field";
 import { Dialog } from "@/components/ui/misc";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
 import { fmtIDR, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
 
 interface Props {
+  accounts: { id: string; name: string }[];
   rec: {
     eligible: string;
     recommended: string;
@@ -219,6 +220,7 @@ export function WithdrawalsClient(props: Props) {
             const fd = new FormData(e.currentTarget);
             const done = await call("/api/withdrawals", "POST", {
               amountUsd: fd.get("amountUsd"),
+              accountId: fd.get("accountId"),
               note: fd.get("note") || undefined,
             });
             if (done) {
@@ -228,6 +230,11 @@ export function WithdrawalsClient(props: Props) {
           }}
           className="space-y-3"
         >
+          <Field label="Akun Sumber" htmlFor="wd-account">
+            <Select id="wd-account" name="accountId" required>
+              {props.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Select>
+          </Field>
           <Field label="Jumlah (USD)" htmlFor="wd-amt" hint={`Rekomendasi: ${fmtUSD(rec)}`}>
             <Input id="wd-amt" name="amountUsd" type="number" min="0.01" step="0.01" defaultValue={rec.toFixed(2)} required />
           </Field>

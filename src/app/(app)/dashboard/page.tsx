@@ -178,9 +178,7 @@ export default async function DashboardPage() {
 
       <PlanCards
         data={{
-          nextMilestone: nextMilestone
-            ? { amount: D(nextMilestone.amount), label: nextMilestone.label ?? fmtNum(D(nextMilestone.amount), 0) }
-            : null,
+          nextMilestone: nextMilestone ? { amount: D(nextMilestone.amount) } : null,
           wdRecommended: wdBundle.recommendation.recommended,
           monthlyNeedsIdr,
           debtRemainingIdr: debtOriginal.isZero() ? null : debtRemaining,

@@ -58,6 +58,18 @@ test("a11y: key interactive elements have accessible names; no title overflow at
   await expect(page.getByRole("banner")).toBeVisible();
 });
 
+test("allocation percentages are configurable and invalid review kinds return 400", async ({ page }) => {
+  await login(page);
+  await page.goto("/finance/allocation");
+  await expect(page.getByRole("button", { name: "Simpan Persentase" })).toBeVisible();
+  expect(await page.locator('input[id^="pct-"]').count()).toBeGreaterThan(0);
+  const response = await page.request.get("/api/reviews?kind=INVALID");
+  expect(response.status()).toBe(400);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: "test-results/allocation-mobile.png", fullPage: true });
+});
+
 test.describe("visual QA evidence (1440/1280/390)", () => {
   for (const vp of [
     { name: "1440x900", width: 1440, height: 900 },
