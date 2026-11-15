@@ -5,15 +5,18 @@ import { mt5SyncStatus } from "@/server/services/mt5-sync";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { SettingsClient } from "./settings-client";
 import { Mt5SyncSection } from "./mt5-sync-section";
+import { NotifyChannelSection } from "./notify-channel-section";
+import { channelConfig } from "@/server/services/notify-channels";
 
 export const metadata = { title: "Pengaturan" };
 
 export default async function SettingsPage() {
   const user = await requireUser();
-  const [project, accounts, syncStatus] = await Promise.all([
+  const [project, accounts, syncStatus, channels] = await Promise.all([
     getDefaultProject(user.id),
     listAccounts(user.id),
     mt5SyncStatus(user.id),
+    channelConfig(user.id),
   ]);
   return (
     <PageShell>
@@ -35,6 +38,7 @@ export default async function SettingsPage() {
           staleHours: syncStatus.staleHours,
         }}
       />
+      <NotifyChannelSection initial={channels} />
     </PageShell>
   );
 }
