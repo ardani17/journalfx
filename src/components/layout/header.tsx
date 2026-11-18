@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "react";
 import { Bell, ChevronDown, LogOut, Menu, Settings, User } from "lucide-react";
 import { MOBILE_NAV } from "./nav";
 import { SidebarContent } from "./sidebar";
+import { BrandLogo } from "./brand-logo";
+import { APP_NAME } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { useUnreadNotifications } from "@/components/providers";
 
@@ -50,6 +52,11 @@ export function Header({
         >
           <Menu className="h-5 w-5" />
         </button>
+
+        <Link href="/dashboard" className="flex min-w-0 items-center gap-2 lg:hidden">
+          <BrandLogo mark />
+          <span className="truncate text-sm font-bold">{APP_NAME}</span>
+        </Link>
 
         <div className="ml-auto flex items-center gap-2">
           <span className="tnum hidden rounded-lg border border-line bg-panel px-3 py-1.5 text-xs text-muted sm:block">

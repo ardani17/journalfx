@@ -3,6 +3,7 @@ import { requireUser } from "@/server/auth";
 import { channelConfig, dispatchNotification, getChannel, sendTestMessage, updateChannel } from "@/server/services/notify-channels";
 import { prisma } from "@/server/db";
 import { handleRouteError, ok, parseBody } from "@/lib/api";
+import { APP_NAME } from "@/lib/brand";
 
 const channelSchema = z.object({
   telegramBotToken: z.string().trim().max(200).nullable().optional(),
@@ -40,7 +41,7 @@ export async function POST() {
       data: {
         userId: user.id,
         kind: "journal",
-        title: "Tes notifikasi MDTP",
+        title: `Tes notifikasi ${APP_NAME}`,
         body: "Jika Anda menerima pesan ini di Telegram, channel aktif.",
         severity: "INFO",
       },

@@ -16,9 +16,9 @@ datasource db {
 
 model User {
   id           String   @id @default(cuid())
-  email        String   @unique
+  email        String
   name         String
-  passwordHash String
+  googleSubject String  @unique
   timezone     String   @default("Asia/Jakarta")
   locale       String   @default("id") // "id" | "en"
   createdAt    DateTime @default(now())
@@ -48,7 +48,6 @@ model User {
   economicEvents     EconomicEvent[]
   auditLogs          AuditLog[]
 
-  @@index([email])
 }
 
 // ─────────────────────────────── Trading ───────────────────────────────

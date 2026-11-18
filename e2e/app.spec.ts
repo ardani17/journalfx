@@ -1,19 +1,40 @@
 import { expect, test, type Page } from "@playwright/test";
+import { PrismaClient } from "@prisma/client";
+import { SESSION_COOKIE, signSession } from "../src/lib/session";
 
-/**
- * E2E + visual QA evidence against the local production build.
- * Uses the private onboarding test account (test-env fixture only).
- */
-const TEST_EMAIL = process.env.E2E_EMAIL ?? "ardani@local.app";
-const TEST_PASSWORD = process.env.E2E_PASSWORD ?? "rahasia123";
+const prisma = new PrismaClient();
+test.afterAll(() => prisma.$disconnect());
 
 async function login(page: Page) {
-  await page.goto("/login");
-  await page.getByRole("textbox", { name: "Email" }).fill(TEST_EMAIL);
-  await page.getByRole("textbox", { name: "Password" }).fill(TEST_PASSWORD);
-  await page.getByRole("button", { name: "Masuk" }).click();
+  // OAuth protocol tests use a signed provider fixture. These UI tests exercise an already authenticated test session.
+  const user = await prisma.user.findUniqueOrThrow({ where: { googleSubject: "horizon-journal-demo" } });
+  const base = test.info().project.use.baseURL!;
+  await page.context().addCookies([{
+    url: base,
+    name: SESSION_COOKIE,
+    value: await signSession({ sub: user.id, email: user.email, name: user.name }),
+    httpOnly: true,
+    secure: new URL(base).protocol === "https:",
+    sameSite: "Lax",
+  }]);
+  await page.goto("/dashboard");
   await page.waitForURL("**/dashboard");
 }
+
+test("public entry points offer only Google sign-in and expose policy pages", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Masuk dengan Google" })).toBeVisible();
+  await expect(page.locator("input[type=password]")).toHaveCount(0);
+  await page.getByRole("link", { name: "Kebijakan Privasi" }).click();
+  await expect(page.getByRole("heading", { name: "Kebijakan Privasi Horizon Journal" })).toBeVisible();
+  await page.getByRole("link", { name: "Ketentuan Penggunaan" }).click();
+  await expect(page.getByRole("heading", { name: "Ketentuan Penggunaan Horizon Journal" })).toBeVisible();
+  for (const path of ["/api/auth/login", "/api/onboard"]) {
+    const response = await page.request.post(path, { data: { email: "test@example.com", password: "test" } });
+    expect([401, 404, 405]).toContain(response.status());
+    expect(response.headers()["set-cookie"]).toBeUndefined();
+  }
+});
 
 test("security: unauthenticated routes redirect to /login", async ({ page }) => {
   await page.goto("/dashboard");
@@ -39,8 +60,8 @@ test("login → dashboard renders ledger-driven KPIs", async ({ page }) => {
   await expect(page.getByText("Balance Saat Ini")).toBeVisible();
   await expect(page.getByText("Progress Target")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rencana & Target" })).toBeVisible();
-  // banner
-  await expect(page.getByText("Million Dollar Trading Project").first()).toBeVisible();
+  await expect(page).toHaveTitle("Dashboard · Horizon Journal");
+  await expect(page.getByRole("link", { name: "Horizon Journal" })).toBeVisible();
 });
 
 test("journal list + analytics + calendar + finance pages render", async ({ page }) => {

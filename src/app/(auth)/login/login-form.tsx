@@ -1,37 +1,29 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Image from "next/image";
+import Link from "next/link";
 import { useState } from "react";
-import { TrendingUp } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/field";
+import googleLogo from "@/assets/google-g.png";
+import { BrandLogo } from "@/components/layout/brand-logo";
+import { APP_NAME } from "@/lib/brand";
 
-export function LoginForm() {
-  const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+export function LoginForm({ enabled, initialError }: { enabled: boolean; initialError?: string }) {
+  const [error, setError] = useState(initialError);
   const [loading, setLoading] = useState(false);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
+  async function startGoogleLogin() {
+    setError(undefined);
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+      const res = await fetch("/api/auth/google/start", { method: "POST", cache: "no-store" });
       const body = await res.json();
       if (!res.ok || !body.ok) {
-        setError(body.error ?? "Login gagal");
+        setError(body.error ?? "Login Google gagal dimulai.");
         return;
       }
-      router.push("/dashboard");
-      router.refresh();
+      window.location.assign(body.data.authorizationUrl);
     } catch {
-      setError("Tidak dapat menghubungi server");
+      setError("Tidak dapat menghubungi layanan login.");
     } finally {
       setLoading(false);
     }
@@ -41,55 +33,31 @@ export function LoginForm() {
     <main className="flex min-h-screen items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center gap-2 text-center">
-          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-[#0d9488] shadow-[0_0_24px_rgba(34,230,154,0.35)]">
-            <TrendingUp className="h-6 w-6 text-[#06281a]" aria-hidden />
-          </span>
-          <h1 className="text-xl font-extrabold tracking-wide">MDTP</h1>
-          <p className="text-xs text-muted">Million Dollar Trading Project</p>
+          <BrandLogo />
+          <h1 className="text-xl font-extrabold tracking-wide">{APP_NAME}</h1>
+          <p className="text-sm text-muted">Catat trade, pantau performa, dan rencanakan keuangan dalam jurnal pribadi Anda.</p>
         </div>
 
-        <form
-          onSubmit={submit}
-          className="space-y-4 rounded-[14px] border border-line bg-panel p-5"
-          aria-label="Formulir login"
-        >
-          <Field label="Email" htmlFor="email">
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="nama@email.com"
-            />
-          </Field>
-          <Field label="Password" htmlFor="password">
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-            />
-          </Field>
+        <div className="space-y-4 rounded-[14px] border border-line bg-panel p-5 text-center">
+          <button
+            type="button"
+            onClick={startGoogleLogin}
+            disabled={!enabled || loading}
+            className="inline-flex h-10 items-center justify-center gap-3 rounded border border-[#747775] bg-white px-3 text-sm font-medium text-[#1f1f1f] hover:bg-[#f8f9fa] disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Image src={googleLogo} width={18} height={18} alt="" />
+            {loading ? "Membuka Google…" : "Masuk dengan Google"}
+          </button>
           {error ? (
-            <p className="rounded-lg border border-loss/30 bg-loss/10 px-3 py-2 text-xs text-loss" role="alert">
-              {error}
-            </p>
+            <p className="text-xs text-loss" role="alert">{error}</p>
           ) : null}
-          <Button type="submit" className="w-full" size="lg" disabled={loading}>
-            {loading ? "Memproses…" : "Masuk"}
-          </Button>
-        </form>
+          {!enabled ? <p className="text-xs text-muted">Login Google menunggu konfigurasi server.</p> : null}
+        </div>
 
-        <p className="mt-4 text-center text-[11px] leading-relaxed text-faint">
-          Aplikasi pribadi. Protect Capital. Trade with Discipline.
-          <br />
-          Withdraw Based on Needs. Compound the Rest.
-        </p>
+        <nav aria-label="Informasi layanan" className="mt-4 flex justify-center gap-4 text-xs text-muted">
+          <Link href="/privacy" className="underline underline-offset-2">Kebijakan Privasi</Link>
+          <Link href="/terms" className="underline underline-offset-2">Ketentuan Penggunaan</Link>
+        </nav>
       </div>
     </main>
   );

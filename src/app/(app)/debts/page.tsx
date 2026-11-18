@@ -9,12 +9,15 @@ import { Progress } from "@/components/ui/misc";
 import { DebtsClient } from "./debts-client";
 import { fmtIDR } from "@/lib/money";
 import { CreditCard } from "lucide-react";
+import { getJisdorQuote } from "@/server/services/jisdor";
+import { JisdorRateNote } from "@/components/finance/jisdor-rate-note";
+import { formatFxEstimate } from "@/lib/finance/exchange";
 
 export const metadata = { title: "Hutang" };
 
 export default async function DebtsPage() {
   const user = await requireUser();
-  const debts = await listDebts(user.id);
+  const [debts, fx] = await Promise.all([listDebts(user.id), getJisdorQuote()]);
 
   const totalOriginal = debts.reduce((s, d) => s.add(D(d.principalOriginal)), new Decimal(0));
   const totalRemaining = debts.reduce((s, d) => s.add(D(d.principalRemaining)), new Decimal(0));
@@ -68,6 +71,8 @@ export default async function DebtsPage() {
           <CardContent className="p-4">
             <p className="text-xs text-muted">Sisa Hutang</p>
             <p className="tnum text-2xl font-bold text-loss">{fmtIDR(totalRemaining)}</p>
+            {fx ? <p className="tnum mt-1 text-sm text-ink">{formatFxEstimate(totalRemaining, "IDR", fx)}</p> : null}
+            <JisdorRateNote quote={fx} />
             <p className="mt-1 text-[11px] text-faint">Pembayaran mengurangi pokok saja — bunga & biaya dicatat terpisah</p>
           </CardContent>
         </Card>

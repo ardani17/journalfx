@@ -30,7 +30,7 @@ const nextConfig = {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },
   outputFileTracingRoot: fileURLToPath(new URL(".", import.meta.url)),
-  serverExternalPackages: ["@prisma/client", "bcryptjs"],
+  serverExternalPackages: ["@prisma/client"],
 };
 
 export default nextConfig;

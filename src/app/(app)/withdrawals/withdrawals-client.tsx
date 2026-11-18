@@ -9,8 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { Field, Input, Textarea, Select } from "@/components/ui/field";
 import { Dialog } from "@/components/ui/misc";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
-import { fmtIDR, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
+import { D, fmtIDR, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
+import { formatFxEstimate, parseConversionAmount, type JisdorQuote } from "@/lib/finance/exchange";
+import { JisdorRateNote } from "@/components/finance/jisdor-rate-note";
 
 interface Props {
   accounts: { id: string; name: string }[];
@@ -25,13 +27,12 @@ interface Props {
     caps: { byRatio: boolean; byNeeds: boolean; byCash: boolean; byPeriodProfit: boolean; byEligibility: boolean };
   };
   rule: { maxWdRatio: string; needsTargetIdr: string | null; reserveUsd: string };
-  needsWeeklyUsd: string | null;
   cumulativePnl: string;
   hwm: string;
   periodProfit: string;
   periodTaken: string;
   availableCash: string;
-  latestFx: { rate: string; at: string } | null;
+  latestFx: JisdorQuote | null;
   history: {
     id: string; status: string; amountUSD: string; fxRate: string | null;
     receivedAmount: string | null; fees: string | null; note: string | null;
@@ -43,6 +44,7 @@ export function WithdrawalsClient(props: Props) {
   const router = useRouter();
   const [ruleOpen, setRuleOpen] = useState(false);
   const [wdOpen, setWdOpen] = useState(false);
+  const [amountUsd, setAmountUsd] = useState("");
   const [completeId, setCompleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -73,7 +75,9 @@ export function WithdrawalsClient(props: Props) {
     }
   }
 
-  const rec = Number(props.rec.recommended);
+  const rec = D(props.rec.recommended);
+  const amount = parseConversionAmount(amountUsd);
+  const previewIdr = amount && amount.gt(0) ? formatFxEstimate(amount, "USD", props.latestFx) : null;
 
   return (
     <>
@@ -87,7 +91,8 @@ export function WithdrawalsClient(props: Props) {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="tnum text-3xl font-extrabold text-primary">{fmtUSD(rec)}</p>
-            {props.rec.zeroReasons.length > 0 && Number(props.rec.recommended) === 0 ? (
+            {props.latestFx ? <p className="tnum text-sm text-ink">{formatFxEstimate(rec, "USD", props.latestFx)}</p> : null}
+            {props.rec.zeroReasons.length > 0 && rec.isZero() ? (
               <div className="rounded-lg border border-line bg-panel-2/60 p-2.5">
                 {props.rec.zeroReasons.map((z) => (
                   <p key={z} className="text-[11px] leading-relaxed text-muted">• {z}</p>
@@ -98,7 +103,7 @@ export function WithdrawalsClient(props: Props) {
               <p key={w} className="rounded-lg border border-warn/30 bg-warn/10 px-2.5 py-1.5 text-[11px] text-warn">⚠ {w}</p>
             ))}
             <div className="flex gap-2">
-              <Button onClick={() => setWdOpen(true)} disabled={loading || rec <= 0}>
+              <Button onClick={() => { setAmountUsd(rec.toFixed(2)); setWdOpen(true); }} disabled={loading || rec.lte(0)}>
                 <Wallet className="h-4 w-4" aria-hidden /> Ajukan WD
               </Button>
               <Button variant="purple" onClick={() => setRuleOpen(true)}>
@@ -120,7 +125,9 @@ export function WithdrawalsClient(props: Props) {
             <Row label="Profit Minggu Ini" value={fmtUSDdelta(props.periodProfit)} tone={Number(props.periodProfit) >= 0 ? "pos" : "neg"} />
             <Row label="Sudah Diambil Minggu Ini" value={fmtUSD(props.periodTaken)} />
             <Row label="Kas Tersedia" value={fmtUSD(props.availableCash)} />
-            <Row label="Kurs USDIDR Terakhir" value={props.latestFx ? `${fmtNum(Number(props.latestFx.rate), 0)} (${fmtDateID(props.latestFx.at, "d MMM")})` : "—"} />
+            <div className="col-span-2 border-t border-line pt-2">
+              <JisdorRateNote quote={props.latestFx} />
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -236,8 +243,11 @@ export function WithdrawalsClient(props: Props) {
             </Select>
           </Field>
           <Field label="Jumlah (USD)" htmlFor="wd-amt" hint={`Rekomendasi: ${fmtUSD(rec)}`}>
-            <Input id="wd-amt" name="amountUsd" type="number" min="0.01" step="0.01" defaultValue={rec.toFixed(2)} required />
+            <Input id="wd-amt" name="amountUsd" type="number" min="0.01" step="0.01" value={amountUsd} onChange={(event) => setAmountUsd(event.target.value)} required />
           </Field>
+          <output htmlFor="wd-amt" className="tnum block text-xs text-muted">
+            Estimasi pencairan: {previewIdr ?? "—"}
+          </output>
           <Field label="Catatan" htmlFor="wd-note">
             <Textarea id="wd-note" name="note" rows={2} />
           </Field>

@@ -1,14 +1,21 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { prisma } from "@/server/db";
-import { createTrade, addExecution } from "@/server/services/trades";
+import { createTrade, addExecution, getTrade, listTrades } from "@/server/services/trades";
 import { computeBalance } from "@/server/services/ledger";
 import { dailyPnl, coreMetrics } from "@/server/services/analytics";
 import { allocateProfit, budgetOverview, payDebt } from "@/server/services/finance";
-import { completeWithdrawal, requestWithdrawal } from "@/server/services/withdrawals";
+import { completeWithdrawal, getRecommendation, requestWithdrawal } from "@/server/services/withdrawals";
 import { closeReview, correctReview, getOrCreateReview, saveReviewFields } from "@/server/services/reviews";
 import { importStatement } from "@/server/services/imports";
+import { findOrCreateGoogleUser } from "@/server/services/users";
+import { readAttachment } from "@/server/services/attachments";
+import { getAccount, updateAccount } from "@/server/services/accounts";
+
+vi.mock("@/server/services/jisdor", () => ({
+  getJisdorQuote: async () => ({ rate: "18252", at: new Date().toISOString(), source: "bi-jisdor", status: "latest" }),
+}));
 
 // Explicit opt-in: temporary, uniquely named fixtures only; deleted by their IDs.
 describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integration", () => {
@@ -27,13 +34,47 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     await prisma.$disconnect();
   });
   async function fixture() {
-    const user = await prisma.user.create({ data: { email: `qa-${randomUUID()}@example.invalid`, name: "Temporary QA", passwordHash: "disabled-fixture" } });
+    const user = await prisma.user.create({ data: { email: `qa-${randomUUID()}@example.invalid`, name: "Temporary QA", googleSubject: `qa-${randomUUID()}` } });
     fixtureIds.push(user.id);
     const project = await prisma.project.create({ data: { userId: user.id, name: "QA", initialCapital: 200 } });
     const account = await prisma.tradingAccount.create({ data: { userId: user.id, projectId: project.id, name: "QA" } });
     await prisma.accountTransaction.create({ data: { userId: user.id, accountId: account.id, type: "DEPOSIT", amount: 200, occurredAt: new Date("2026-01-01") } });
     return { userId: user.id, projectId: project.id, accountId: account.id };
   }
+
+  it("provisions one empty private journal per Google subject even with concurrent sign-ins or shared email text", async () => {
+    const identity = { subject: `google-${randomUUID()}`, name: "OAuth Tester", email: "same@example.com" };
+    const owners = await Promise.all([findOrCreateGoogleUser(identity), findOrCreateGoogleUser(identity)]);
+    const first = owners[0]!;
+    fixtureIds.push(first.id);
+    expect(owners[1]?.id).toBe(first.id);
+    const second = await findOrCreateGoogleUser({ ...identity, subject: `google-${randomUUID()}` });
+    fixtureIds.push(second.id);
+    expect(second.id).not.toBe(first.id);
+    expect((await findOrCreateGoogleUser({ ...identity, email: "changed@example.com" })).id).toBe(first.id);
+
+    const workspace = await prisma.user.findUniqueOrThrow({ where: { id: first.id }, include: {
+      projects: { include: { accounts: true, buckets: true } }, riskSettings: true,
+    } });
+    expect(workspace.projects).toHaveLength(1);
+    expect(workspace.projects[0]?.accounts).toHaveLength(1);
+    expect(workspace.projects[0]?.buckets).toHaveLength(6);
+    expect(workspace.riskSettings).not.toBeNull();
+    expect((await computeBalance(first.id)).balance.isZero()).toBe(true);
+
+    const accountId = workspace.projects[0]!.accounts[0]!.id;
+    const trade = await createTrade(first.id, { accountId, instrumentId, direction: "LONG", lot: 0.1,
+      entryPrice: 2000, entryAt: new Date().toISOString(), commission: 0, swap: 0, fees: 0 });
+    const attachment = await prisma.tradeAttachment.create({ data: {
+      tradeId: trade.id, kind: "ENTRY", fileName: "private.png", mimeType: "image/png", sizeBytes: 12,
+      storagePath: "test-only-do-not-read/private.png",
+    } });
+    await expect(getTrade(second.id, trade.id)).rejects.toMatchObject({ status: 404 });
+    await expect(getAccount(second.id, accountId)).rejects.toMatchObject({ status: 404 });
+    await expect(updateAccount(second.id, accountId, { name: "Foreign edit" })).rejects.toMatchObject({ status: 404 });
+    await expect(readAttachment(second.id, attachment.id)).rejects.toMatchObject({ status: 403 });
+    expect((await listTrades(second.id, { limit: 10, offset: 0 })).total).toBe(0);
+  });
 
   it("recognizes each partial close in its own period, including net entry costs", async () => {
     const f = await fixture();
@@ -98,12 +139,13 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     expect(Number((await prisma.debt.findUniqueOrThrow({ where: { id: debt.id } })).principalRemaining)).toBe(400);
   });
 
-  it("reserves the weekly withdrawal allowance only once under simultaneous requests", async () => {
+  it("accepts the rounded JISDOR recommendation only once under simultaneous requests", async () => {
     const f = await fixture();
-    await prisma.withdrawalRule.create({ data: { userId: f.userId, projectId: f.projectId, needsTargetIdr: 520000 } });
-    await prisma.exchangeRate.create({ data: { userId: f.userId, pair: "USDIDR", rate: 10000, at: new Date() } });
+    await prisma.withdrawalRule.create({ data: { userId: f.userId, projectId: f.projectId, needsTargetIdr: 320000 } });
     await prisma.accountTransaction.create({ data: { userId: f.userId, accountId: f.accountId, type: "REALIZED_PNL", amount: 10, occurredAt: new Date() } });
-    const results = await Promise.allSettled([1, 2].map(() => requestWithdrawal(f.userId, 5)));
+    const { recommendation } = await getRecommendation(f.userId);
+    expect(recommendation.recommended.toString()).toBe("4.04");
+    const results = await Promise.allSettled([1, 2].map(() => requestWithdrawal(f.userId, recommendation.recommended.toNumber())));
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
   });
 
@@ -118,6 +160,11 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     await allocateProfit(f.userId, { periodStart: "2026-11-01", periodEnd: "2026-11-08", amount: 50 });
     await receipt(10000);
     await allocateProfit(f.userId, { periodStart: "2026-11-08", periodEnd: "2026-11-15", amount: 50 });
+    await getRecommendation(f.userId, { rate: "19500", at: new Date().toISOString(), source: "bi-jisdor", status: "latest" });
+    const withdrawals = await prisma.withdrawal.findMany({ where: { userId: f.userId }, orderBy: { fxRate: "asc" } });
+    expect(withdrawals.map((w) => [w.fxRate?.toString(), w.receivedAmount?.toString()])).toEqual([
+      ["10000", "500000"], ["20000", "1000000"],
+    ]);
     const total = await prisma.financialTransaction.aggregate({ where: { userId: f.userId, kind: "ALLOCATION" }, _sum: { amount: true } });
     expect(Number(total._sum.amount)).toBe(1500000);
   });

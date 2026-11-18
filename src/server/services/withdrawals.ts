@@ -8,6 +8,8 @@ import { attributedLedger, computeBalance } from "./ledger";
 import { effectiveFinancialTransactions } from "./finance";
 import { zonedPeriod } from "@/lib/dates";
 import type { WdRecommendation } from "@/lib/finance/withdrawal";
+import { convertUsdIdr, type JisdorQuote } from "@/lib/finance/exchange";
+import { getJisdorQuote } from "./jisdor";
 
 /**
  * Withdrawal lifecycle service.
@@ -70,12 +72,15 @@ export interface RecommendationBundle {
   periodProfit: Decimal;
   periodTaken: Decimal;
   availableCash: Decimal;
-  latestFx: { rate: string; at: Date } | null;
+  latestFx: JisdorQuote | null;
 }
 
-export async function getRecommendation(userId: string): Promise<RecommendationBundle> {
-  const rule = await getActiveRule(userId);
-  const timezone = await userTimezone(userId);
+export async function getRecommendation(userId: string, quote?: JisdorQuote | null): Promise<RecommendationBundle> {
+  const [rule, timezone, fx] = await Promise.all([
+    getActiveRule(userId),
+    userTimezone(userId),
+    quote === undefined ? getJisdorQuote() : quote,
+  ]);
   const now = new Date();
   const { start: weekStart, end: weekEnd } = zonedPeriod("WEEKLY", now, timezone);
   const ledger = (await attributedLedger(userId)).filter((r) => r.occurredAt <= now);
@@ -127,13 +132,9 @@ export async function getRecommendation(userId: string): Promise<RecommendationB
   const outstanding = Decimal.max(planned.minus(funded).minus(otherIncome), 0);
   const outstandingDebt = Decimal.max(debtDue.minus(Decimal.max(debtFunds, paidDebt)), 0);
   const needsIdr = needsCapForWindow(outstanding, outstandingDebt);
-  const fx = await prisma.exchangeRate.findFirst({
-    where: { pair: "USDIDR", OR: [{ userId }, { userId: null }] }, orderBy: { at: "desc" },
-  });
-  const fxRate = fx && D(fx.rate).gt(0) ? D(fx.rate) : null;
   const weeklyIdr = Decimal.min(monthlyToWeekly(planned.plus(debtDue)), needsIdr);
   const configuredCap = rule.needsTargetIdr == null ? weeklyIdr : Decimal.min(weeklyIdr, monthlyToWeekly(rule.needsTargetIdr));
-  const needsWeeklyUsd = fxRate ? configuredCap.div(fxRate) : D(0);
+  const needsWeeklyUsd = convertUsdIdr(configuredCap, "IDR", fx);
 
   const rec = wdRecommendation({
     cumulativeRealizedPnl: cumulative,
@@ -144,12 +145,17 @@ export async function getRecommendation(userId: string): Promise<RecommendationB
     needsTargetUsd: needsWeeklyUsd ?? undefined,
     availableCash: balances.balance,
     reserveUsd: Decimal.max(D(rule.reserveUsd), D(rule.minBalanceUsd)),
-    dataUnknown: (!budget && rule.needsTargetIdr == null) || !fxRate,
+    dataUnknown: !budget && rule.needsTargetIdr == null,
     dataStale: false,
   });
+  const recommended = fx ? rec.recommended.toDecimalPlaces(2, Decimal.ROUND_DOWN) : D(0);
+  if (!fx) rec.zeroReasons.unshift("Kurs acuan JISDOR belum tersedia.");
+  else if (rec.recommended.gt(0) && recommended.isZero()) {
+    rec.zeroReasons.push("Rekomendasi di bawah minimum $0,01.");
+  }
 
   return {
-    recommendation: rec,
+    recommendation: { ...rec, recommended },
     rule: {
       maxWdRatio: rule.maxWdRatio.toString(),
       needsTargetIdr: rule.needsTargetIdr?.toString() ?? null,
@@ -161,7 +167,7 @@ export async function getRecommendation(userId: string): Promise<RecommendationB
     periodProfit,
     periodTaken,
     availableCash: balances.balance,
-    latestFx: fx ? { rate: fx.rate.toString(), at: fx.at } : null,
+    latestFx: fx,
   };
 }
 
@@ -174,9 +180,12 @@ export async function listWithdrawals(userId: string) {
 }
 
 export async function requestWithdrawal(userId: string, amountUsd: number, note?: string, req?: Request, accountId?: string) {
+  const fx = await getJisdorQuote();
+  if (!fx) throw new ApiError(503, "Kurs acuan JISDOR belum tersedia. Coba lagi nanti.");
+
   const w = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
-    const { recommendation } = await getRecommendation(userId);
+    const { recommendation } = await getRecommendation(userId, fx);
     if (D(amountUsd).gt(recommendation.recommended)) {
       throw new ApiError(
         400,

@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { requireUser } from "@/server/auth";
-import { changePassword, updateProfile } from "@/server/services/users";
+import { updateProfile } from "@/server/services/users";
 import { updateProjectSettings } from "@/server/services/projects";
 import { getDefaultProject } from "@/server/services/projects";
 import { handleRouteError, ok, parseBody } from "@/lib/api";
 import { isValidTimezone } from "@/lib/dates";
 
-const settingsSchema = z.object({
+const settingsSchema = z.strictObject({
   profile: z
     .object({
       name: z.string().trim().min(2).max(80).optional(),
@@ -18,17 +18,7 @@ const settingsSchema = z.object({
     .object({
       name: z.string().trim().min(2).max(120).optional(),
       targetAmount: z.coerce.number().positive().optional(),
-      initialCapital: z.coerce.number().positive().optional(),
-    })
-    .optional(),
-  password: z
-    .object({
-      currentPassword: z.string().min(1),
-      newPassword: z
-        .string()
-        .min(8)
-        .regex(/[A-Za-z]/)
-        .regex(/[0-9]/),
+      initialCapital: z.coerce.number().nonnegative().optional(),
     })
     .optional(),
 });
@@ -42,9 +32,6 @@ export async function PATCH(req: Request) {
     if (input.project) {
       const project = await getDefaultProject(user.id);
       await updateProjectSettings(user.id, project.id, input.project);
-    }
-    if (input.password) {
-      await changePassword(user.id, input.password.currentPassword, input.password.newPassword);
     }
     return ok({ updated: true });
   } catch (e) {
