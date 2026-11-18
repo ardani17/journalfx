@@ -3,7 +3,6 @@ import { simulate } from "@/lib/finance/compounding";
 import { wdRecommendation } from "@/lib/finance/withdrawal";
 import { allocationSchema } from "@/lib/validation/finance";
 import { projectRepayment } from "@/lib/finance/debt";
-import { parseStatementCsv } from "@/lib/finance/import-parsers";
 
 describe("PRD financial regression checks", () => {
   it("dynamic simulation preserves the configured capital reserve", () => {
@@ -33,21 +32,5 @@ describe("PRD financial regression checks", () => {
     const result = projectRepayment({ principalRemaining: 1000, installmentAmount: 100, periodsPerYear: 12, annualInterestRatePct: null });
     expect(result.complete).toBe(false);
     expect(result.periods).toBeNull();
-  });
-
-  it("preserves three decimal prices and small lots in statement imports", () => {
-    const result = parseStatementCsv("Ticket,Open Time,Type,Size,Item,Price\n1,2026.11.16 08:00,buy,0.001,XAUUSD,2000.123");
-    expect(result.rows[0]!.lot).toBe(0.001);
-    expect(result.rows[0]!.openPrice).toBe(2000.123);
-  });
-  it("rejects invalid statement dates instead of replacing them with today", () => {
-    const result = parseStatementCsv("Ticket,Open Time,Type,Size,Item,Price\n1,invalid,buy,0.1,XAUUSD,2000");
-    expect(result.rows).toHaveLength(0);
-    expect(result.errors.length).toBeGreaterThan(0);
-  });
-  it("does not realize a full MT5 position when the imported exit volume is partial", () => {
-    const result = parseStatementCsv("Time,Deal,Symbol,Type,Direction,Volume,Price\n2026.11.16 08:00,1,XAUUSD,buy,in,0.1,2000\n2026.11.16 09:00,2,XAUUSD,sell,out,0.04,2001");
-    expect(result.rows).toHaveLength(0);
-    expect(result.errors.join()).toContain("partial");
   });
 });

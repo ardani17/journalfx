@@ -12,7 +12,7 @@ export default async function CalculatorPage() {
   const [balances, settings, instruments] = await Promise.all([
     computeBalance(user.id),
     getRiskSettings(user.id),
-    prisma.instrument.findMany({ orderBy: { symbol: "asc" } }),
+    prisma.instrument.findMany({ where: { ownerId: null, contractSize: { not: null } }, orderBy: { symbol: "asc" } }),
   ]);
   return (
     <PageShell>

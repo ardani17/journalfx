@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Field, Select } from "@/components/ui/field";
 import { fmtDateID } from "@/lib/dates";
+import { Mt5ImportResult } from "@/components/journal/mt5-import-result";
+import type { ImportReport } from "@/server/services/imports";
 
 export function Mt5SyncSection({
   accounts,
@@ -18,7 +20,7 @@ export function Mt5SyncSection({
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<ImportReport | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function sync(e: React.FormEvent<HTMLFormElement>) {
@@ -28,7 +30,7 @@ export function Mt5SyncSection({
     const fd = new FormData(e.currentTarget);
     const file = fd.get("file");
     if (!(file instanceof File) || file.size === 0) {
-      setError("Pilih file ekspor Deals/History MT5");
+      setError("Pilih file Trade History MT5 (.xlsx)");
       return;
     }
     setLoading(true);
@@ -39,7 +41,7 @@ export function Mt5SyncSection({
         setError(json.error ?? "Sync gagal");
         return;
       }
-      setResult(json.data.summary);
+      setResult(json.data);
       router.refresh();
     } catch {
       setError("Tidak dapat menghubungi server");
@@ -54,7 +56,7 @@ export function Mt5SyncSection({
         <CardTitle className="flex items-center gap-2">
           <RefreshCw className="h-4 w-4 text-primary" aria-hidden /> Sinkronisasi MT5 (read-only)
           {status.stale ? (
-            <Badge tone="warn">{status.lastSyncAt ? `Data ${status.staleHours} jam lalu` : "Belpernah sync"}</Badge>
+            <Badge tone="warn">{status.lastSyncAt ? `Data ${status.staleHours} jam lalu` : "Belum pernah sync"}</Badge>
           ) : (
             <Badge tone="success">Segar</Badge>
           )}
@@ -62,9 +64,7 @@ export function Mt5SyncSection({
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs leading-relaxed text-muted">
-          Unggah ekspor Deals/History MT5 — sinkronisasi <strong>hanya membaca</strong> (tidak pernah
-          mengirim order). Idempoten: deal yang sudah pernah tersinkron dilewati, sehingga sync
-          berulang tidak menghasilkan P&L ganda.
+          Unggah Trade History MT5 (.xlsx) untuk mencatat posisi, deposit, dan withdrawal. Entri yang sudah diimpor ke akun tujuan akan dilewati.
         </p>
         {status.lastSyncAt ? (
           <p className="tnum text-[11px] text-faint">
@@ -80,12 +80,12 @@ export function Mt5SyncSection({
               ))}
             </Select>
           </Field>
-          <Field label="File CSV" htmlFor="m5-file" className="min-w-52">
+          <Field label="File XLSX" htmlFor="m5-file" className="min-w-52" hint="Maks 5 MB">
             <input
               id="m5-file"
               name="file"
               type="file"
-              accept=".csv,text/csv,text/plain,.txt"
+              accept=".xlsx"
               required
               className="w-full rounded-lg border border-line bg-panel-2 px-3 py-2 text-xs text-muted file:mr-3 file:rounded-md file:border-0 file:bg-indigo-soft/20 file:px-2.5 file:py-1 file:text-xs file:text-indigo-soft"
             />
@@ -95,7 +95,7 @@ export function Mt5SyncSection({
           </Button>
         </form>
         {error ? <p className="text-xs text-loss" role="alert">{error}</p> : null}
-        {result ? <p className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary" role="status">{result}</p> : null}
+        {result && <Mt5ImportResult report={result} />}
       </CardContent>
     </Card>
   );

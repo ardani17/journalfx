@@ -47,6 +47,7 @@ export default async function WithdrawalsPage() {
           receivedAmount: w.receivedAmount?.toString() ?? null,
           fees: w.fees?.toString() ?? null,
           note: w.note,
+          mt5DealId: w.mt5DealId,
           createdAt: w.createdAt.toISOString(),
           completedAt: w.completedAt?.toISOString() ?? null,
         }))}

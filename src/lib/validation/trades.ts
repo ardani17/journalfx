@@ -1,13 +1,16 @@
 import { z } from "zod";
+import { D } from "@/lib/money";
 
 const isoDate = z.string().datetime({ offset: true }).or(z.string().date());
+const lotSize = z.coerce.number().positive().refine((value) => value < 1e16 && D(value).decimalPlaces() <= 8,
+  "Lot harus memiliki paling banyak delapan desimal");
 
 export const createTradeSchema = z.object({
   accountId: z.string().min(1),
   instrumentId: z.string().min(1).optional(),
-  symbol: z.string().trim().min(1).max(20).optional(), // either instrumentId or symbol
+  symbol: z.string().trim().min(1).max(64).optional(), // either instrumentId or symbol
   direction: z.enum(["LONG", "SHORT"]),
-  lot: z.coerce.number().positive("Lot harus positif"),
+  lot: lotSize,
   entryPrice: z.coerce.number().positive("Entry price harus positif"),
   entryAt: isoDate,
   initialStopLoss: z.coerce.number().positive().optional(),
@@ -26,13 +29,14 @@ export const createTradeSchema = z.object({
 
 export const addExecutionSchema = z.object({
   kind: z.enum(["ENTRY", "PARTIAL_ENTRY", "CLOSE", "PARTIAL_CLOSE"]),
-  quantity: z.coerce.number().positive("Quantity harus positif"),
+  quantity: lotSize,
   price: z.coerce.number().positive("Price harus positif"),
   commission: z.coerce.number().min(0).default(0),
   swap: z.coerce.number().default(0),
   fees: z.coerce.number().min(0).default(0),
   executedAt: isoDate.optional(),
   externalId: z.string().trim().max(120).optional(),
+  reportedNetPnl: z.string().trim().regex(/^-?\d{1,16}(?:\.\d{1,2})?$/, "Masukkan P&L bersih dalam USD dengan maksimal dua desimal").optional(),
 });
 
 export const cancelTradeSchema = z.object({

@@ -20,7 +20,9 @@ function daysAgo(now: Date, days: number) {
 }
 
 async function seedTrades(tx: Prisma.TransactionClient, userId: string, accountIds: string[], now: Date) {
-  const instrument = await tx.instrument.findUniqueOrThrow({ where: { symbol: "XAUUSD" } });
+  const instrument = await tx.instrument.findFirstOrThrow({ where: { symbol: "XAUUSD", ownerId: null } });
+  if (!instrument.contractSize) throw new Error("Spesifikasi XAUUSD diperlukan untuk data demo");
+  const spec = { contractSize: instrument.contractSize };
   const strategies = await Promise.all([
     tx.strategy.create({ data: { userId, name: "Pullback Demo", timeframe: "M15", description: "Strategi fiktif untuk uji filter jurnal." } }),
     tx.strategy.create({ data: { userId, name: "Breakout Demo", timeframe: "H1", description: "Strategi fiktif untuk uji perbandingan performa." } }),
@@ -37,7 +39,7 @@ async function seedTrades(tx: Prisma.TransactionClient, userId: string, accountI
     const entryPrice = D(2_680 + index * 3);
     const sl = entryPrice.minus(sign * 3);
     const tp = entryPrice.plus(sign * 7);
-    const initialRisk = initialRiskUsd(direction, entryPrice, sl, instrument, lot);
+    const initialRisk = initialRiskUsd(direction, entryPrice, sl, spec, lot);
     const isPartial = index === MOVES.length + 1;
     const closeQuantity = move === null ? D(0) : isPartial ? lot.div(2) : lot;
     const close = move === null ? null : {
@@ -48,13 +50,13 @@ async function seedTrades(tx: Prisma.TransactionClient, userId: string, accountI
       commission: isPartial ? commission.div(2) : commission,
       executedAt: new Date(entryAt.getTime() + 3_600_000),
     };
-    const pnl = close ? closePnl(direction, entryPrice, close, instrument) : null;
+    const pnl = close ? closePnl(direction, entryPrice, close, spec) : null;
     const trade = await tx.trade.create({ data: {
       userId, accountId, instrumentId: instrument.id, strategyId: strategy.id,
       ticket: `DEMO-${String(index + 1).padStart(3, "0")}`, direction, lot, entryPrice, entryAt,
       status: deriveStatus(false, lot, closeQuantity),
       initialStopLoss: sl, initialTakeProfit: tp, initialRisk,
-      plannedRR: plannedRR(direction, entryPrice, sl, tp, instrument, lot),
+      plannedRR: plannedRR(direction, entryPrice, sl, tp, spec, lot),
       actualR: pnl === null ? null : actualR(pnl, initialRisk),
       realizedPnl: pnl, exitPrice: close?.price, exitAt: close?.executedAt,
       commission: close?.commission,

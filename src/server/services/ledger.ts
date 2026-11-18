@@ -107,22 +107,32 @@ export async function createManualTransaction(
 
 /** Corrections never mutate: append a REVERSAL row that negates the original. */
 export async function reverseTransaction(userId: string, id: string, reason: string, req?: Request) {
-  const original = await prisma.accountTransaction.findFirst({ where: { id, userId } });
-  if (!original) throw new ApiError(404, "Transaksi tidak ditemukan");
-  if (original.type === "REVERSAL") throw new ApiError(400, "Transaksi reversal tidak dapat dibatalkan lagi");
-  const already = await prisma.accountTransaction.findFirst({ where: { reversalOfId: id } });
-  if (already) throw new ApiError(400, "Transaksi ini sudah dibatalkan sebelumnya");
+  const { original, reversal } = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    const original = await tx.accountTransaction.findFirst({ where: { id, userId } });
+    if (!original) throw new ApiError(404, "Transaksi tidak ditemukan");
+    if (original.type === "REVERSAL") throw new ApiError(400, "Transaksi reversal tidak dapat dibatalkan lagi");
+    const already = await tx.accountTransaction.findUnique({ where: { reversalOfId: id } });
+    if (already) throw new ApiError(400, "Transaksi ini sudah dibatalkan sebelumnya");
 
-  const reversal = await prisma.accountTransaction.create({
-    data: {
-      userId,
-      accountId: original.accountId,
-      type: "REVERSAL",
-      amount: original.amount.neg(),
-      occurredAt: new Date(),
-      note: `Pembatalan: ${reason}`,
-      reversalOfId: original.id,
-    },
+    const reversal = await tx.accountTransaction.create({
+      data: {
+        userId,
+        accountId: original.accountId,
+        type: "REVERSAL",
+        amount: original.amount.neg(),
+        occurredAt: new Date(),
+        note: `Pembatalan: ${reason}`,
+        reversalOfId: original.id,
+      },
+    });
+    if (original.type === "WITHDRAWAL" && original.mt5DealId && original.withdrawalId) {
+      await tx.withdrawal.update({
+        where: { id: original.withdrawalId, userId },
+        data: { status: "CANCELLED" },
+      });
+    }
+    return { original, reversal };
   });
   await audit({ userId, action: "reverse", entity: "AccountTransaction", entityId: id, before: original, after: reversal, req });
   return reversal;

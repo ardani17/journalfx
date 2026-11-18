@@ -28,6 +28,7 @@ interface Row {
   amount: number;
   occurredAt: string;
   note: string | null;
+  mt5DealId: string | null;
   reversalOfId: string | null;
 }
 
@@ -196,7 +197,9 @@ export function TransactionsClient({
                     {r.amount >= 0 ? "+" : ""}
                     {fmtUSD(r.amount)}
                   </TD>
-                  <TD className="max-w-64 truncate text-xs text-muted">{r.note ?? "—"}</TD>
+                  <TD className="max-w-64 truncate text-xs text-muted">
+                    {r.mt5DealId ? "MT5 · " + (r.note ?? r.mt5DealId) : r.note ?? "—"}
+                  </TD>
                   <TD className="text-right">
                     {r.type !== "REVERSAL" && !r.reversalOfId ? (
                       <Button

@@ -9,15 +9,15 @@ import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/misc";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
-import { fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
+import { D, fmtDecimal, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
 interface Exec {
   id: string;
   kind: string;
-  quantity: number;
-  price: number;
+  quantity: string;
+  price: string;
   commission: number;
   swap: number;
   fees: number;
@@ -31,11 +31,12 @@ export interface TradeDTO {
   direction: "LONG" | "SHORT";
   symbol: string;
   pricePrecision: number;
-  lot: number;
-  entryPrice: number;
-  exitPrice: number | null;
-  initialStopLoss: number | null;
-  initialTakeProfit: number | null;
+  requiresReportedPnl: boolean;
+  lot: string;
+  entryPrice: string;
+  exitPrice: string | null;
+  initialStopLoss: string | null;
+  initialTakeProfit: string | null;
   initialRisk: number | null;
   plannedRR: number | null;
   actualR: number | null;
@@ -85,33 +86,30 @@ export function TradeDetail({ trade }: { trade: TradeDTO }) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const openQty =
-    trade.executions
-      .filter((e) => e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY")
-      .reduce((s, e) => s + e.quantity, 0) -
-    trade.executions
-      .filter((e) => e.kind === "CLOSE" || e.kind === "PARTIAL_CLOSE")
-      .reduce((s, e) => s + e.quantity, 0);
-  const canClose = openQty > 0.0000001 && trade.status !== "CANCELLED";
+  const openQty = trade.executions.reduce((qty, e) =>
+    e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY" ? qty.plus(e.quantity) : qty.minus(e.quantity), D(0));
+  const canClose = openQty.gt(0) && trade.status !== "CANCELLED";
 
   async function addClose(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setLoading(true);
     const fd = new FormData(e.currentTarget);
-    const qty = Number(fd.get("quantity"));
-    const kind = qty >= openQty - 1e-9 ? "CLOSE" : "PARTIAL_CLOSE";
     try {
+      const qty = D(String(fd.get("quantity")));
+      const kind = qty.eq(openQty) ? "CLOSE" : "PARTIAL_CLOSE";
+      const executedAt = String(fd.get("executedAt") ?? "");
       const res = await fetch(`/api/trades/${trade.id}/executions`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           kind,
-          quantity: qty,
+          quantity: qty.toString(),
           price: fd.get("price"),
           commission: fd.get("commission") || 0,
           swap: fd.get("swap") || 0,
-          executedAt: fd.get("executedAt") || undefined,
+          executedAt: executedAt ? new Date(executedAt).toISOString() : undefined,
+          reportedNetPnl: trade.requiresReportedPnl ? fd.get("reportedNetPnl") : undefined,
         }),
       });
       const body = await res.json();
@@ -244,12 +242,12 @@ export function TradeDetail({ trade }: { trade: TradeDTO }) {
             <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
               <Row label="Instrumen" value={trade.symbol} />
               <Row label="Arah" value={trade.direction === "LONG" ? "Buy" : "Sell"} />
-              <Row label="Lot" value={fmtNum(trade.lot, 2)} />
-              <Row label="Qty Terbuka" value={fmtNum(Math.max(openQty, 0), 2)} />
-              <Row label="Entry" value={fmtNum(trade.entryPrice, trade.pricePrecision)} />
-              <Row label="Exit" value={trade.exitPrice !== null ? fmtNum(trade.exitPrice, trade.pricePrecision) : "—"} />
-              <Row label="SL Awal" value={trade.initialStopLoss !== null ? fmtNum(trade.initialStopLoss, trade.pricePrecision) : "—"} />
-              <Row label="TP Awal" value={trade.initialTakeProfit !== null ? fmtNum(trade.initialTakeProfit, trade.pricePrecision) : "—"} />
+              <Row label="Lot" value={fmtDecimal(trade.lot)} />
+              <Row label="Qty Terbuka" value={fmtDecimal(openQty.gt(0) ? openQty : 0)} />
+              <Row label="Entry" value={fmtDecimal(trade.entryPrice, trade.pricePrecision)} />
+              <Row label="Exit" value={trade.exitPrice !== null ? fmtDecimal(trade.exitPrice, trade.pricePrecision) : "—"} />
+              <Row label="SL Awal" value={trade.initialStopLoss !== null ? fmtDecimal(trade.initialStopLoss, trade.pricePrecision) : "—"} />
+              <Row label="TP Awal" value={trade.initialTakeProfit !== null ? fmtDecimal(trade.initialTakeProfit, trade.pricePrecision) : "—"} />
               <Row label="Sesi / TF" value={[trade.session, trade.timeframe].filter(Boolean).join(" / ") || "—"} />
               <Row label="Strategi" value={trade.strategy ?? "—"} />
             </CardContent>
@@ -277,17 +275,22 @@ export function TradeDetail({ trade }: { trade: TradeDTO }) {
               <CardHeader><CardTitle>Tutup Posisi (penuh / parsial)</CardTitle></CardHeader>
               <CardContent>
                 <form onSubmit={addClose} className="flex flex-wrap items-end gap-3">
-                  <Field label={`Quantity (maks ${fmtNum(openQty, 2)})`} htmlFor="c-qty" className="w-32">
-                    <Input id="c-qty" name="quantity" type="number" step="0.01" min="0.01" max={openQty} required defaultValue={openQty.toFixed(2)} />
+                  <Field label={`Quantity (maks ${fmtDecimal(openQty)})`} htmlFor="c-qty" className="w-32">
+                    <Input id="c-qty" name="quantity" type="number" step="0.00000001" min="0.00000001" max={openQty.toString()} required defaultValue={openQty.toString()} />
                   </Field>
                   <Field label="Harga Close" htmlFor="c-price" className="w-36">
-                    <Input id="c-price" name="price" type="number" step="0.00001" min="0" required />
+                    <Input id="c-price" name="price" type="number" step="0.000001" min="0.000001" required />
                   </Field>
+                  {trade.requiresReportedPnl && (
+                    <Field label="P&L bersih broker (USD)" htmlFor="c-net-pnl" hint="Termasuk komisi, swap, dan biaya">
+                      <Input id="c-net-pnl" name="reportedNetPnl" type="number" step="0.01" required />
+                    </Field>
+                  )}
                   <Field label="Komisi" htmlFor="c-comm" className="w-28">
                     <Input id="c-comm" name="commission" type="number" step="0.01" min="0" defaultValue={0} />
                   </Field>
                   <Field label="Swap" htmlFor="c-swap" className="w-28">
-                    <Input id="c-swap" name="swap" type="number" step="0.01" min="0" defaultValue={0} />
+                    <Input id="c-swap" name="swap" type="number" step="0.01" defaultValue={0} />
                   </Field>
                   <Button type="submit" disabled={loading}>
                     <Check className="h-4 w-4" aria-hidden /> {loading ? "Memproses…" : "Tutup Posisi"}
@@ -327,8 +330,8 @@ export function TradeDetail({ trade }: { trade: TradeDTO }) {
                         {e.kind.replace("_", " ")}
                       </Badge>
                     </TD>
-                    <TD className="tnum text-right text-xs">{fmtNum(e.quantity, 2)}</TD>
-                    <TD className="tnum text-right text-xs">{fmtNum(e.price, trade.pricePrecision)}</TD>
+                    <TD className="tnum text-right text-xs">{fmtDecimal(e.quantity)}</TD>
+                    <TD className="tnum text-right text-xs">{fmtDecimal(e.price, trade.pricePrecision)}</TD>
                     <TD className="tnum text-right text-xs">{fmtUSD(e.commission)}</TD>
                     <TD className={cn("tnum text-right text-xs font-semibold", e.realizedPnl === null ? "text-faint" : e.realizedPnl >= 0 ? "text-primary" : "text-loss")}>
                       {e.realizedPnl === null ? "—" : fmtUSDdelta(e.realizedPnl)}

@@ -172,11 +172,17 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
 }
 
 export async function listWithdrawals(userId: string) {
-  return prisma.withdrawal.findMany({
+  const withdrawals = await prisma.withdrawal.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
     take: 100,
+    include: {
+      transactions: { where: { mt5DealId: { not: null } }, select: { mt5DealId: true }, take: 1 },
+    },
   });
+  return withdrawals.map(({ transactions, ...withdrawal }) => ({
+    ...withdrawal, mt5DealId: transactions[0]?.mt5DealId ?? null,
+  }));
 }
 
 export async function requestWithdrawal(userId: string, amountUsd: number, note?: string, req?: Request, accountId?: string) {

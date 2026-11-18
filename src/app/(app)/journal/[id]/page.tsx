@@ -6,8 +6,7 @@ import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { TradeDetail } from "./trade-detail";
 import { fmtDateID } from "@/lib/dates";
-import { fmtNum, fmtUSD } from "@/lib/money";
-import { D } from "@/lib/money";
+import { D, fmtDecimal, fmtUSD } from "@/lib/money";
 
 export const metadata = { title: "Detail Trade" };
 
@@ -26,7 +25,7 @@ export default async function TradeDetailPage({ params }: { params: Promise<{ id
   return (
     <PageShell>
       <PageHeader
-        title={`${t.instrument.symbol} · ${t.direction === "LONG" ? "Buy" : "Sell"} ${fmtNum(D(t.lot), 2)}`}
+        title={`${t.instrument.symbol} · ${t.direction === "LONG" ? "Buy" : "Sell"} ${fmtDecimal(t.lot)}`}
         subtitle={`${fmtDateID(t.entryAt, "d MMM yyyy, HH:mm")} · ${t.account.name}${t.ticket ? ` · #${t.ticket}` : ""}`}
         actions={
           <div className="flex items-center gap-2">
@@ -48,11 +47,12 @@ export default async function TradeDetailPage({ params }: { params: Promise<{ id
           direction: t.direction,
           symbol: t.instrument.symbol,
           pricePrecision: t.instrument.pricePrecision,
-          lot: Number(t.lot),
-          entryPrice: Number(t.entryPrice),
-          exitPrice: t.exitPrice ? Number(t.exitPrice) : null,
-          initialStopLoss: t.initialStopLoss ? Number(t.initialStopLoss) : null,
-          initialTakeProfit: t.initialTakeProfit ? Number(t.initialTakeProfit) : null,
+          requiresReportedPnl: t.instrument.contractSize === null,
+          lot: t.lot.toString(),
+          entryPrice: t.entryPrice.toString(),
+          exitPrice: t.exitPrice?.toString() ?? null,
+          initialStopLoss: t.initialStopLoss?.toString() ?? null,
+          initialTakeProfit: t.initialTakeProfit?.toString() ?? null,
           initialRisk: t.initialRisk ? Number(t.initialRisk) : null,
           plannedRR: t.plannedRR ? Number(t.plannedRR) : null,
           actualR: t.actualR ? Number(t.actualR) : null,
@@ -68,8 +68,8 @@ export default async function TradeDetailPage({ params }: { params: Promise<{ id
           executions: t.executions.map((e) => ({
             id: e.id,
             kind: e.kind,
-            quantity: Number(e.quantity),
-            price: Number(e.price),
+            quantity: e.quantity.toString(),
+            price: e.price.toString(),
             commission: Number(e.commission),
             swap: Number(e.swap),
             fees: Number(e.fees),
