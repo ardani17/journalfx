@@ -3,8 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { ChevronDown, TrendingUp } from "lucide-react";
+import { ChevronDown } from "lucide-react";
+import { BrandLogo } from "./brand-logo";
 import { NAV } from "./nav";
+import { APP_NAME } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/misc";
 import { appVersion } from "@/lib/version";
@@ -37,13 +39,8 @@ export function SidebarContent({
         onClick={onNavigate}
         className="flex items-center gap-2.5 px-4 py-4"
       >
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-[#0d9488] shadow-[0_0_16px_rgba(34,230,154,0.35)]">
-          <TrendingUp className="h-5 w-5 text-[#06281a]" aria-hidden />
-        </span>
-        <span className="leading-tight">
-          <span className="block text-sm font-extrabold tracking-wide text-ink">MDTP</span>
-          <span className="block text-[10px] text-faint">Million Dollar Trading Project</span>
-        </span>
+        <BrandLogo mark />
+        <span className="text-sm font-extrabold tracking-wide text-ink">{APP_NAME}</span>
       </Link>
 
       {/* Nav */}
@@ -113,7 +110,7 @@ export function SidebarContent({
           <Progress value={progressPct} className="mt-2 h-1.5" label="Progress project" />
           <p className="tnum mt-1.5 text-[10px] text-faint">{progressLabel} dari target</p>
         </div>
-        <p className="mt-2 text-center text-[10px] text-faint">MDTP v{appVersion} · single source: ledger</p>
+        <p className="mt-2 text-center text-[10px] text-faint">{APP_NAME} v{appVersion}</p>
       </div>
     </div>
   );

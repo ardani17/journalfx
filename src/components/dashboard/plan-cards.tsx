@@ -1,6 +1,7 @@
 import { CreditCard, PiggyBank, Target, Wallet } from "lucide-react";
 import { fmtIDR, fmtUSD, fmtUSD0 } from "@/lib/money";
 import type { Decimal } from "@/lib/money";
+import { monthlyToWeekly } from "@/lib/finance/withdrawal";
 
 export interface PlanCardsData {
   nextMilestone: { amount: Decimal } | null;
@@ -53,7 +54,7 @@ export function PlanCards({ data }: { data: PlanCardsData }) {
             {data.monthlyNeedsIdr !== null ? fmtIDR(data.monthlyNeedsIdr) : "—"}
           </p>
           <p className="mt-1 text-[11px] text-info/80">
-            {data.monthlyNeedsIdr !== null ? "≈ " + fmtIDR(data.monthlyNeedsIdr.div(4)) + " / minggu" : "Atur di menu Keuangan Pribadi"}
+            {data.monthlyNeedsIdr !== null ? "≈ " + fmtIDR(monthlyToWeekly(data.monthlyNeedsIdr)) + " / minggu" : "Atur di menu Keuangan Pribadi"}
           </p>
         </div>
 

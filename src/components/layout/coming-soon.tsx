@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Construction, TrendingUp } from "lucide-react";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
+import { APP_NAME } from "@/lib/brand";
 
 /** Honest placeholder for pages that ship in a later sequential release. */
 export function ComingSoon({
@@ -28,7 +29,7 @@ export function ComingSoon({
               Hadir di rilis <span className="text-primary">{release}</span>
             </p>
             <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-muted">
-              Fitur ini dikunci oleh kebijakan rilis sekuensial MDTP. Fondasi dan jurnal trading
+              Fitur ini dikunci oleh kebijakan rilis sekuensial {APP_NAME}. Fondasi dan jurnal trading
               dibangun lebih dulu agar data finansial selalu berasal dari ledger yang auditable.
             </p>
           </div>
