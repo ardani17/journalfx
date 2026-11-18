@@ -18,7 +18,7 @@ import {
   TR,
 } from "@/components/ui/table";
 import { JournalToolbar } from "./journal-toolbar";
-import { D, fmtNum, fmtUSDdelta } from "@/lib/money";
+import { D, fmtDecimal, fmtNum, fmtUSDdelta } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
 import { BarChart3, BookOpen, Percent, TrendingUp } from "lucide-react";
 
@@ -125,11 +125,11 @@ export default async function JournalPage({
                         {t.direction === "LONG" ? "Buy" : "Sell"}
                       </Badge>
                     </TD>
-                    <TD className="tnum text-right text-xs">{fmtNum(D(t.lot), 2)}</TD>
-                    <TD className="tnum text-right text-xs">{fmtNum(D(t.entryPrice), t.instrument.pricePrecision)}</TD>
+                    <TD className="tnum text-right text-xs">{fmtDecimal(t.lot)}</TD>
+                    <TD className="tnum text-right text-xs">{fmtDecimal(t.entryPrice, t.instrument.pricePrecision)}</TD>
                     <TD className="tnum text-right text-xs">
                       {t.exitPrice ? (
-                        fmtNum(D(t.exitPrice), t.instrument.pricePrecision)
+                        fmtDecimal(t.exitPrice, t.instrument.pricePrecision)
                       ) : (
                         <Badge tone={t.status === "OPEN" ? "info" : "neutral"}>{t.status}</Badge>
                       )}

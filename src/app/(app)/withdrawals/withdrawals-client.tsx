@@ -36,6 +36,7 @@ interface Props {
   history: {
     id: string; status: string; amountUSD: string; fxRate: string | null;
     receivedAmount: string | null; fees: string | null; note: string | null;
+    mt5DealId: string | null;
     createdAt: string; completedAt: string | null;
   }[];
 }
@@ -156,6 +157,7 @@ export function WithdrawalsClient(props: Props) {
                     <Badge tone={w.status === "COMPLETED" ? "success" : w.status === "REQUESTED" ? "info" : w.status === "CANCELLED" ? "danger" : "warn"}>
                       {w.status}
                     </Badge>
+                    {w.mt5DealId && <p className="mt-1 text-xs text-muted">MT5 · {w.note ?? w.mt5DealId}</p>}
                   </TD>
                   <TD className="tnum text-right text-xs font-semibold">{fmtUSD(w.amountUSD)}</TD>
                   <TD className="tnum text-right text-xs">{w.fxRate ? fmtNum(Number(w.fxRate), 0) : "—"}</TD>

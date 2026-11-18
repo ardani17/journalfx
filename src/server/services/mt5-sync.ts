@@ -1,13 +1,10 @@
 import { prisma } from "@/server/db";
-import { ApiError } from "@/lib/api";
-
 import { importStatement } from "./imports";
 
 /**
  * MT5 read-only sync (v1.1.0).
  * - Never sends orders — import direction only (PRD guardrail).
- * - Idempotent: execution dedupe via externalIds → repeated sync = no duplicate P&L.
- * - Incremental: only new/changed deals create trades.
+ * - Positions and cash movements use their broker IDs to prevent duplicate entries.
  * - Stale-data warning when the last successful sync is older than the threshold.
  */
 
@@ -38,11 +35,13 @@ export async function mt5SyncStatus(userId: string): Promise<SyncStatus> {
 export async function mt5Sync(
   userId: string,
   accountId: string,
-  csvText: string,
+  bytes: Buffer,
   req?: Request,
 ) {
-  const report = await importStatement(userId, accountId, csvText, req);
-  const summary = `MT5 sync: ${report.imported} baru, ${report.duplicates} duplikat dilewati`;
+  const report = await importStatement(userId, accountId, bytes, req);
+  const newEntries = report.imported + report.depositsImported + report.withdrawalsImported;
+  const summary = `${report.imported} posisi baru, ${report.duplicates} duplikat posisi. ${report.depositsImported} deposit, ${report.withdrawalsImported} withdrawal, ${report.cashflowDuplicates} duplikat arus kas. ${report.skipped} baris bermasalah.`;
+  if (newEntries + report.duplicates + report.cashflowDuplicates === 0) return { ...report, summary };
   await prisma.auditLog.create({
     data: {
       userId,
@@ -52,35 +51,17 @@ export async function mt5Sync(
       after: { summary, ...report },
     },
   });
-  if (report.imported > 0) {
+  if (newEntries > 0) {
     await prisma.notification.create({
       data: {
         userId,
         kind: "journal",
-        title: `MT5 sync: ${report.imported} trade baru tersinkron`,
-        body: `${report.duplicates} duplikat dilewati (idempoten).`,
+        title: "Sinkronisasi riwayat MT5 selesai",
+        body: summary,
         severity: "INFO",
-        link: "/journal",
-      },
-    });
-  }
-  if (report.unknownSymbols?.length) {
-    await prisma.notification.create({
-      data: {
-        userId,
-        kind: "journal",
-        title: `MT5 sync: simbol tidak dikenal dilewati`,
-        body: report.unknownSymbols.join(", "),
-        severity: "WARNING",
-        link: "/settings",
+        link: report.imported > 0 ? "/journal" : "/transactions",
       },
     });
   }
   return { ...report, summary };
-}
-
-export async function assertAccount(userId: string, accountId: string) {
-  const acc = await prisma.tradingAccount.findFirst({ where: { id: accountId, userId } });
-  if (!acc) throw new ApiError(404, "Akun tidak ditemukan");
-  return acc;
 }

@@ -37,6 +37,7 @@ export default async function TransactionsPage({
           amount: Number(t.amount),
           occurredAt: t.occurredAt.toISOString(),
           note: t.note,
+          mt5DealId: t.mt5DealId,
           reversalOfId: t.reversalOfId,
         }))}
         total={total}

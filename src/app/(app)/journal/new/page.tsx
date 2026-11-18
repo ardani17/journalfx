@@ -12,7 +12,10 @@ export default async function NewTradePage() {
   const [accounts, strategies, instruments] = await Promise.all([
     listAccounts(user.id),
     listStrategies(user.id),
-    prisma.instrument.findMany({ orderBy: { symbol: "asc" } }),
+    prisma.instrument.findMany({
+      where: { OR: [{ ownerId: null }, { ownerId: user.id }] },
+      orderBy: { symbol: "asc" },
+    }),
   ]);
 
   return (

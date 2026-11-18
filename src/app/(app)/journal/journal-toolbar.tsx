@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Download, Plus, Upload } from "lucide-react";
+import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/misc";
 import { Field, Input, Select } from "@/components/ui/field";
+import { Mt5ImportResult } from "@/components/journal/mt5-import-result";
+import type { ImportReport } from "@/server/services/imports";
 
 interface Props {
   accounts: { id: string; name: string }[];
@@ -18,7 +20,7 @@ export function JournalToolbar({ accounts, strategies, active }: Props) {
   const router = useRouter();
   const [importOpen, setImportOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [report, setReport] = useState<string | null>(null);
+  const [report, setReport] = useState<ImportReport | null>(null);
   const [loading, setLoading] = useState(false);
 
   function setParam(key: string, value: string) {
@@ -35,7 +37,7 @@ export function JournalToolbar({ accounts, strategies, active }: Props) {
     const fd = new FormData(e.currentTarget);
     const file = fd.get("file");
     if (!(file instanceof File) || file.size === 0) {
-      setError("Pilih file CSV/statement MT4/MT5");
+      setError("Pilih file Trade History MT5 (.xlsx)");
       return;
     }
     setLoading(true);
@@ -49,11 +51,7 @@ export function JournalToolbar({ accounts, strategies, active }: Props) {
         setError(body.error ?? "Impor gagal");
         return;
       }
-      const r = body.data;
-      setReport(
-        `Platform ${r.platform}: ${r.imported} trade diimpor, ${r.duplicates} duplikat dilewati` +
-          (r.unknownSymbols?.length ? `, simbol tidak dikenal: ${r.unknownSymbols.join(", ")}` : ""),
-      );
+      setReport(body.data);
       router.refresh();
     } catch {
       setError("Tidak dapat menghubungi server");
@@ -115,11 +113,6 @@ export function JournalToolbar({ accounts, strategies, active }: Props) {
           <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
             <Upload className="h-3.5 w-3.5" aria-hidden /> Impor
           </Button>
-          <a href="/api/trades/export" download>
-            <Button variant="secondary" size="sm" type="button">
-              <Download className="h-3.5 w-3.5" aria-hidden /> Ekspor
-            </Button>
-          </a>
           <Link href="/journal/new">
             <Button size="sm">
               <Plus className="h-3.5 w-3.5" aria-hidden /> Tambah Trade
@@ -128,11 +121,10 @@ export function JournalToolbar({ accounts, strategies, active }: Props) {
         </div>
       </div>
 
-      <Dialog open={importOpen} onClose={() => setImportOpen(false)} title="Impor Statement MT4/MT5">
+      <Dialog open={importOpen} onClose={() => setImportOpen(false)} title="Impor Riwayat MT5">
         <form onSubmit={doImport} className="space-y-3">
           <p className="text-xs leading-relaxed text-muted">
-            Unggah CSV riwayat MT4 (tab History → Save as Report) atau ekspor Deals MT5. Impor
-            bersifat <strong>idempoten</strong> — ticket yang sudah pernah diimpor akan dilewati.
+            Unggah Trade History MT5 (.xlsx) untuk mencatat posisi, deposit, dan withdrawal. Entri yang sudah diimpor ke akun tujuan akan dilewati.
           </p>
           <Field label="Akun Tujuan" htmlFor="imp-account">
             <Select id="imp-account" name="accountId" required defaultValue={accounts[0]?.id ?? ""}>
@@ -141,17 +133,13 @@ export function JournalToolbar({ accounts, strategies, active }: Props) {
               ))}
             </Select>
           </Field>
-          <Field label="File CSV" htmlFor="imp-file" hint="Maks 5 MB">
-            <Input id="imp-file" name="file" type="file" accept=".csv,text/csv,text/plain,.txt" required />
+          <Field label="File XLSX" htmlFor="imp-file" hint="Maks 5 MB">
+            <Input id="imp-file" name="file" type="file" accept=".xlsx" required />
           </Field>
           {error ? <p className="text-xs text-loss" role="alert">{error}</p> : null}
-          {report ? (
-            <p className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary" role="status">
-              {report}
-            </p>
-          ) : null}
+          {report && <Mt5ImportResult report={report} />}
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="secondary" onClick={() => setImportOpen(false)}>Tutup</Button>
+            <Button type="button" variant="secondary" onClick={() => setImportOpen(false)}>Tutup</Button>
             <Button type="submit" disabled={loading}>{loading ? "Mengimpor…" : "Impor"}</Button>
           </div>
         </form>

@@ -100,12 +100,6 @@ const INSTRUMENTS = [
 ];
 
 export async function seedInstruments(prisma: Pick<Prisma.TransactionClient, "instrument">) {
-  for (const inst of INSTRUMENTS) {
-    await prisma.instrument.upsert({
-      where: { symbol: inst.symbol },
-      update: {}, // reference data stays as seeded; broker overrides live per-trade
-      create: inst,
-    });
-  }
+  await prisma.instrument.createMany({ data: INSTRUMENTS, skipDuplicates: true });
   return INSTRUMENTS.length;
 }
