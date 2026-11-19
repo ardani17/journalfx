@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+## [1.4.4] — 2026-11-19
+
 ### Added
 
 - Convert US cents (USC) to Indonesian rupiah on the dashboard using the JISDOR rate and the ratio of 100 USC to 1 USD.
