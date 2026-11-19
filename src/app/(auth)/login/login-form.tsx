@@ -9,7 +9,6 @@ import { BrandLogo } from "@/components/layout/brand-logo";
 import { APP_NAME } from "@/lib/brand";
 
 interface TurnstileWidget {
-  ready(callback: () => void): void;
   render(container: HTMLElement, options: {
     sitekey: string;
     action: string;
@@ -61,30 +60,27 @@ export function LoginForm({ turnstileSiteKey, initialError }: { turnstileSiteKey
       setChallengeIssue(issue);
     }
 
-    widget.ready(() => {
-      if (!mounted) return;
-      try {
-        widgetId.current = widget.render(container, {
-          sitekey: turnstileSiteKey,
-          action: "google_login",
-          size: container.clientWidth < 300 ? "compact" : "flexible",
-          retry: "never",
-          "response-field": false,
-          "refresh-expired": "manual",
-          "refresh-timeout": "manual",
-          callback: (nextToken) => {
-            if (!mounted || submitting.current) return;
-            setToken(nextToken);
-            setChallengeIssue(undefined);
-          },
-          "expired-callback": () => invalidate("expired"),
-          "timeout-callback": () => invalidate("expired"),
-          "error-callback": () => invalidate("failed"),
-        });
-      } catch {
-        setChallengeIssue("script");
-      }
-    });
+    try {
+      widgetId.current = widget.render(container, {
+        sitekey: turnstileSiteKey,
+        action: "google_login",
+        size: container.clientWidth < 300 ? "compact" : "flexible",
+        retry: "never",
+        "response-field": false,
+        "refresh-expired": "manual",
+        "refresh-timeout": "manual",
+        callback: (nextToken) => {
+          if (!mounted || submitting.current) return;
+          setToken(nextToken);
+          setChallengeIssue(undefined);
+        },
+        "expired-callback": () => invalidate("expired"),
+        "timeout-callback": () => invalidate("expired"),
+        "error-callback": () => invalidate("failed"),
+      });
+    } catch {
+      queueMicrotask(() => { if (mounted) setChallengeIssue("script"); });
+    }
 
     return () => {
       mounted = false;

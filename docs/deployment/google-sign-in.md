@@ -21,6 +21,7 @@ Tes OAuth otomatis memakai respons Siteverify tiruan. Kunci dummy Cloudflare men
 
 ## Lokal dan database pengujian
 
+- Gunakan widget Turnstile khusus pengembangan yang mengizinkan `localhost` dan isi kedua kunci di `.env` lokal. Buka URL yang sama dengan `APP_ORIGIN`, misalnya `http://localhost:3000`. Jika memakai `127.0.0.1`, daftarkan juga hostname tersebut pada widget dan URL callback Google lokal.
 - Buat database kosong `horizon_journal_google_local` di PostgreSQL lokal. Arahkan `DATABASE_URL` ke database tersebut, gunakan direktori lampiran baru, jalankan `npm run db:deploy`, `npm run db:seed:reference`, dan `npm run dev`. Login pertama membuat jurnal dengan saldo nol.
 - Untuk data contoh, buat database loopback `horizon_journal_google_test`, jalankan migrasi, lalu `npm run db:seed:demo`. Fixture ini memiliki identitas Google sintetis. Playwright membuat sesi dari fixture melalui helper pengujian dengan `AUTH_SECRET` dari server pengujian. Tes OAuth memverifikasi respons dari provider tiruan dengan ID token bertanda tangan.
 
