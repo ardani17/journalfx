@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+## [1.4.2] — 2026-11-19
+
 ### Added
 
 - Install Horizon Journal on Android and iPhone as a standalone web app.
