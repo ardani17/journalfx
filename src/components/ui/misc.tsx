@@ -63,12 +63,14 @@ export function Dialog({
   title,
   children,
   wide,
+  dismissible = true,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
   wide?: boolean;
+  dismissible?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
@@ -84,17 +86,18 @@ export function Dialog({
     const dlg = ref.current;
     if (!dlg) return;
     const handler = (e: Event) => {
-      if (e.target === dlg) onClose();
+      if (dismissible && e.target === dlg) onClose();
     };
     dlg.addEventListener("click", handler);
     return () => dlg.removeEventListener("click", handler);
-  }, [onClose]);
+  }, [dismissible, onClose]);
 
   return (
     <dialog
       ref={ref}
       aria-labelledby={titleId}
       onClose={onClose}
+      onCancel={(event) => { if (!dismissible) event.preventDefault(); }}
       className={cn(
         "m-auto w-[calc(100vw-2rem)] rounded-[14px] border border-line bg-panel p-0 text-ink backdrop:bg-black/60",
         wide ? "max-w-2xl" : "max-w-md",
@@ -102,7 +105,7 @@ export function Dialog({
     >
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <h2 id={titleId} className="text-sm font-semibold">{title}</h2>
-        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Tutup">
+        <Button variant="ghost" size="icon" onClick={onClose} aria-label="Tutup" disabled={!dismissible}>
           <X className="h-4 w-4" />
         </Button>
       </div>

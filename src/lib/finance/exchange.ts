@@ -1,4 +1,4 @@
-import { D, Decimal, fmtIDR, fmtUSD } from "@/lib/money";
+import { D, Decimal, fmtIDR, fmtUSD, tradingAmountToUsd } from "@/lib/money";
 
 export const JISDOR_PAGE_URL = "https://www.bi.go.id/id/statistik/informasi-kurs/jisdor/default.aspx";
 
@@ -9,12 +9,12 @@ export interface JisdorQuote {
   status: "latest" | "cached";
 }
 
-export type ConversionCurrency = "USD" | "IDR";
+export type ConversionCurrency = "USD" | "IDR" | "USC";
 
 export function convertUsdIdr(amount: Decimal.Value, from: ConversionCurrency, quote: JisdorQuote | null) {
   if (!quote) return null;
-  const value = D(amount);
-  return from === "USD" ? value.times(quote.rate) : value.div(quote.rate);
+  if (from === "IDR") return D(amount).div(quote.rate);
+  return tradingAmountToUsd(amount, from).times(quote.rate);
 }
 
 export function parseConversionAmount(input: string) {
@@ -26,5 +26,5 @@ export function parseConversionAmount(input: string) {
 export function formatFxEstimate(amount: Decimal.Value, from: ConversionCurrency, quote: JisdorQuote | null) {
   const result = convertUsdIdr(amount, from, quote);
   if (result === null) return null;
-  return `≈ ${from === "USD" ? fmtIDR(result) : fmtUSD(result)}`;
+  return `≈ ${from === "IDR" ? fmtUSD(result) : fmtIDR(result)}`;
 }

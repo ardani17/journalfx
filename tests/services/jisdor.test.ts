@@ -98,7 +98,7 @@ describe("JISDOR reference rate", () => {
   });
 });
 
-describe("USD and IDR conversion", () => {
+describe("Currency conversion", () => {
   const quote = { rate: "18252", at: now.toISOString(), source: "bi-jisdor", status: "latest" } as const;
 
   it("uses exact decimal rates in both directions and handles losses and zero", () => {
@@ -107,6 +107,21 @@ describe("USD and IDR conversion", () => {
     expect(formatFxEstimate("-1.05", "USD", quote)).toBe("≈ −Rp19.165");
     expect(formatFxEstimate("0", "IDR", quote)).toBe("≈ $0,00");
     expect(formatFxEstimate("5", "USD", null)).toBeNull();
+  });
+
+  it("converts USC into IDR using 100 USC per USD", () => {
+    const exampleQuote = { ...quote, rate: "16000" };
+    expect(formatFxEstimate("100", "USC", exampleQuote)).toBe("≈ Rp16.000");
+    expect(formatFxEstimate("250", "USC", exampleQuote)).toBe("≈ Rp40.000");
+    expect(formatFxEstimate("-1.25", "USC", exampleQuote)).toBe("≈ −Rp200");
+    expect(formatFxEstimate("0", "USC", exampleQuote)).toBe("≈ Rp0");
+    expect(formatFxEstimate("250", "USC", null)).toBeNull();
+
+    for (const input of ["12,34", "12.34"]) {
+      const amount = parseConversionAmount(input)!;
+      expect(convertUsdIdr(amount, "USC", exampleQuote)?.toString()).toBe("1974.4");
+      expect(formatFxEstimate(amount, "USC", exampleQuote)).toBe("≈ Rp1.974");
+    }
   });
 
   it("accepts a comma or a dot as the decimal separator", () => {
