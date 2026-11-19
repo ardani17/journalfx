@@ -34,6 +34,12 @@ export function NewTradeForm({
   const [symbol, setSymbol] = useState("");
   const [symbolError, setSymbolError] = useState<string | null>(null);
   const [registering, setRegistering] = useState(false);
+  const [strategyOptions, setStrategyOptions] = useState(strategies);
+  const [strategyId, setStrategyId] = useState("");
+  const [strategyOpen, setStrategyOpen] = useState(false);
+  const [strategyName, setStrategyName] = useState("");
+  const [strategyError, setStrategyError] = useState<string | null>(null);
+  const [savingStrategy, setSavingStrategy] = useState(false);
   const account = accounts.find((item) => item.id === accountId) ?? accounts[0];
 
   async function addSymbol(event: React.FormEvent<HTMLFormElement>) {
@@ -66,6 +72,39 @@ export function NewTradeForm({
       setSymbolError("Tidak dapat menghubungi server");
     } finally {
       setRegistering(false);
+    }
+  }
+
+  async function addStrategy(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (savingStrategy) return;
+    const name = strategyName.trim();
+    if (name.length < 2) {
+      setStrategyError("Nama strategi minimal 2 karakter");
+      return;
+    }
+
+    setStrategyError(null);
+    setSavingStrategy(true);
+    try {
+      const response = await fetch("/api/strategies", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const body = await response.json();
+      if (!response.ok || !body.ok) {
+        setStrategyError(body.error ?? "Gagal menambah strategi");
+        return;
+      }
+      const strategy: (typeof strategies)[number] = { id: body.data.id, name: body.data.name };
+      setStrategyOptions((options) => [...options, strategy]);
+      setStrategyId(strategy.id);
+      setStrategyOpen(false);
+    } catch {
+      setStrategyError("Tidak dapat menghubungi server");
+    } finally {
+      setSavingStrategy(false);
     }
   }
 
@@ -194,12 +233,19 @@ export function NewTradeForm({
               </Field>
             </div>
             <Field label="Strategi / Setup" htmlFor="t-strategy">
-              <Select id="t-strategy" name="strategyId" defaultValue="">
+              <Select id="t-strategy" name="strategyId" value={strategyId} onChange={(event) => setStrategyId(event.target.value)}>
                 <option value="">Tanpa strategi</option>
-                {strategies.map((s) => (
+                {strategyOptions.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </Select>
+              <Button type="button" variant="ghost" size="sm" className="self-start text-primary" disabled={loading} onClick={() => {
+                setStrategyName("");
+                setStrategyError(null);
+                setStrategyOpen(true);
+              }}>
+                Tambah strategi
+              </Button>
             </Field>
           </CardContent>
         </Card>
@@ -262,6 +308,28 @@ export function NewTradeForm({
           <div className="flex justify-end gap-2">
             <Button variant="secondary" type="button" onClick={() => setSymbolOpen(false)}>Batal</Button>
             <Button type="submit" disabled={registering}>{registering ? "Menyimpan…" : "Simpan simbol"}</Button>
+          </div>
+        </form>
+      </Dialog>
+      <Dialog open={strategyOpen} onClose={() => setStrategyOpen(false)} title="Tambah strategi" dismissible={!savingStrategy}>
+        <form onSubmit={addStrategy} className="space-y-3">
+          <Field label="Nama strategi" htmlFor="t-strategy-name">
+            <Input
+              id="t-strategy-name"
+              value={strategyName}
+              onChange={(event) => { setStrategyName(event.target.value); setStrategyError(null); }}
+              maxLength={60}
+              autoFocus
+              readOnly={savingStrategy}
+              aria-required="true"
+              aria-invalid={Boolean(strategyError)}
+              aria-describedby={strategyError ? "t-strategy-error" : undefined}
+            />
+            {strategyError ? <p id="t-strategy-error" className="text-xs text-loss" role="alert">{strategyError}</p> : null}
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" type="button" disabled={savingStrategy} onClick={() => setStrategyOpen(false)}>Batal</Button>
+            <Button type="submit" disabled={savingStrategy}>{savingStrategy ? "Menyimpan…" : "Simpan strategi"}</Button>
           </div>
         </form>
       </Dialog>
