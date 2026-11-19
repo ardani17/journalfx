@@ -1,6 +1,7 @@
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
+import { tradingAmountToUsd } from "@/lib/money";
 
 /** Economic calendar (v1.3.0): manual + CSV entry; timestamps UTC. */
 export async function listEvents(userId: string, opts?: { from?: Date; to?: Date }) {
@@ -55,7 +56,7 @@ export async function buildInsights(userId: string) {
     prisma.trade.findMany({
       where: { userId },
       orderBy: { entryAt: "asc" },
-      include: { journal: true },
+      include: { journal: true, account: { select: { currency: true } } },
     }),
     import("@/lib/finance/insights"),
   ]);
@@ -67,7 +68,7 @@ export async function buildInsights(userId: string) {
       session: tr.session,
       timeframe: tr.timeframe,
       direction: tr.direction,
-      realizedPnl: tr.realizedPnl ? Number(tr.realizedPnl) : null,
+      realizedPnl: tr.realizedPnl === null ? null : tradingAmountToUsd(tr.realizedPnl, tr.account.currency).toNumber(),
       actualR: tr.actualR ? Number(tr.actualR) : null,
       initialStopLoss: tr.initialStopLoss ? Number(tr.initialStopLoss) : null,
       entryAt: tr.entryAt.toISOString(),
