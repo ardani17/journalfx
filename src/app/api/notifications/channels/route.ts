@@ -1,13 +1,11 @@
 import { z } from "zod";
 import { requireUser } from "@/server/auth";
-import { channelConfig, dispatchNotification, getChannel, sendTestMessage, updateChannel } from "@/server/services/notify-channels";
+import { channelConfig, dispatchNotification, updateChannel } from "@/server/services/notify-channels";
 import { prisma } from "@/server/db";
 import { handleRouteError, ok, parseBody } from "@/lib/api";
 import { APP_NAME } from "@/lib/brand";
 
-const channelSchema = z.object({
-  telegramBotToken: z.string().trim().max(200).nullable().optional(),
-  telegramChatId: z.string().trim().max(60).nullable().optional(),
+const channelSchema = z.strictObject({
   quietStartHour: z.coerce.number().int().min(0).max(23).optional(),
   quietEndHour: z.coerce.number().int().min(0).max(23).optional(),
   isActive: z.boolean().optional(),
@@ -32,11 +30,10 @@ export async function PUT(req: Request) {
   }
 }
 
-/** Test delivery — also exercises the real dispatch path once. */
+/** Test delivery uses the same route to the owner's chat as other notifications. */
 export async function POST() {
   try {
     const user = await requireUser();
-    await getChannel(user.id);
     const notif = await prisma.notification.create({
       data: {
         userId: user.id,
@@ -46,13 +43,7 @@ export async function POST() {
         severity: "INFO",
       },
     });
-    const direct = await sendTestMessage(user.id);
-    const dispatched = await dispatchNotification(
-      user.id,
-      { id: notif.id, title: notif.title, body: notif.body, severity: notif.severity },
-      user.timezone,
-    );
-    return ok({ direct, dispatched });
+    return ok(await dispatchNotification(user.id, notif.id, user.timezone));
   } catch (e) {
     return handleRouteError(e);
   }

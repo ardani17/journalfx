@@ -1,133 +1,172 @@
+import { createHash, randomBytes } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
-import { D } from "@/lib/money";
+import { ApiError } from "@/lib/api";
 import { APP_NAME } from "@/lib/brand";
 
-/**
- * Outbound notification channels (v1.2.0).
- * - Opt-in Telegram channel; in-app notifications are the default push.
- * - Quiet hours (user-local) suppress outbound delivery (queued as unread in-app).
- * - Retry with backoff, per-channel dedupe key (no duplicate delivery).
- * - Tokens never leave the server unmasked.
- */
+const LINK_LIFETIME_MS = 10 * 60 * 1000;
+const DEFAULT_PREFERENCES = { quietStartHour: 22, quietEndHour: 7, isActive: true };
 
-export interface ChannelConfig {
-  telegramConfigured: boolean;
-  telegramBotTokenMasked: string | null;
-  telegramChatIdMasked: string | null;
-  quietStartHour: number;
-  quietEndHour: number;
-  isActive: boolean;
+type Preferences = typeof DEFAULT_PREFERENCES;
+type DispatchResult = {
+  delivered: boolean;
+  suppressed: "quiet-hours" | "inactive" | "not-configured" | "duplicate" | null;
+};
+
+export interface ChannelConfig extends Preferences {
+  telegramAvailable: boolean;
+  telegramConnected: boolean;
 }
 
-export async function getChannel(userId: string) {
-  let ch = await prisma.notificationChannel.findUnique({ where: { userId } });
-  if (!ch) ch = await prisma.notificationChannel.create({ data: { userId } });
-  return ch;
+function botToken() {
+  return process.env.TELEGRAM_BOT_TOKEN?.trim() || undefined;
 }
 
-function mask(v: string | null): string | null {
-  if (!v) return null;
-  if (v.length <= 6) return "••••";
-  return `${v.slice(0, 3)}••••${v.slice(-3)}`;
+export function telegramWebhookSecret() {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  return secret && /^[A-Za-z0-9_-]{1,256}$/.test(secret) ? secret : undefined;
 }
 
 export async function channelConfig(userId: string): Promise<ChannelConfig> {
-  const ch = await getChannel(userId);
+  const channel = await prisma.notificationChannel.findUnique({
+    where: { userId },
+    select: { telegramChatId: true, quietStartHour: true, quietEndHour: true, isActive: true },
+  });
   return {
-    telegramConfigured: Boolean(ch.telegramBotToken && ch.telegramChatId),
-    telegramBotTokenMasked: mask(ch.telegramBotToken),
-    telegramChatIdMasked: mask(ch.telegramChatId),
-    quietStartHour: ch.quietStartHour,
-    quietEndHour: ch.quietEndHour,
-    isActive: ch.isActive,
+    telegramAvailable: Boolean(botToken() && telegramWebhookSecret()),
+    telegramConnected: Boolean(channel?.telegramChatId),
+    quietStartHour: channel?.quietStartHour ?? DEFAULT_PREFERENCES.quietStartHour,
+    quietEndHour: channel?.quietEndHour ?? DEFAULT_PREFERENCES.quietEndHour,
+    isActive: channel?.isActive ?? DEFAULT_PREFERENCES.isActive,
   };
 }
 
-export async function updateChannel(
-  userId: string,
-  data: {
-    telegramBotToken?: string | null;
-    telegramChatId?: string | null;
-    quietStartHour?: number;
-    quietEndHour?: number;
-    isActive?: boolean;
-  },
-) {
-  await getChannel(userId);
-  // empty string clears; undefined keeps
-  const patch: Record<string, unknown> = {};
-  if (data.telegramBotToken !== undefined) patch.telegramBotToken = data.telegramBotToken || null;
-  if (data.telegramChatId !== undefined) patch.telegramChatId = data.telegramChatId || null;
-  if (data.quietStartHour !== undefined) patch.quietStartHour = data.quietStartHour;
-  if (data.quietEndHour !== undefined) patch.quietEndHour = data.quietEndHour;
-  if (data.isActive !== undefined) patch.isActive = data.isActive;
-  await prisma.notificationChannel.update({ where: { userId }, data: patch });
+export async function updateChannel(userId: string, data: Partial<Preferences>) {
+  await prisma.notificationChannel.upsert({
+    where: { userId },
+    create: { userId, ...data },
+    update: data,
+  });
   return channelConfig(userId);
 }
 
-function inQuietHours(start: number, end: number, tz: string): boolean {
+async function telegramRequest(token: string, method: "getMe" | "sendMessage", data?: object) {
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data ?? {}),
+      signal: AbortSignal.timeout(8000),
+      redirect: "error",
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    return body?.ok === true ? body.result : null;
+  } catch {
+    return null;
+  }
+}
+
+function hashLinkCode(code: string) {
+  return createHash("sha256").update(code).digest("hex");
+}
+
+export async function createTelegramLink(userId: string) {
+  const token = botToken();
+  if (!token || !telegramWebhookSecret()) throw new ApiError(503, "Bot Telegram belum dikonfigurasi.");
+  const bot = await telegramRequest(token, "getMe");
+  if (typeof bot?.username !== "string" || !/^[A-Za-z0-9_]+$/.test(bot.username)) {
+    throw new ApiError(503, "Bot Telegram sedang tidak dapat dihubungi.");
+  }
+
+  const code = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + LINK_LIFETIME_MS);
+  const pending = { telegramLinkCodeHash: hashLinkCode(code), telegramLinkExpiresAt: expiresAt };
+  await prisma.notificationChannel.upsert({
+    where: { userId },
+    create: { userId, ...pending },
+    update: pending,
+  });
+  return { url: `https://t.me/${bot.username}?start=${code}`, expiresAt: expiresAt.toISOString() };
+}
+
+export async function connectTelegramChat(chatId: string, text: string) {
+  const code = /^\/start ([A-Za-z0-9_-]{43})$/.exec(text)?.[1];
+  if (!code) return;
+
+  try {
+    await prisma.notificationChannel.updateMany({
+      where: { telegramLinkCodeHash: hashLinkCode(code), telegramLinkExpiresAt: { gt: new Date() } },
+      data: { telegramChatId: chatId, telegramLinkCodeHash: null, telegramLinkExpiresAt: null },
+    });
+  } catch (error) {
+    // A chat already paired with another account keeps its current owner.
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+  }
+}
+
+function inQuietHours(start: number, end: number, timezone: string) {
   let hour: number;
   try {
-    hour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: tz }).format(new Date()));
+    hour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hourCycle: "h23", timeZone: timezone }).format(new Date()));
   } catch {
     hour = new Date().getUTCHours();
   }
-  if (start <= end) return hour >= start && hour < end;
-  return hour >= start || hour < end; // overnight window (22→7)
+  return start <= end ? hour >= start && hour < end : hour >= start || hour < end;
 }
 
-async function sendTelegram(token: string, chatId: string, text: string): Promise<boolean> {
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (res.ok) return true;
-      if (res.status === 429 || res.status >= 500) continue; // retry
-      return false; // 4xx — config error, don't retry
-    } catch {
-      // network error — retry with backoff
-      await new Promise((r) => setTimeout(r, attempt * 1000));
-    }
-  }
-  return false;
+function pauseReason(channel: Preferences, timezone: string) {
+  if (!channel.isActive) return "inactive";
+  if (inQuietHours(channel.quietStartHour, channel.quietEndHour, timezone)) return "quiet-hours";
+  return null;
 }
 
-/** Dispatch a notification to configured channels (dedupe + quiet hours aware). */
 export async function dispatchNotification(
   userId: string,
-  notification: { id: string; title: string; body?: string | null; severity: string },
+  notificationId: string,
   userTimezone = "Asia/Jakarta",
-): Promise<{ delivered: boolean; suppressed: "quiet-hours" | "inactive" | "not-configured" | "duplicate" | null }> {
-  const ch = await getChannel(userId);
-  if (!ch.isActive) return { delivered: false, suppressed: "inactive" };
-  if (!ch.telegramBotToken || !ch.telegramChatId) return { delivered: false, suppressed: "not-configured" };
-  if (ch.lastDedupeKey === notification.id) return { delivered: false, suppressed: "duplicate" };
-  if (inQuietHours(ch.quietStartHour, ch.quietEndHour, userTimezone)) {
-    return { delivered: false, suppressed: "quiet-hours" };
-  }
-  const icon = notification.severity === "CRITICAL" ? "🚨" : notification.severity === "WARNING" ? "⚠️" : "ℹ️";
-  const ok = await sendTelegram(
-    ch.telegramBotToken,
-    ch.telegramChatId,
-    `${icon} ${notification.title}${notification.body ? `\n${notification.body}` : ""}\n\n— ${APP_NAME}`,
-  );
-  if (ok) {
-    await prisma.notificationChannel.update({
+): Promise<DispatchResult> {
+  const token = botToken();
+  if (!token) return { delivered: false, suppressed: "not-configured" };
+  const [notice, destination] = await Promise.all([
+    prisma.notification.findUnique({
+      where: { id: notificationId, userId },
+      select: { title: true, body: true, severity: true },
+    }),
+    prisma.notificationChannel.findUnique({
       where: { userId },
-      data: { lastDedupeKey: notification.id },
-    });
-  }
-  return { delivered: ok, suppressed: null };
-}
+      select: { telegramChatId: true, quietStartHour: true, quietEndHour: true, isActive: true },
+    }),
+  ]);
+  if (!notice) return { delivered: false, suppressed: "not-configured" };
+  const chatId = destination?.telegramChatId;
+  if (!destination || !chatId) return { delivered: false, suppressed: "not-configured" };
+  const paused = pauseReason(destination, userTimezone);
+  if (paused) return { delivered: false, suppressed: paused };
 
-/** Test message for the Save & Test flow in settings. */
-export async function sendTestMessage(userId: string): Promise<boolean> {
-  const ch = await getChannel(userId);
-  if (!ch.telegramBotToken || !ch.telegramChatId) return false;
-  void D; // (decimal import kept for consistency of module deps)
-  return sendTelegram(ch.telegramBotToken, ch.telegramChatId, `✅ Tes notifikasi ${APP_NAME} — channel aktif.`);
+  // Commit the claim before calling Telegram. A timeout can mean the message was delivered.
+  const { count } = await prisma.notification.updateMany({
+    where: { id: notificationId, userId, telegramClaimedAt: null },
+    data: { telegramClaimedAt: new Date() },
+  });
+  if (!count) return { delivered: false, suppressed: "duplicate" };
+
+  return prisma.$transaction(async (tx) => {
+    // Keep the chat bound to this account throughout dispatch.
+    const [channel] = await tx.$queryRaw<Array<Preferences & { telegramChatId: string | null }>>`
+      SELECT "telegramChatId", "quietStartHour", "quietEndHour", "isActive"
+      FROM "NotificationChannel" WHERE "userId" = ${userId} FOR SHARE
+    `;
+    if (channel?.telegramChatId !== chatId) return { delivered: false, suppressed: "not-configured" };
+    const paused = pauseReason(channel, userTimezone);
+    if (paused) return { delivered: false, suppressed: paused };
+
+    const icon = notice.severity === "CRITICAL" ? "🚨" : notice.severity === "WARNING" ? "⚠️" : "ℹ️";
+    const result = await telegramRequest(token, "sendMessage", {
+      chat_id: chatId,
+      text: `${icon} ${notice.title}${notice.body ? `\n${notice.body}` : ""}\n\n— ${APP_NAME}`,
+      link_preview_options: { is_disabled: true },
+    });
+    return { delivered: Boolean(result), suppressed: null };
+  }, { timeout: 12000 });
 }

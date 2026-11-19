@@ -2,7 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/session";
 
 const PUBLIC_PAGES = new Set(["/", "/login", "/privacy", "/terms"]);
-const PUBLIC_API = new Set(["/api/health", "/api/auth/google/start", "/api/auth/google/callback", "/api/auth/logout"]);
+const PUBLIC_API = new Set([
+  "/api/health", "/api/auth/google/start", "/api/auth/google/callback", "/api/auth/logout",
+  "/api/integrations/telegram/webhook",
+]);
 
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
