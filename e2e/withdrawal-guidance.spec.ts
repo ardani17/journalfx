@@ -77,15 +77,16 @@ for (const viewport of [
       }
       await form.getByRole("button", { name: "Ajukan", exact: true }).click();
       await expect(form).toBeHidden();
-      await expect(page.getByText("REQUESTED", { exact: true })).toBeVisible();
+      const history = page.getByRole("table");
+      await expect(history.getByText("REQUESTED", { exact: true })).toBeVisible();
 
-      await page.getByRole("button", { name: "Selesai", exact: true }).click();
+      await history.getByRole("button", { name: "Selesai", exact: true }).click();
       const reconciliation = page.getByRole("dialog", { name: /Selesaikan WD/ });
       await reconciliation.getByLabel("Kurs USDIDR").fill("18001.2345");
       await reconciliation.getByLabel("Dana Diterima (IDR)").fill("89555.55");
       await reconciliation.getByLabel("Biaya Transfer (IDR)").fill("123.45");
       await reconciliation.getByRole("button", { name: "Selesaikan" }).click();
-      await expect(page.getByText("COMPLETED", { exact: true })).toBeVisible();
+      await expect(history.getByText("COMPLETED", { exact: true })).toBeVisible();
       const withdrawal = await prisma.withdrawal.findFirstOrThrow({ where: { userId: user.id }, include: { transactions: true } });
       expect(withdrawal.accountId).toBe(cent.id);
       expect([withdrawal.amountUSD, withdrawal.fxRate, withdrawal.receivedAmount, withdrawal.fees].map(String))
