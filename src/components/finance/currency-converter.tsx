@@ -20,9 +20,13 @@ export function CurrencyConverter({ quote }: { quote: JisdorQuote | null }) {
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-3 sm:items-start">
         <Field label="Arah konversi" htmlFor="fx-direction">
-          <Select id="fx-direction" value={from} onChange={(event) => setFrom(event.target.value === "IDR" ? "IDR" : "USD")} disabled={!quote}>
+          <Select id="fx-direction" value={from} onChange={(event) => {
+            const currency = event.target.value;
+            setFrom(currency === "IDR" || currency === "USC" ? currency : "USD");
+          }} disabled={!quote}>
             <option value="USD">USD ke IDR</option>
             <option value="IDR">IDR ke USD</option>
+            <option value="USC">USC ke IDR</option>
           </Select>
         </Field>
         <Field
