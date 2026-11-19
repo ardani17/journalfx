@@ -54,6 +54,20 @@ npm run dev                     # http://localhost:3000
 
 Configure the Google Web OAuth client as described in the [Google sign-in and deployment guide](docs/deployment/google-sign-in.md). First sign-in creates an empty private journal. The optional demo seed is for the local `horizon_journal_google_test` database.
 
+## Shared Telegram bot
+
+Set `TELEGRAM_BOT_TOKEN` and an independently generated `TELEGRAM_WEBHOOK_SECRET` in the server environment. Apply database migrations, deploy the app, and register its public HTTPS webhook with the same secret. The migration from per-user tokens preserves preferences and clears old connections so users can pair again via **Pengaturan → Hubungkan Telegram**.
+
+```bash
+curl --fail-with-body --silent --show-error \
+  "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
+  --data-urlencode "url=${APP_ORIGIN%/}/api/integrations/telegram/webhook" \
+  --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
+  --data-urlencode 'allowed_updates=["message"]'
+```
+
+In staging, pair two app accounts in separate private Telegram chats and check one test message arrives in each chat. A claimed delivery is attempted once, including when Telegram times out. Notifications remain available in the app.
+
 ## Quality gates (every release)
 
 ```bash

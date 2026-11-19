@@ -2,7 +2,7 @@ import { Prisma, type Trade } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import {
   actualR,
   avgEntryPrice,
@@ -13,6 +13,7 @@ import {
   rollupExecutions,
 } from "@/lib/finance/trades";
 import type { CreateTradeInput, AddExecutionInput } from "@/lib/validation/trades";
+import { requireActiveAccount } from "./accounts";
 
 /**
  * Trade lifecycle service.
@@ -52,10 +53,7 @@ export async function lockTradeWrites(tx: Prisma.TransactionClient, userId: stri
 }
 
 export async function createTrade(userId: string, input: CreateTradeInput, req?: Request) {
-  const account = await prisma.tradingAccount.findFirst({
-    where: { id: input.accountId, userId },
-  });
-  if (!account) throw new ApiError(404, "Akun tidak ditemukan");
+  await requireActiveAccount(userId, input.accountId);
   if (input.strategyId) {
     const strategy = await prisma.strategy.findFirst({ where: { id: input.strategyId, userId } });
     if (!strategy) throw new ApiError(404, "Strategi tidak ditemukan");
@@ -64,6 +62,7 @@ export async function createTrade(userId: string, input: CreateTradeInput, req?:
 
   const trade = await prisma.$transaction(async (tx) => {
     await lockTradeWrites(tx, userId);
+    const account = await requireActiveAccount(userId, input.accountId, tx);
     if (input.ticket) {
       const dup = await tx.trade.findUnique({ where: { accountId_ticket: { accountId: account.id, ticket: input.ticket } } });
       if (dup) throw new ApiError(409, `Trade dengan ticket ${input.ticket} sudah ada`);
@@ -205,6 +204,7 @@ export async function listTrades(userId: string, filter: ListTradesFilter) {
       skip: filter.offset,
       include: {
         instrument: { select: { symbol: true, pricePrecision: true } },
+        account: { select: { currency: true } },
         strategy: { select: { name: true } },
         journal: { select: { tags: true, mistakes: true } },
       },
@@ -245,7 +245,7 @@ export async function recordTradeExecution(
 ) {
   const trade = await tx.trade.findFirst({
     where: { id: tradeId, userId },
-    include: { executions: true, instrument: true },
+    include: { executions: true, instrument: true, account: { select: { currency: true } } },
   });
   if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
   if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
@@ -256,7 +256,8 @@ export async function recordTradeExecution(
     if (dup) throw new ApiError(409, "Eksekusi dengan ID eksternal tersebut sudah ada");
   }
 
-  const spec = trade.instrument.contractSize === null ? null : { contractSize: trade.instrument.contractSize };
+  const currency = trade.account.currency;
+  const spec = trade.instrument.contractSize === null ? null : { contractSize: trade.instrument.contractSize, accountCurrency: currency };
   const isClose = input.kind === "CLOSE" || input.kind === "PARTIAL_CLOSE";
   const qty = D(input.quantity);
   const price = D(input.price);
@@ -311,6 +312,7 @@ export async function recordTradeExecution(
         accountId: trade.accountId,
         type: "REALIZED_PNL",
         amount: execution.realizedPnl,
+        currency,
         occurredAt: execution.executedAt,
         note: `${trade.instrument.symbol} ${trade.direction} ${input.kind === "CLOSE" ? "close" : "partial close"} ${qty}`,
         sourceTradeId: trade.id,
@@ -329,7 +331,9 @@ export async function recordTradeExecution(
     data: {
       status,
       realizedPnl: rollup.closedQty.isZero() ? null : rollup.realizedPnl,
-      actualR: rollup.closedQty.isZero() || !trade.initialRisk ? null : actualR(rollup.realizedPnl, D(trade.initialRisk)),
+      actualR: rollup.closedQty.isZero() || !trade.initialRisk
+        ? null
+        : actualR(tradingAmountToUsd(rollup.realizedPnl, currency), D(trade.initialRisk)),
       exitPrice: lastClose ? D(lastClose.price) : null,
       exitAt: lastClose?.executedAt ?? null,
       commission: executions.reduce((s, e) => s.add(D(e.commission)), new Decimal(0)),

@@ -104,18 +104,40 @@ for (const viewport of [
         expect(newScenario.data.summary).toEqual({ cyclesCount: run.data.cyclesCount, reached: run.data.reached });
         const newId: string = newScenario.data.scenario.id;
         await expect(page.getByRole("link", { name: "Buka Uji skenario baru" })).toBeVisible();
+        const savedEndpoint = `/api/scenarios/${saved.id}/run`;
+        const automaticRun = page.waitForResponse((response) => response.url().endsWith(savedEndpoint) && response.request().method() === "POST");
         await page.getByRole("link", { name: "Buka Skenario lama" }).click();
         await expect(page.getByRole("heading", { name: "Skenario lama" })).toBeVisible();
+        const savedResponse = await automaticRun;
+        expect(savedResponse.ok()).toBe(true);
+        const savedRun = await savedResponse.json();
+        await expect(page.getByText("Estimasi Pencapaian", { exact: true })).toBeVisible();
+        await expect(page.getByRole("img", { name: "Kurva pertumbuhan simulasi" })).toBeVisible();
+        await expect(page.getByRole("columnheader", { name: "Siklus" })).toBeVisible();
         await page.reload();
+        await expect(page.getByText("Estimasi Pencapaian", { exact: true })).toBeVisible();
         for (const value of ["$550,25", "$200,00", "25,1234%", "Bulanan", "Nominal tetap · $5,75 / siklus", "$1,25"]) {
-          await expect(page.getByText(value, { exact: true })).toBeVisible();
+          await expect(page.getByText(value, { exact: true }).first()).toBeVisible();
         }
-        const savedRun = await runAndRead(page, "Simulasikan Skenario", `/api/scenarios/${saved.id}/run`);
         expect(savedRun.data.totalDeposits).toBe("100");
         expect(savedRun.data.firstCycles[1].returnPct).toBe("15");
         const direct = await page.request.post(runEndpoint, { data: values });
         expect((await direct.json()).data).toEqual(savedRun.data);
         const estimate = await page.getByText("Lama Estimasi").locator("..").locator("p").last().innerText();
+        await page.getByRole("link", { name: "Buka Uji skenario baru" }).click();
+        await expect(page.getByText("Target belum tercapai dalam horizon", { exact: true })).toBeVisible();
+        await expect(page.getByText(estimate, { exact: true })).toHaveCount(0);
+
+        const failureMessage = "Simulasi sedang tidak tersedia";
+        await page.route(`**${savedEndpoint}`, async (route) => {
+          await expect(page.getByRole("status").filter({ hasText: "Menghitung simulasi" })).toBeVisible();
+          await route.fulfill({ status: 503, json: { ok: false, error: failureMessage } });
+        }, { times: 1 });
+        await page.goto(`/simulator?scenarioId=${saved.id}`);
+        await expect(page.getByRole("alert").filter({ hasText: failureMessage })).toBeVisible();
+        await page.getByRole("button", { name: "Coba Lagi" }).click();
+        await expect(page.getByText("Estimasi Pencapaian", { exact: true })).toBeVisible();
+        expect((await prisma.compoundingScenario.findUniqueOrThrow({ where: { id: saved.id } })).updatedAt).toEqual(saved.updatedAt);
 
         const forbidden = await page.request.get(`/simulator?scenarioId=${foreign.id}`);
         expect(forbidden.status()).toBe(404);

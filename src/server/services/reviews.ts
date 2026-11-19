@@ -283,9 +283,7 @@ export async function refreshNotifications(userId: string) {
   const notices = [...datedNotices, ...created];
   if (notices.length === 0) return;
   const { dispatchNotification } = await import("./notify-channels");
-  for (const notice of notices) {
-    void dispatchNotification(userId, notice, timezone).catch(() => undefined);
-  }
+  await Promise.allSettled(notices.map((notice) => dispatchNotification(userId, notice.id, timezone)));
 }
 
 export async function markAllRead(userId: string) {

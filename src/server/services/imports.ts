@@ -2,7 +2,9 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
+import { tradingAmountToUsd } from "@/lib/money";
 import { parseMt5Report } from "@/server/mt5-report";
+import { requireActiveAccount } from "./accounts";
 import { createTradeEntry, findInstrumentBySymbol, lockTradeWrites, recordTradeExecution } from "./trades";
 
 export interface ImportReport {
@@ -25,11 +27,11 @@ export async function importStatement(
   bytes: Buffer,
   req?: Request,
 ): Promise<ImportReport> {
-  const account = await prisma.tradingAccount.findFirst({ where: { id: accountId, userId } });
-  if (!account) throw new ApiError(404, "Akun tidak ditemukan");
-  if (account.currency !== "USD") throw new ApiError(400, "Pilih akun tujuan dengan mata uang USD");
-
-  const { positions, cashflows, fees, errors } = await parseMt5Report(bytes);
+  const account = await requireActiveAccount(userId, accountId);
+  const { currency, positions, cashflows, fees, errors } = await parseMt5Report(bytes);
+  if (currency !== account.currency) {
+    throw new ApiError(400, `Mata uang laporan MT5 (${currency}) berbeda dengan akun tujuan (${account.currency}).`);
+  }
   const report: ImportReport = {
     imported: 0, duplicates: 0, reconciled: 0, depositsImported: 0, withdrawalsImported: 0, cashflowDuplicates: 0,
     feesImported: 0, feeDuplicates: 0,
@@ -41,6 +43,7 @@ export async function importStatement(
     try {
       const result = await prisma.$transaction(async (tx) => {
         await lockTradeWrites(tx, userId);
+        await requireActiveAccount(userId, accountId, tx);
         const existingTrade = await tx.trade.findUnique({
           where: { accountId_ticket: { accountId, ticket: row.ticket } },
           include: {
@@ -140,6 +143,7 @@ export async function importStatement(
     }
     const imported = await prisma.$transaction(async (tx) => {
       await lockTradeWrites(tx, userId);
+      await requireActiveAccount(userId, accountId, tx);
       const existing = await tx.accountTransaction.findUnique({
         where: { accountId_mt5DealId: { accountId, mt5DealId: row.dealId } },
         select: { id: true },
@@ -149,7 +153,7 @@ export async function importStatement(
       const withdrawal = row.type === "WITHDRAWAL" ? await tx.withdrawal.create({
         data: {
           userId, projectId: account.projectId, accountId, status: "COMPLETED",
-          amountUSD: row.amount.abs(), completedAt: row.occurredAt, note: row.comment,
+          amountUSD: tradingAmountToUsd(row.amount.abs(), currency), completedAt: row.occurredAt, note: row.comment,
         },
         select: { id: true },
       }) : null;

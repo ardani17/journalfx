@@ -19,13 +19,15 @@ export function NewTradeForm({
   strategies,
   instruments,
 }: {
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; currency: string }[];
   strategies: { id: string; name: string }[];
   instruments: { id: string; symbol: string; pricePrecision: number }[];
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [accountId, setAccountId] = useState("");
+  const account = accounts.find((item) => item.id === accountId) ?? accounts[0];
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -81,9 +83,10 @@ export function NewTradeForm({
         <CardContent className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Akun" htmlFor="t-account">
-              <Select id="t-account" name="accountId" required defaultValue={accounts[0]?.id ?? ""}>
+              <Select id="t-account" name="accountId" required value={account?.id ?? ""} onChange={(event) => setAccountId(event.target.value)}>
+                {accounts.length === 0 && <option value="">Belum ada akun trading aktif</option>}
                 {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
+                  <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
                 ))}
               </Select>
             </Field>
@@ -137,7 +140,7 @@ export function NewTradeForm({
             <Field label="Timeframe" htmlFor="t-tf">
               <Input id="t-tf" name="timeframe" placeholder="M15 / H1" maxLength={10} />
             </Field>
-            <Field label="Komisi (USD)" htmlFor="t-comm">
+            <Field label={`Komisi (${account?.currency ?? "USD"})`} htmlFor="t-comm">
               <Input id="t-comm" name="commission" type="number" step="0.01" min="0" defaultValue={0} />
             </Field>
           </div>
@@ -186,7 +189,7 @@ export function NewTradeForm({
         ) : null}
         <div className="flex justify-end gap-2">
           <Button variant="secondary" type="button" onClick={() => router.back()}>Batal</Button>
-          <Button type="submit" disabled={loading}>{loading ? "Menyimpan…" : "Simpan Trade"}</Button>
+          <Button type="submit" disabled={loading || accounts.length === 0}>{loading ? "Menyimpan…" : "Simpan Trade"}</Button>
         </div>
       </div>
     </form>

@@ -9,7 +9,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/misc";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
-import { D, fmtDecimal, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
+import { D, fmtDecimal, fmtNum, fmtTradingDelta, fmtTradingMoney, fmtUSD } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +30,7 @@ export interface TradeDTO {
   status: string;
   direction: "LONG" | "SHORT";
   symbol: string;
+  currency: string;
   pricePrecision: number;
   requiresReportedPnl: boolean;
   lot: string;
@@ -291,14 +292,14 @@ function TradeSummary({ trade, openQty, loading, addClose, cancelTrade }: {
                 <Input id="c-price" name="price" type="number" step="0.000001" min="0.000001" required />
               </Field>
               {trade.requiresReportedPnl && (
-                <Field label="P&L bersih broker (USD)" htmlFor="c-net-pnl" hint="Termasuk komisi, swap, dan biaya">
+                <Field label={`P&L bersih broker (${trade.currency})`} htmlFor="c-net-pnl" hint="Termasuk komisi, swap, dan biaya">
                   <Input id="c-net-pnl" name="reportedNetPnl" type="number" step="0.01" required />
                 </Field>
               )}
-              <Field label="Komisi" htmlFor="c-comm" className="w-28">
+              <Field label={`Komisi (${trade.currency})`} htmlFor="c-comm" className="w-28">
                 <Input id="c-comm" name="commission" type="number" step="0.01" min="0" defaultValue={0} />
               </Field>
-              <Field label="Swap" htmlFor="c-swap" className="w-28">
+              <Field label={`Swap (${trade.currency})`} htmlFor="c-swap" className="w-28">
                 <Input id="c-swap" name="swap" type="number" step="0.01" defaultValue={0} />
               </Field>
               <Button type="submit" disabled={loading}>
@@ -328,12 +329,12 @@ function TradeOutcome({ trade }: { trade: TradeDTO }) {
         <Row label="Actual R" value={trade.actualR !== null ? `${fmtNum(trade.actualR, 2)}R` : "—"} />
         <Row
           label="P/L Realisasi"
-          value={trade.realizedPnl !== null ? fmtUSDdelta(trade.realizedPnl) : "—"}
+          value={trade.realizedPnl !== null ? fmtTradingDelta(trade.realizedPnl, trade.currency) : "—"}
           tone={trade.realizedPnl !== null ? (trade.realizedPnl > 0 ? "pos" : trade.realizedPnl < 0 ? "neg" : undefined) : undefined}
         />
-        <Row label="Komisi" value={fmtUSD(trade.commission)} />
-        <Row label="Swap" value={fmtUSD(trade.swap)} />
-        <Row label="Fee" value={fmtUSD(trade.fees)} />
+        <Row label="Komisi" value={fmtTradingMoney(trade.commission, trade.currency)} />
+        <Row label="Swap" value={fmtTradingMoney(trade.swap, trade.currency)} />
+        <Row label="Fee" value={fmtTradingMoney(trade.fees, trade.currency)} />
         <Row label="Waktu Exit" value={trade.exitAt ? fmtDateID(trade.exitAt, "d MMM, HH:mm") : "—"} />
       </CardContent>
     </Card>
@@ -365,9 +366,9 @@ function ExecutionTable({ trade }: { trade: TradeDTO }) {
                 </TD>
                 <TD className="tnum text-right text-xs">{fmtDecimal(e.quantity)}</TD>
                 <TD className="tnum text-right text-xs">{fmtDecimal(e.price, trade.pricePrecision)}</TD>
-                <TD className="tnum text-right text-xs">{fmtUSD(e.commission)}</TD>
+                <TD className="tnum text-right text-xs">{fmtTradingMoney(e.commission, trade.currency)}</TD>
                 <TD className={cn("tnum text-right text-xs font-semibold", e.realizedPnl === null ? "text-faint" : e.realizedPnl >= 0 ? "text-primary" : "text-loss")}>
-                  {e.realizedPnl === null ? "—" : fmtUSDdelta(e.realizedPnl)}
+                  {e.realizedPnl === null ? "—" : fmtTradingDelta(e.realizedPnl, trade.currency)}
                 </TD>
               </TR>
             ))

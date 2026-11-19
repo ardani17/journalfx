@@ -6,7 +6,7 @@ import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { TradeDetail, type TradeDTO } from "./trade-detail";
 import { fmtDateID } from "@/lib/dates";
-import { D, fmtDecimal, fmtUSD } from "@/lib/money";
+import { D, fmtDecimal, fmtTradingMoney } from "@/lib/money";
 
 export const metadata = { title: "Detail Trade" };
 
@@ -30,7 +30,7 @@ export default async function TradeDetailPage({ params }: { params: Promise<{ id
         actions={
           <div className="flex items-center gap-2">
             <Badge tone={tradeStatusTone[t.status]}>{t.status}</Badge>
-            <RealizedPnlBadge value={t.realizedPnl} />
+            <RealizedPnlBadge value={t.realizedPnl} currency={t.account.currency} />
           </div>
         }
       />
@@ -45,10 +45,10 @@ const tradeStatusTone = {
   CLOSED: "success", OPEN: "info", PARTIAL: "warn", PLANNED: "neutral", CANCELLED: "neutral",
 } as const;
 
-function RealizedPnlBadge({ value }: { value: SavedTrade["realizedPnl"] }) {
+function RealizedPnlBadge({ value, currency }: { value: SavedTrade["realizedPnl"]; currency: string }) {
   if (value === null) return null;
   const pnl = D(value);
-  return <Badge tone={pnl.gt(0) ? "success" : pnl.lt(0) ? "danger" : "neutral"}>{fmtUSD(pnl)}</Badge>;
+  return <Badge tone={pnl.gt(0) ? "success" : pnl.lt(0) ? "danger" : "neutral"}>{fmtTradingMoney(pnl, currency)}</Badge>;
 }
 
 function decimalNumber(value: SavedTrade["realizedPnl"]) {
@@ -61,6 +61,7 @@ function serializeTrade(t: SavedTrade): TradeDTO {
     status: t.status,
     direction: t.direction,
     symbol: t.instrument.symbol,
+    currency: t.account.currency,
     pricePrecision: t.instrument.pricePrecision,
     requiresReportedPnl: t.instrument.contractSize === null,
     lot: t.lot.toString(),

@@ -159,7 +159,9 @@ export async function parseMt5Report(bytes: Buffer) {
       const currency = [...account?.cells.values() ?? []]
         .map((value) => /\(([a-z]{3})\s*[,)]/i.exec(value)?.[1]?.toUpperCase())
         .find(Boolean);
-      if (currency !== "USD") throw new ApiError(400, "Laporan MT5 harus mencantumkan mata uang akun USD");
+      if (currency !== "USD" && currency !== "USC") {
+        throw new ApiError(400, `Mata uang laporan MT5 ${currency ?? "tidak tercantum"}. Mata uang yang didukung adalah USD dan USC.`);
+      }
 
       const positions: Mt5Position[] = [];
       const cashflows: Mt5Cashflow[] = [];
@@ -184,7 +186,7 @@ export async function parseMt5Report(bytes: Buffer) {
           errors.push("Baris " + row.number + " · " + (error instanceof Error ? error.message : "Arus kas tidak valid"));
         }
       }
-      return { positions, cashflows, fees, errors };
+      return { currency, positions, cashflows, fees, errors };
     }
   } catch (error) {
     if (error instanceof ApiError) throw error;

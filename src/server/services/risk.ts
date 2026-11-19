@@ -2,7 +2,7 @@ import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 
 import { audit } from "@/server/audit";
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import { adjustedDrawdown } from "@/lib/finance/risk";
 import { attributedLedger, computeBalance } from "./ledger";
 import { zonedPeriod } from "@/lib/dates";
@@ -78,18 +78,21 @@ export async function riskStatus(userId: string): Promise<RiskStatus> {
   const { start: dayStart } = zonedPeriod("DAILY", now, timezone);
   const { start: weekStart } = zonedPeriod("WEEKLY", now, timezone);
   const openRisk = openTrades.reduce((sum, t) => sum.plus(D(t.initialRisk)), D(0));
-  const realized = ledger.filter((r) => (r.type === "REALIZED_PNL" || r.type === "FEE") && r.occurredAt <= now);
-  const dayPnl = realized.filter((r) => r.occurredAt >= dayStart).reduce((sum, r) => sum.plus(D(r.amount)), D(0));
-  const weekPnl = realized.filter((r) => r.occurredAt >= weekStart).reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  const posted = ledger.filter((row) => row.occurredAt <= now).map((row) => ({
+    ...row, amountUsd: tradingAmountToUsd(row.amount, row.currency),
+  }));
+  const realized = posted.filter((r) => r.type === "REALIZED_PNL" || r.type === "FEE");
+  const dayPnl = realized.filter((r) => r.occurredAt >= dayStart).reduce((sum, r) => sum.plus(r.amountUsd), D(0));
+  const weekPnl = realized.filter((r) => r.occurredAt >= weekStart).reduce((sum, r) => sum.plus(r.amountUsd), D(0));
   let equityRun = D(0);
   let cashFlow = D(0);
   let initialFunding = D(0);
-  const points = ledger.filter((r) => r.occurredAt <= now).map((r) => {
-    equityRun = equityRun.plus(D(r.amount));
+  const points = posted.map((r) => {
+    equityRun = equityRun.plus(r.amountUsd);
     if (r.type === "DEPOSIT" || r.type === "WITHDRAWAL") {
       // Ledger amounts already carry their cash-flow sign.
-      cashFlow = cashFlow.plus(D(r.amount));
-      if (initialFunding.isZero() && r.type === "DEPOSIT" && D(r.amount).gt(0)) initialFunding = D(r.amount);
+      cashFlow = cashFlow.plus(r.amountUsd);
+      if (initialFunding.isZero() && r.type === "DEPOSIT" && r.amountUsd.gt(0)) initialFunding = r.amountUsd;
     }
     return { at: r.occurredAt, equity: equityRun, netCashFlow: cashFlow.minus(initialFunding) };
   });

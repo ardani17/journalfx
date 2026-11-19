@@ -22,7 +22,7 @@ export default async function NewTradePage() {
     <PageShell>
       <PageHeader title="Trade Baru" subtitle="Catat posisi lengkap dengan konteks dan psikologi pra-trade" />
       <NewTradeForm
-        accounts={accounts.filter((a) => a.isActive).map((a) => ({ id: a.id, name: a.name }))}
+        accounts={accounts.filter((a) => a.isActive).map(({ id, name, currency }) => ({ id, name, currency }))}
         strategies={strategies.map((s) => ({ id: s.id, name: s.name }))}
         instruments={instruments.map((i) => ({
           id: i.id,

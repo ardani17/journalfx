@@ -1,7 +1,7 @@
 import type { CompoundingScenario, Prisma } from "@prisma/client";
 import { ApiError } from "@/lib/api";
 import { ledgerMilestones, projectedMilestones, roadmapAmounts } from "@/lib/finance/roadmap";
-import { D, type Decimal } from "@/lib/money";
+import { D, tradingAmountToUsd, type Decimal } from "@/lib/money";
 import { audit } from "@/server/audit";
 import { prisma } from "@/server/db";
 import { getDefaultProject } from "./projects";
@@ -37,7 +37,7 @@ async function projectProgress(db: RoadmapReader, userId: string, projectId: str
     db.accountTransaction.findMany({
       where: { userId, account: { projectId, userId }, occurredAt: { lte: new Date() } },
       orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }, { id: "asc" }],
-      select: { amount: true, occurredAt: true },
+      select: { amount: true, currency: true, occurredAt: true },
     }),
     db.roadmapMilestoneAchievement.findMany({
       where: { projectId },
@@ -46,7 +46,9 @@ async function projectProgress(db: RoadmapReader, userId: string, projectId: str
   ]);
   const achieved = new Map(history.map((hit) => [hit.amount.toString(), hit.achievedAt]));
   const pending = amounts.filter((amount) => !achieved.has(amount.toString()));
-  const { balance, hits } = ledgerMilestones(pending, entries);
+  const { balance, hits } = ledgerMilestones(pending, entries.map((entry) => ({
+    occurredAt: entry.occurredAt, amount: tradingAmountToUsd(entry.amount, entry.currency),
+  })));
   if (hits.length > 0) {
     await db.roadmapMilestoneAchievement.createMany({
       data: hits.map((hit) => ({ ...hit, projectId })),

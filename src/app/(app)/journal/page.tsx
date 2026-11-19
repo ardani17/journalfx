@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/table";
 import { JournalToolbar } from "./journal-toolbar";
 import { getJournalPageSize, journalHref } from "./journal-query";
-import { D, fmtDecimal, fmtNum, fmtUSDdelta } from "@/lib/money";
+import { D, fmtDecimal, fmtNum, fmtTradingDelta } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
 import { listTradesQuery } from "@/lib/validation/trades";
 import { BarChart3, BookOpen, Percent, TrendingUp } from "lucide-react";
@@ -66,6 +66,7 @@ export default async function JournalPage({
   if (page > 1 && offset >= total) redirect(journalHref(filters, 1, pageSize));
 
   const range = items.length ? `${fmtNum(offset + 1, 0)}–${fmtNum(offset + items.length, 0)}` : "0";
+  const summaryCurrency = accounts.find((account) => account.id === filters.accountId)?.currency ?? "USD";
 
   return (
     <PageShell>
@@ -75,7 +76,7 @@ export default async function JournalPage({
       />
 
       <JournalToolbar
-        accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
+        accounts={accounts.map(({ id, name, isActive, currency }) => ({ id, name, isActive, currency }))}
         strategies={strategies.map((s) => ({ id: s.id, name: s.name }))}
         active={filters}
         pageSize={pageSize}
@@ -93,7 +94,7 @@ export default async function JournalPage({
         />
         <StatCard
           label="Total P/L"
-          value={fmtUSDdelta(metrics.netPnl)}
+          value={fmtTradingDelta(metrics.netPnl, summaryCurrency)}
           tone={metrics.netPnl.isPositive() ? "primary" : "loss"}
           icon={TrendingUp}
         />
@@ -173,7 +174,7 @@ export default async function JournalPage({
                               : "text-muted"
                       }`}
                     >
-                      {pnl === null ? "—" : fmtUSDdelta(pnl)}
+                      {pnl === null ? "—" : fmtTradingDelta(pnl, t.account.currency)}
                     </TD>
                     <TD className="text-xs text-muted">{t.strategy?.name ?? "—"}</TD>
                     <TD className="max-w-40 truncate text-xs text-faint">

@@ -28,13 +28,14 @@ export default async function TransactionsPage({
         subtitle="Sumber kebenaran saldo: deposit, withdrawal, P&L realisasi, dan adjustment."
       />
       <TransactionsClient
-        accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
+        accounts={accounts.map(({ id, name, currency }) => ({ id, name, currency }))}
         rows={items.map((t) => ({
           id: t.id,
           accountId: t.accountId,
           accountName: t.account.name,
           type: t.type,
-          amount: Number(t.amount),
+          amount: t.amount.toString(),
+          currency: t.currency,
           occurredAt: t.occurredAt.toISOString(),
           note: t.note,
           mt5DealId: t.mt5DealId,

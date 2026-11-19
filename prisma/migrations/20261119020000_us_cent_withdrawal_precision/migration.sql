@@ -1,0 +1,1 @@
+ALTER TABLE "Withdrawal" ALTER COLUMN "amountUSD" TYPE DECIMAL(20,4);
