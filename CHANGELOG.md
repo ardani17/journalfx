@@ -19,6 +19,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 - The app is now called Horizon Journal.
 - The journal and MT5 Sync share the same XLSX importer. Trade CSV import and export were removed.
+- The switch to Google sign-in requires OAuth configuration and a fresh database for deployments
+  with existing users. See the [Google sign-in deployment guide](https://github.com/ardani17/journalfx/blob/042938777eace7dc118ce8c792ec12364d6c74ac/docs/deployment/google-sign-in.md).
+
+### Fixed
+
+- Corrected withdrawal high-water marks and reserved allowances, cash-flow reversals, and
+  the recognition date for realized P&L from partial trade closes.
+- Applied the user's time zone to financial reporting periods and guarded concurrent withdrawals,
+  allocations, and partial closes against conflicting balance updates.
+
+### Security
+
+- Patched transitive dependencies flagged by Dependabot.
 
 ## [1.4.0] — 2026-11-16
 
