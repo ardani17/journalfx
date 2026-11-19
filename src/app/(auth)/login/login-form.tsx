@@ -184,10 +184,9 @@ export function LoginForm({ turnstileSiteKey, initialError }: { turnstileSiteKey
         </div>
 
         <nav aria-label="Informasi layanan" className="mt-4 flex justify-center gap-4 text-xs text-muted">
-          {/* eslint-disable @next/next/no-html-link-for-pages -- Public policy pages need their own document CSP. */}
+          {/* Public policy pages need their own document CSP. */}
           <a href="/privacy" className="underline underline-offset-2">Kebijakan Privasi</a>
           <a href="/terms" className="underline underline-offset-2">Ketentuan Penggunaan</a>
-          {/* eslint-enable @next/next/no-html-link-for-pages */}
         </nav>
         <details className="mt-3 rounded-lg border border-line px-3 py-2 text-xs text-muted">
           <summary className="cursor-pointer font-medium text-ink">Pasang Horizon Journal</summary>
