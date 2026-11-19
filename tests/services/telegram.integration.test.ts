@@ -3,15 +3,14 @@ import { existsSync } from "node:fs";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/server/db";
 import { requireUser } from "@/server/auth";
-import { channelConfig, dispatchNotification, updateChannel } from "@/server/services/notify-channels";
-import { POST as createLink } from "@/app/api/notifications/channels/telegram-link/route";
+import { channelConfig, dispatchNotification, telegramWebhookSecret, updateChannel } from "@/server/services/notify-channels";
+import { GET as getBot, POST as createLink } from "@/app/api/notifications/channels/telegram-link/route";
 import { POST as testDelivery, PUT as updatePreferences } from "@/app/api/notifications/channels/route";
 import { POST as webhook } from "@/app/api/integrations/telegram/webhook/route";
 
 vi.mock("@/server/auth", () => ({ requireUser: vi.fn() }));
 
 describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound delivery", () => {
-  const secret = "qa_webhook_secret";
   const userIds: string[] = [];
   const messages: { chat_id: string; text: string }[] = [];
 
@@ -21,7 +20,6 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
 
   beforeEach(() => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "qa-bot-token");
-    vi.stubEnv("TELEGRAM_WEBHOOK_SECRET", secret);
     messages.length = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit) => {
       if (input.endsWith("/getMe")) return Response.json({ ok: true, result: { username: "Horizon_QA_bot" } });
@@ -51,9 +49,12 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     return user;
   }
 
-  async function startCommand(user: Awaited<ReturnType<typeof createUser>>) {
+  async function startCommand(user: Awaited<ReturnType<typeof createUser>>, chatId: number) {
     vi.mocked(requireUser).mockResolvedValueOnce(user);
-    const response = await createLink();
+    const response = await createLink(new Request("https://example.test/api/notifications/channels/telegram-link", {
+      method: "POST",
+      body: JSON.stringify({ chatId: String(chatId) }),
+    }));
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(response.ok).toBe(true);
     const url = new URL((await response.json()).data.url);
@@ -63,7 +64,7 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     return `/start ${code}`;
   }
 
-  function update(chat: number, text: string, type = "private", header = secret) {
+  function update(chat: number, text: string, type = "private", header = telegramWebhookSecret()!) {
     return webhook(new Request("https://example.test/api/integrations/telegram/webhook", {
       method: "POST",
       headers: { "x-telegram-bot-api-secret-token": header },
@@ -75,10 +76,11 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     const [alice, bob] = await Promise.all([createUser(), createUser()]);
     const chat = randomInt(100_000_000, 2_147_483_646);
     await updateChannel(alice.id, { isActive: false, quietStartHour: 21, quietEndHour: 8 });
-    const firstStart = await startCommand(alice);
-    const secondStart = await startCommand(bob);
+    const firstStart = await startCommand(alice, chat);
+    const secondStart = await startCommand(bob, chat);
     expect((await update(chat, firstStart, "private", "incorrect-secret")).status).toBe(401);
     expect((await update(chat, firstStart, "group")).ok).toBe(true);
+    expect((await update(chat + 1, firstStart)).ok).toBe(true);
     expect((await channelConfig(alice.id)).telegramConnected).toBe(false);
 
     const responses = await Promise.all([
@@ -95,13 +97,15 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     await update(chat + 1, winnerCommand);
     expect(await prisma.notificationChannel.findUnique({ where: { telegramChatId: String(chat + 1) } })).toBeNull();
     await update(chat + 1, loserCommand);
+    expect((await channelConfig(loser.id)).telegramChatId).toBeNull();
+    await update(chat + 1, await startCommand(loser, chat + 1));
     expect(await prisma.notificationChannel.count({ where: { userId: { in: [alice.id, bob.id] }, telegramChatId: { not: null } } })).toBe(2);
     expect(await channelConfig(alice.id)).toMatchObject({
       telegramConnected: true, isActive: false, quietStartHour: 21, quietEndHour: 8,
     });
 
-    const staleCommand = await startCommand(bob);
-    const nextCommand = await startCommand(bob);
+    const staleCommand = await startCommand(bob, chat + 2);
+    const nextCommand = await startCommand(bob, chat + 2);
     await update(chat + 2, staleCommand);
     await prisma.notificationChannel.update({ where: { userId: bob.id }, data: { telegramLinkExpiresAt: new Date(0) } });
     await update(chat + 2, nextCommand);
@@ -115,11 +119,31 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     expect(response.status).toBe(400);
   });
 
+  it("returns a private chat's ID, requires it in pairing, and derives webhook auth from the bot token", async () => {
+    const user = await createUser();
+    const chat = 2 ** 40 + randomInt(100_000_000);
+    vi.mocked(requireUser).mockResolvedValueOnce(user);
+    expect(await (await getBot()).json()).toEqual({ ok: true, data: { url: "https://t.me/Horizon_QA_bot" } });
+    vi.mocked(requireUser).mockResolvedValueOnce(user);
+    const invalid = await createLink(new Request("https://example.test/api/notifications/channels/telegram-link", {
+      method: "POST", body: JSON.stringify({ chatId: "@username" }),
+    }));
+    expect(invalid.status).toBe(400);
+    expect(telegramWebhookSecret()).toMatch(/^[a-f0-9]{64}$/);
+    await update(chat, "/id", "group");
+    expect(messages).toHaveLength(0);
+    await update(chat, "/id");
+    expect(messages).toEqual([{ chat_id: String(chat), text: expect.stringContaining(String(chat)) }]);
+    expect((await channelConfig(user.id)).telegramChatId).toBeNull();
+    await update(chat, await startCommand(user, chat));
+    expect((await channelConfig(user.id)).telegramChatId).toBe(String(chat));
+  });
+
   it("sends to the owner once, honors settings, and holds the claim after a timeout", async () => {
     const [alice, bob] = await Promise.all([createUser(), createUser()]);
     const chat = randomInt(100_000_000, 2_147_483_646);
-    await update(chat, await startCommand(alice));
-    await update(chat + 1, await startCommand(bob));
+    await update(chat, await startCommand(alice, chat));
+    await update(chat + 1, await startCommand(bob, chat + 1));
     await updateChannel(alice.id, { quietStartHour: 0, quietEndHour: 0 });
     await updateChannel(bob.id, { quietStartHour: 0, quietEndHour: 0 });
 
