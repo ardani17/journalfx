@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
+import { fmtUSD } from "../src/lib/money";
 
 const prisma = new PrismaClient();
 test.afterAll(() => prisma.$disconnect());
@@ -54,6 +55,60 @@ async function runAndRead(page: Page, action: string, endpoint: string) {
   expect(body.ok).toBe(true);
   return { data: body.data, response };
 }
+
+test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo in a worker", async ({ page, baseURL }) => {
+  const { owner, other } = await planningFixture();
+  try {
+    await page.context().addCookies([{
+      url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
+      value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
+    }]);
+    await page.goto("/simulator");
+    await page.getByLabel("Return / Siklus (%)", { exact: true }).fill("5");
+    await page.getByLabel("Biaya / Siklus (USD)", { exact: true }).fill("1");
+    await page.getByLabel("Mode WD", { exact: true }).selectOption("FIXED");
+    await page.getByLabel("Nominal WD (USD)", { exact: true }).fill("2");
+    const { data } = await runAndRead(page, "Simulasikan", "/api/simulator/run");
+    expect(data.cycles.length).toBeGreaterThan(100);
+    const history = page.getByRole("region", { name: "Riwayat siklus deterministik" });
+    const jump = async (cycle: number) => {
+      await history.getByLabel("Nomor siklus").fill(String(cycle));
+      await history.getByRole("button", { name: "Ke siklus" }).click();
+    };
+    await jump(100);
+    const cycle = data.cycles[99];
+    const row = history.getByRole("row").filter({ has: page.getByRole("cell", { name: "100 minggu", exact: true }) });
+    // Compare the displayed values to the actual API row and reconcile the unrounded amounts.
+    await expect(row.getByRole("cell")).toHaveCount(9);
+    for (const [index, amount] of [[1, cycle.opening], [3, cycle.grossProfit], [4, cycle.costs],
+      [5, cycle.profit], [6, cycle.deposit], [7, cycle.wd], [8, cycle.closing]]) {
+      await expect(row.getByRole("cell").nth(Number(index))).toHaveText(fmtUSD(amount));
+    }
+    expect(Number(cycle.opening) + Number(cycle.profit) - Number(cycle.wd) + Number(cycle.deposit))
+      .toBeCloseTo(Number(cycle.closing), 7);
+    for (const size of ["50", "100", "200"]) {
+      await history.getByLabel("Siklus per halaman").selectOption(size);
+      await jump(data.cycles.length);
+      await expect(history.getByRole("cell", { name: `${data.cycles.length} minggu`, exact: true })).toBeVisible();
+    }
+
+    await page.getByLabel("Iterasi Monte Carlo").fill("2000");
+    await page.getByLabel("Jumlah trade", { exact: true }).fill("110");
+    await page.getByLabel("Trade per siklus", { exact: true }).fill("1");
+    await page.getByLabel("Win rate (%)", { exact: true }).fill("100");
+    const worker = page.waitForEvent("worker");
+    await page.getByRole("button", { name: "Simulasikan Monte Carlo" }).click();
+    await worker;
+    await expect(page.getByRole("heading", { name: "Contoh jalur simulasi" })).toBeVisible();
+    const sample = page.getByRole("region", { name: "Riwayat siklus Monte Carlo" });
+    await sample.getByLabel("Nomor siklus").fill("100");
+    await sample.getByRole("button", { name: "Ke siklus" }).click();
+    await sample.getByRole("button", { name: /Siklus 100 · Trade 100/ }).click();
+    await expect(sample.getByRole("cell", { name: "Menang", exact: true })).toBeVisible();
+  } finally {
+    await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
+  }
+});
 
 for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },

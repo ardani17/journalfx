@@ -137,6 +137,7 @@ export function simulationResponse(result: SimulateResult) {
       closing: Number(c.closing.toFixed(2)),
       wd: Number(c.wd.toFixed(2)),
     })),
+    cycles: result.cycles,
     firstCycles: result.cycles.slice(0, 12),
     lastCycle: result.cycles.at(-1) ?? null,
   };

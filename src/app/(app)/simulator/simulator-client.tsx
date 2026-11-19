@@ -13,10 +13,11 @@ import { Badge } from "@/components/ui/badge";
 import { ScenarioFacts, type ScenarioFactsData } from "@/components/planning/scenario-facts";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
 import { D, fmtNum, fmtUSD } from "@/lib/money";
-import { cn } from "@/lib/utils";
 import { describeProjection, frequencyDetails, type CompoundingFrequency, type WdModeSim } from "@/lib/finance/compounding";
 import { runSimulationSchema, scenarioSchema } from "@/lib/validation/planning";
 import { formatTarget, parseSimulationNumber } from "./simulator-input";
+import { CyclePagination } from "./cycle-pagination";
+import { TradeMonteCarloPanel } from "./trade-monte-carlo-panel";
 
 interface RunResult {
   cyclesCount: number;
@@ -26,14 +27,17 @@ interface RunResult {
   totalWd: string;
   totalProfit: string;
   series: { cycle: number; opening: number; closing: number; wd: number }[];
-  firstCycles: {
+  cycles: {
     cycle: number;
     opening: string;
+    returnPct: string;
+    grossProfit: string;
+    costs: string;
     profit: string;
     wd: string;
+    deposit: string;
     closing: string;
   }[];
-  lastCycle: { cycle: number; opening: string; profit: string; wd: string; closing: string } | null;
 }
 
 const SimulatorPlot = dynamic(() => import("recharts").then(({
@@ -262,6 +266,8 @@ export function SimulatorClient({
       {selected ? <SavedSimulationResult id={selected.id} frequency={selected.frequency} />
         : result ? <SimulationResult result={result.data} frequency={result.frequency} /> : null}
 
+      <TradeMonteCarloPanel key={selected?.id ?? "default"} initialEquity={Number(selected?.initialCapital ?? defaults.initialCapital)} />
+
       {/* Saved scenarios */}
       <div>
         <h2 className="mb-2 text-sm font-semibold">Skenario Tersimpan</h2>
@@ -378,38 +384,35 @@ function SimulationResult({ result, frequency }: { result: RunResult; frequency:
         </Card>
       </div>
 
-      {/* Detail table */}
-      <TableWrap>
-        <Table>
-          <THead>
-            <TR><TH>Siklus</TH><TH className="text-right">Opening</TH><TH className="text-right">Profit</TH><TH className="text-right">WD</TH><TH className="text-right">Closing</TH></TR>
-          </THead>
-          <TBody>
-            {result.firstCycles.length === 0 ? (
-              <EmptyRow colSpan={5}>Target sudah tercapai sejak awal — tidak ada siklus tambahan.</EmptyRow>
-            ) : (
-              result.firstCycles.map((c) => (
-                <TR key={c.cycle}>
-                  <TD className="tnum text-xs">{c.cycle}</TD>
-                  <TD className="tnum text-right text-xs">{fmtUSD(c.opening)}</TD>
-                  <TD className={cn("tnum text-right text-xs", Number(c.profit) >= 0 ? "text-primary" : "text-loss")}>{fmtUSD(c.profit)}</TD>
-                  <TD className="tnum text-right text-xs">{fmtUSD(c.wd)}</TD>
-                  <TD className="tnum text-right text-xs font-semibold">{fmtUSD(c.closing)}</TD>
+      <CyclePagination count={result.cycles.length} label="Riwayat siklus deterministik">
+        {(start, end) => (
+          <TableWrap>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Siklus</TH>
+                  {["Saldo awal", "Return", "L/R kotor", "Biaya", "L/R bersih", "Deposit", "Withdrawal", "Saldo akhir"].map((label) => (
+                    <TH key={label} className="text-right">{label}</TH>
+                  ))}
                 </TR>
-              ))
-            )}
-            {result.lastCycle && result.cyclesCount > 12 ? (
-              <TR className="bg-primary/5">
-                <TD className="tnum text-xs font-bold">{result.lastCycle.cycle}</TD>
-                <TD className="tnum text-right text-xs">{fmtUSD(result.lastCycle.opening)}</TD>
-                <TD className="tnum text-right text-xs">{fmtUSD(result.lastCycle.profit)}</TD>
-                <TD className="tnum text-right text-xs">{fmtUSD(result.lastCycle.wd)}</TD>
-                <TD className="tnum text-right text-xs font-bold text-primary">{fmtUSD(result.lastCycle.closing)}</TD>
-              </TR>
-            ) : null}
-          </TBody>
-        </Table>
-      </TableWrap>
+              </THead>
+              <TBody>
+                {result.cycles.length === 0 ? <EmptyRow colSpan={9}>Target sudah tercapai sejak awal.</EmptyRow> :
+                  result.cycles.slice(start, end).map((cycle) => (
+                    <TR key={cycle.cycle}>
+                      <TD className="tnum whitespace-nowrap text-xs">{cycle.cycle} {frequencyDetails[frequency].unit}</TD>
+                      {[fmtUSD(cycle.opening), `${fmtNum(D(cycle.returnPct), 2)}%`, fmtUSD(cycle.grossProfit),
+                        fmtUSD(cycle.costs), fmtUSD(cycle.profit), fmtUSD(cycle.deposit),
+                        fmtUSD(cycle.wd), fmtUSD(cycle.closing)].map((value, index) => (
+                        <TD className="tnum whitespace-nowrap text-right text-xs" key={index}>{value}</TD>
+                      ))}
+                    </TR>
+                  ))}
+              </TBody>
+            </Table>
+          </TableWrap>
+        )}
+      </CyclePagination>
     </>
   );
 }
