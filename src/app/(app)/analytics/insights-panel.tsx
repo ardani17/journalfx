@@ -1,8 +1,10 @@
 "use client";
 
 import { Brain, CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export interface InsightDTO {
   id: string;
@@ -15,24 +17,67 @@ export interface InsightDTO {
 export function InsightsPanel({
   insights,
   coverage,
+  aiAvailable,
 }: {
   insights: InsightDTO[];
   coverage: { total: number; withJournal: number; complete: number };
+  aiAvailable: boolean;
 }) {
+  const [findings, setFindings] = useState<{ finding: string; evidence: string }[]>([]);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  async function generate() {
+    setPending(true);
+    setError("");
+    try {
+      const response = await fetch("/api/analytics/journal-insights", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || !result.ok) {
+        setError(result.error ?? "Insight AI gagal dibuat. Silakan coba lagi.");
+        return;
+      }
+      setFindings(result.data);
+    } catch {
+      setError("Insight AI gagal dibuat. Silakan coba lagi.");
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Brain className="h-4 w-4 text-primary" aria-hidden /> AI Journal Insights (explainable)
-          <Badge tone="neutral">rule-based · bukan prediksi</Badge>
+          <Badge tone="neutral">Analisis retrospektif</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs leading-relaxed text-muted">
-          Setiap insight dihasilkan dari data jurnal Anda sendiri, dengan bukti dan ukuran sampel
-          yang eksplisit — bukan model black-box dan bukan sinyal trading.
           Cakupan data: {coverage.withJournal}/{coverage.total} trade ber-jurnal, {coverage.complete} lengkap.
         </p>
+        {aiAvailable && coverage.withJournal >= 3 ? (
+          <Button type="button" variant="secondary" size="sm" disabled={pending} onClick={generate}>
+            {pending ? "Membuat insight AI…" : "Buat insight AI"}
+          </Button>
+        ) : null}
+        {pending ? <p role="status" className="text-xs text-muted">Analisis jurnal sedang diproses.</p> : null}
+        {error ? <p role="alert" className="text-xs text-loss">{error}</p> : null}
+        {findings.length > 0 ? (
+          <section aria-label="Hasil insight AI" className="space-y-2">
+            <h3 className="text-sm font-semibold">Hasil insight AI</h3>
+            <ul className="space-y-2">
+              {findings.map((item, index) => (
+                <li key={index} className="rounded-xl border border-line-soft p-3 text-sm">
+                  <p>{item.finding}</p>
+                  <p className="mt-1 text-xs text-muted">{item.evidence}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
+        {insights.length > 0 ? <h3 className="text-sm font-semibold">Insight berbasis aturan</h3> : null}
         {insights.length === 0 ? (
           <p className="py-6 text-center text-xs text-faint">
             Belum cukup data untuk insight (butuh minimal 3 trade ber-jurnal).

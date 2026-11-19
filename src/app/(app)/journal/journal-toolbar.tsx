@@ -9,16 +9,55 @@ import { Dialog } from "@/components/ui/misc";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Mt5ImportResult } from "@/components/journal/mt5-import-result";
 import type { ImportReport } from "@/server/services/imports";
-import { getJournalPageSize, journalHref, JOURNAL_PAGE_SIZES, type JournalFilters, type JournalPageSize } from "./journal-query";
+import { getJournalPageSize, journalDateRange, journalHref, JOURNAL_PAGE_SIZES, type JournalFilters, type JournalPageSize } from "./journal-query";
 
 interface Props {
   accounts: { id: string; name: string; currency: string; isActive: boolean }[];
   strategies: { id: string; name: string }[];
   active: JournalFilters;
   pageSize: JournalPageSize;
+  dateError?: string;
 }
 
-export function JournalToolbar({ accounts, strategies, active, pageSize }: Props) {
+function DateRangeForm({ active, pageSize, dateError }: Pick<Props, "active" | "pageSize" | "dateError">) {
+  const router = useRouter();
+  const [error, setError] = useState(dateError);
+
+  function apply(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const dateFrom = String(data.get("dateFrom") ?? "");
+    const dateTo = String(data.get("dateTo") ?? "");
+    const range = journalDateRange(dateFrom, dateTo);
+    setError(range.error);
+    if (!range.error) router.push(journalHref({ ...active, dateFrom, dateTo }, 1, pageSize));
+  }
+
+  return (
+    <form onSubmit={apply} aria-label="Filter rentang tanggal">
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="Tanggal mulai" htmlFor="journal-date-from">
+          <Input id="journal-date-from" name="dateFrom" type="date" defaultValue={active.dateFrom} />
+        </Field>
+        <Field label="Tanggal akhir" htmlFor="journal-date-to">
+          <Input id="journal-date-to" name="dateTo" type="date" defaultValue={active.dateTo} />
+        </Field>
+        <Button type="submit" size="sm" variant="secondary">Terapkan</Button>
+        <Button type="button" size="sm" variant="ghost" onClick={(event) => {
+          const form = event.currentTarget.form;
+          if (form) {
+            for (const input of form.querySelectorAll("input[type=date]")) (input as HTMLInputElement).value = "";
+          }
+          setError(undefined);
+          router.push(journalHref({ ...active, dateFrom: undefined, dateTo: undefined }, 1, pageSize));
+        }}>Hapus rentang</Button>
+      </div>
+      {error ? <p className="mt-1 text-xs text-loss" role="alert">{error}</p> : null}
+    </form>
+  );
+}
+
+export function JournalToolbar({ accounts, strategies, active, pageSize, dateError }: Props) {
   const router = useRouter();
   const [importOpen, setImportOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,6 +101,7 @@ export function JournalToolbar({ accounts, strategies, active, pageSize }: Props
 
   return (
     <>
+      <DateRangeForm key={JSON.stringify([active.dateFrom, active.dateTo, dateError])} active={active} pageSize={pageSize} dateError={dateError} />
       <div className="flex flex-wrap items-center gap-2">
         <Select
           aria-label="Filter status"

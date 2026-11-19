@@ -37,6 +37,35 @@ test("public entry points offer only Google sign-in and expose policy pages", as
   }
 });
 
+test("serves install metadata and icons publicly while keeping private routes protected", async ({ page, request }) => {
+  await page.goto("/");
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/pwa/apple-touch-icon.png");
+  await page.getByText("Pasang Horizon Journal", { exact: true }).click();
+  await expect(page.getByText("Android Chrome", { exact: true })).toBeVisible();
+  await expect(page.getByText("iPhone Safari", { exact: true })).toBeVisible();
+
+  const response = await request.get("/manifest.webmanifest", { maxRedirects: 0 });
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("application/manifest+json");
+  const manifest = await response.json();
+  expect(manifest).toMatchObject({ name: "Horizon Journal", display: "standalone", start_url: "/", scope: "/" });
+  expect(manifest.icons).toEqual(expect.arrayContaining([
+    expect.objectContaining({ sizes: "192x192", purpose: "any" }),
+    expect.objectContaining({ sizes: "512x512", purpose: "any" }),
+    expect.objectContaining({ sizes: "512x512", purpose: "maskable" }),
+  ]));
+  for (const { src, sizes } of [...manifest.icons, { src: "/pwa/apple-touch-icon.png", sizes: "180x180" }]) {
+    const icon = await request.get(src, { maxRedirects: 0 });
+    expect(icon.status()).toBe(200);
+    expect(icon.headers()["content-type"]).toBe("image/png");
+    const content = await icon.body();
+    expect(`${content.readUInt32BE(16)}x${content.readUInt32BE(20)}`).toBe(sizes);
+  }
+  expect(await request.get("/journal", { maxRedirects: 0 }).then((result) => result.status())).toBe(307);
+  expect(await request.get("/api/trades").then((result) => result.status())).toBe(401);
+});
+
 test("security: unauthenticated routes redirect to /login", async ({ page }) => {
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login$/);

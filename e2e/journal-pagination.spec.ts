@@ -62,6 +62,33 @@ async function expectResults(page: Page, range: string, count: number) {
   await expect(page.getByRole("table").getByRole("link")).toHaveCount(count);
 }
 
+test("applies entry dates to filtered rows, pagination, and KPIs", async ({ page, baseURL }) => {
+  await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);
+  const filters = new URLSearchParams({ accountId: journal.account.id, result: "win", sort: "asc", page: "2" });
+  await page.goto(`/journal?${filters}`);
+  const from = page.getByLabel("Tanggal mulai");
+  const to = page.getByLabel("Tanggal akhir");
+  await from.fill("2026-11-04");
+  await to.fill("2026-11-03");
+  await page.getByRole("button", { name: "Terapkan" }).click();
+  await expect(page.getByRole("form", { name: "Filter rentang tanggal" }).getByRole("alert"))
+    .toContainText("Tanggal akhir harus sama atau setelah tanggal mulai.");
+
+  await to.fill("2026-11-04");
+  await page.getByRole("button", { name: "Terapkan" }).click();
+  await expectResults(page, "1–1 dari 1", 1);
+  await expect(page.getByText("Sampel kecil (1 < 30 trade)", { exact: false })).toBeVisible();
+  await expect(page.getByRole("table").getByRole("link")).toHaveAttribute("href", `/journal/${journal.userId}-200`);
+  expect(new URL(page.url()).searchParams.get("page")).toBe("1");
+  await page.reload();
+  await expect(from).toHaveValue("2026-11-04");
+  await expect(to).toHaveValue("2026-11-04");
+
+  await page.getByRole("button", { name: "Hapus rentang" }).click();
+  await expectResults(page, "1–50 dari 201", 50);
+  await expect(page.getByLabel("Filter hasil")).toHaveValue("win");
+});
+
 for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },
   { name: "mobile", width: 390, height: 844 },

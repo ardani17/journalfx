@@ -162,9 +162,8 @@ export interface ListTradesFilter {
   offset: number;
 }
 
-export async function listTrades(userId: string, filter: ListTradesFilter) {
-  const sort = filter.sort ?? "desc";
-  const where: Prisma.TradeWhereInput = {
+export function tradeFilterWhere(userId: string, filter: Omit<ListTradesFilter, "limit" | "offset">): Prisma.TradeWhereInput {
+  return {
     userId,
     ...(filter.accountId ? { accountId: filter.accountId } : {}),
     ...(filter.status ? { status: filter.status as Trade["status"] } : {}),
@@ -196,6 +195,11 @@ export async function listTrades(userId: string, filter: ListTradesFilter) {
         }
       : {}),
   };
+}
+
+export async function listTrades(userId: string, filter: ListTradesFilter) {
+  const sort = filter.sort ?? "desc";
+  const where = tradeFilterWhere(userId, filter);
   const [items, total] = await Promise.all([
     prisma.trade.findMany({
       where,

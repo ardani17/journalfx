@@ -7,9 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
 import { DailyPnlChart } from "./daily-pnl-chart";
 import { InsightsPanel } from "./insights-panel";
-import { MonteCarloPanel } from "@/components/analytics/montecarlo-panel";
 import { portfolioOverview } from "@/server/services/portfolio";
 import { buildInsights } from "@/server/services/economic-events";
+import { aiJournalConfig } from "@/server/services/ai-journal";
 import { fmtNum, fmtTradingDelta, fmtTradingMoney, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { zonedPeriod, addUTCDays } from "@/lib/dates";
 import { Activity, Percent, Scale, Target, TrendingUp } from "lucide-react";
@@ -112,7 +112,7 @@ export default async function AnalyticsPage() {
         </Card>
       </div>
 
-      <InsightsPanel insights={insights.insights} coverage={insights.dataCoverage} />
+      <InsightsPanel insights={insights.insights} coverage={insights.dataCoverage} aiAvailable={Boolean(aiJournalConfig())} />
 
       {/* Portfolio & prop firm */}
       <div>
@@ -149,7 +149,6 @@ export default async function AnalyticsPage() {
         </TableWrap>
       </div>
 
-      <MonteCarloPanel />
     </PageShell>
   );
 }
