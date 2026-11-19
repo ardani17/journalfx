@@ -9,8 +9,19 @@
 
 [Google OpenID Connect](https://developers.google.com/identity/openid-connect/openid-connect) · [Persyaratan produksi Google](https://developers.google.com/identity/verification/authentication-policy-compliance)
 
+## Cloudflare Turnstile
+
+1. Buat widget Turnstile **Managed** dengan pre-clearance nonaktif. Gunakan widget terpisah untuk staging dan produksi. Daftarkan hostname masing-masing lingkungan sesuai `APP_ORIGIN`, tanpa skema, port, atau path.
+2. Set `TURNSTILE_SITE_KEY` dan `TURNSTILE_SECRET_KEY` pada environment runtime server sebelum menjalankan versi ini. Simpan secret key di `.env` privat atau pengelola rahasia. Tombol login membutuhkan kedua kunci, dan server menolak permintaan masuk jika verifikasi tidak tersedia.
+3. Di staging HTTPS, buka `/` dan `/login`, selesaikan widget, lalu pastikan login Google membuka dashboard pada desktop dan mobile. Uji percobaan ulang setelah token kedaluwarsa. Periksa juga bahwa reverse proxy mengizinkan skrip dan iframe `https://challenges.cloudflare.com` pada kedua halaman.
+
+Tes OAuth otomatis memakai respons Siteverify tiruan. Kunci dummy Cloudflare mengembalikan hostname `example.com` tanpa `action`, sehingga pengujian browser dengan Siteverify asli membutuhkan widget untuk hostname lingkungan yang diuji.
+
+[Validasi token Turnstile](https://developers.cloudflare.com/turnstile/get-started/server-side-validation/) · [Kunci pengujian Turnstile](https://developers.cloudflare.com/turnstile/troubleshooting/testing/)
+
 ## Lokal dan database pengujian
 
+- Gunakan widget Turnstile khusus pengembangan yang mengizinkan `localhost` dan isi kedua kunci di `.env` lokal. Buka URL yang sama dengan `APP_ORIGIN`, misalnya `http://localhost:3000`. Jika memakai `127.0.0.1`, daftarkan juga hostname tersebut pada widget dan URL callback Google lokal.
 - Buat database kosong `horizon_journal_google_local` di PostgreSQL lokal. Arahkan `DATABASE_URL` ke database tersebut, gunakan direktori lampiran baru, jalankan `npm run db:deploy`, `npm run db:seed:reference`, dan `npm run dev`. Login pertama membuat jurnal dengan saldo nol.
 - Untuk data contoh, buat database loopback `horizon_journal_google_test`, jalankan migrasi, lalu `npm run db:seed:demo`. Fixture ini memiliki identitas Google sintetis. Playwright membuat sesi dari fixture melalui helper pengujian dengan `AUTH_SECRET` dari server pengujian. Tes OAuth memverifikasi respons dari provider tiruan dengan ID token bertanda tangan.
 

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/server/auth";
 import { getGoogleConfig } from "@/server/google-oauth";
+import { getTurnstileConfig } from "@/server/turnstile";
 import { LoginForm } from "./login-form";
 
 export const metadata = { title: "Login" };
@@ -16,5 +17,6 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const user = await getSessionUser();
   if (user) redirect("/dashboard");
   const { error } = await searchParams;
-  return <LoginForm enabled={Boolean(getGoogleConfig())} initialError={typeof error === "string" ? loginErrors.get(error) : undefined} />;
+  const turnstileSiteKey = getGoogleConfig() ? getTurnstileConfig()?.siteKey : undefined;
+  return <LoginForm turnstileSiteKey={turnstileSiteKey} initialError={typeof error === "string" ? loginErrors.get(error) : undefined} />;
 }

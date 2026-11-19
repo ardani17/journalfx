@@ -12,6 +12,7 @@ export default function PrivacyPage() {
       <p>Horizon Journal adalah aplikasi untuk mencatat trading, meninjau performa, dan merencanakan keuangan pribadi.</p>
       <h2 className="font-semibold text-ink">Data akun dan jurnal</h2>
       <p>Saat Anda masuk, kami menerima identitas akun, email terverifikasi, dan nama profil dari Google. Informasi ini dipakai untuk membuat akun, mengenali Anda ketika masuk kembali, dan menampilkan profil. Cookie sesi menjaga Anda tetap masuk.</p>
+      <p>Halaman login menggunakan Cloudflare Turnstile untuk memeriksa bahwa permintaan masuk berasal dari pengunjung manusia. Cloudflare memproses informasi browser dan jaringan untuk menjalankan pemeriksaan ini. Lihat <a href="https://www.cloudflare.com/turnstile-privacy-policy/" className="text-primary underline">penjelasan privasi Turnstile</a>.</p>
       <p>Trade, transaksi, laporan, dan lampiran yang Anda masukkan tersimpan di layanan dan tersedia di akun Anda. Data tersebut diproses untuk menyediakan fungsi jurnal. Jika Anda mengaktifkan notifikasi Telegram, isi notifikasi yang dikirim akan diproses juga oleh Telegram.</p>
       <h2 className="font-semibold text-ink">Pilihan dan kontak</h2>
       <p>Anda dapat memperbarui profil di Pengaturan dan mencabut akses login dari pengaturan akun Google. Untuk meminta akses, koreksi, atau penghapusan data akun dari layanan, hubungi pengelola Horizon Journal{contact ? <> di <a href={`mailto:${contact}`} className="text-primary underline">{contact}</a></> : null}.</p>

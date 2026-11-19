@@ -37,6 +37,37 @@ test("public entry points offer only Google sign-in and expose policy pages", as
   }
 });
 
+test("allows Turnstile scripts and frames only on the two login URLs", async ({ request }) => {
+  const challengeOrigin = "https://challenges.cloudflare.com";
+  for (const path of ["/", "/login"]) {
+    const response = await request.get(path);
+    expect(response.status()).toBe(200);
+    const csp = response.headers()["content-security-policy"];
+    expect(csp).toMatch(/(?:^|; )script-src [^;]*https:\/\/challenges\.cloudflare\.com/);
+    expect(csp).toContain(`frame-src ${challengeOrigin}`);
+    expect(csp).toContain("frame-ancestors 'none'");
+  }
+  const privacy = await request.get("/privacy");
+  expect(privacy.headers()["content-security-policy"]).not.toContain(challengeOrigin);
+});
+
+test("reloads the document when navigating between login and public policies", async ({ page }) => {
+  await page.goto("/");
+  for (const [path, label] of [["/privacy", "Kebijakan Privasi"], ["/terms", "Ketentuan Penggunaan"]]) {
+    const [policy] = await Promise.all([
+      page.waitForEvent("response", (res) => res.request().isNavigationRequest() && new URL(res.url()).pathname === path),
+      page.getByRole("link", { name: label }).click(),
+    ]);
+    expect(policy.headers()["content-security-policy"]).not.toContain("challenges.cloudflare.com");
+
+    const [loginPage] = await Promise.all([
+      page.waitForEvent("response", (res) => res.request().isNavigationRequest() && new URL(res.url()).pathname === "/"),
+      page.getByRole("link", { name: "Horizon Journal", exact: true }).click(),
+    ]);
+    expect(loginPage.headers()["content-security-policy"]).toContain("challenges.cloudflare.com");
+  }
+});
+
 test("serves install metadata and icons publicly while keeping private routes protected", async ({ page, request }) => {
   await page.goto("/");
   await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
