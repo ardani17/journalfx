@@ -75,7 +75,7 @@ export default async function JournalPage({
       />
 
       <JournalToolbar
-        accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
+        accounts={accounts.map((a) => ({ id: a.id, name: a.name, isActive: a.isActive }))}
         strategies={strategies.map((s) => ({ id: s.id, name: s.name }))}
         active={filters}
         pageSize={pageSize}

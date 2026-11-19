@@ -1,41 +1,48 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/misc";
 import { Field, Input, Textarea } from "@/components/ui/field";
 
-export function AccountsClient() {
+type EditableAccount = {
+  id: string;
+  name: string;
+  broker: string | null;
+  accountNumber: string | null;
+  notes: string | null;
+  isActive: boolean;
+};
+
+export function AccountsClient({ account }: { account?: EditableAccount }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const formId = useId();
+  const [dialog, setDialog] = useState<"form" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const endpoint = account ? `/api/accounts/${encodeURIComponent(account.id)}` : "/api/accounts";
 
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  function openDialog(next: "form" | "delete") {
     setError(null);
+    setDialog(next);
+  }
+
+  async function save(method: "POST" | "PATCH" | "DELETE", data?: object) {
     setLoading(true);
-    const fd = new FormData(e.currentTarget);
+    setError(null);
     try {
-      const res = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          name: fd.get("name"),
-          broker: fd.get("broker") || undefined,
-          accountNumber: fd.get("accountNumber") || undefined,
-          notes: fd.get("notes") || undefined,
-          initialDeposit: fd.get("initialDeposit") || undefined,
-        }),
+      const res = await fetch(endpoint, {
+        method,
+        ...(data && { headers: { "content-type": "application/json" }, body: JSON.stringify(data) }),
       });
       const body = await res.json();
       if (!res.ok || !body.ok) {
-        setError(body.error ?? "Gagal menambah akun");
+        setError(body.error ?? "Gagal menyimpan perubahan akun");
         return;
       }
-      setOpen(false);
+      setDialog(null);
       router.refresh();
     } catch {
       setError("Tidak dapat menghubungi server");
@@ -44,41 +51,81 @@ export function AccountsClient() {
     }
   }
 
+  function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    void save(account ? "PATCH" : "POST", {
+      name: fd.get("name"),
+      broker: fd.get("broker"),
+      accountNumber: fd.get("accountNumber"),
+      notes: fd.get("notes"),
+      ...(!account && { initialDeposit: fd.get("initialDeposit") || undefined }),
+    });
+  }
+
+  const errorMessage = error ? <p className="text-xs text-loss" role="alert">{error}</p> : null;
+
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
-        <Plus className="h-4 w-4" aria-hidden /> Tambah Akun
-      </Button>
-      <Dialog open={open} onClose={() => setOpen(false)} title="Tambah Akun Trading">
+      {account ? (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" disabled={loading} onClick={() => openDialog("form")}>Edit</Button>
+            <Button size="sm" variant="secondary" disabled={loading} onClick={() => save("PATCH", { isActive: !account.isActive })}>
+              {account.isActive ? "Nonaktifkan" : "Aktifkan Kembali"}
+            </Button>
+            <Button size="sm" variant="danger" disabled={loading} onClick={() => openDialog("delete")}>Hapus</Button>
+          </div>
+          {!dialog && errorMessage}
+        </div>
+      ) : (
+        <Button onClick={() => openDialog("form")}>
+          <Plus className="h-4 w-4" aria-hidden /> Tambah Akun
+        </Button>
+      )}
+      <Dialog open={dialog === "form"} onClose={() => setDialog(null)} title={account ? "Edit Akun Trading" : "Tambah Akun Trading"}>
+        {dialog === "form" && (
         <form onSubmit={submit} className="space-y-3">
-          <Field label="Nama Akun" htmlFor="acc-name">
-            <Input id="acc-name" name="name" required minLength={2} placeholder="cth. Akun Exness" />
+          <Field label="Nama Akun" htmlFor={`${formId}-name`}>
+            <Input id={`${formId}-name`} name="name" required minLength={2} maxLength={60} defaultValue={account?.name} placeholder="cth. Akun Exness" />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Broker" htmlFor="acc-broker">
-              <Input id="acc-broker" name="broker" placeholder="Opsional" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Broker" htmlFor={`${formId}-broker`}>
+              <Input id={`${formId}-broker`} name="broker" maxLength={60} defaultValue={account?.broker ?? ""} placeholder="Opsional" />
             </Field>
-            <Field label="Nomor Akun" htmlFor="acc-num">
-              <Input id="acc-num" name="accountNumber" placeholder="Opsional" />
+            <Field label="Nomor Akun" htmlFor={`${formId}-number`}>
+              <Input id={`${formId}-number`} name="accountNumber" maxLength={40} defaultValue={account?.accountNumber ?? ""} placeholder="Opsional" />
             </Field>
           </div>
-          <Field
-            label="Deposit Awal (USD)"
-            htmlFor="acc-deposit"
-            hint="Tercatat sebagai transaksi DEPOSIT di ledger"
-          >
-            <Input id="acc-deposit" name="initialDeposit" type="number" step="0.01" min="0" placeholder="0" />
+          {!account && (
+            <Field label="Deposit Awal (USD)" htmlFor={`${formId}-deposit`} hint="Tercatat sebagai transaksi DEPOSIT di ledger">
+              <Input id={`${formId}-deposit`} name="initialDeposit" type="number" step="0.01" min="0" placeholder="0" />
+            </Field>
+          )}
+          <Field label="Catatan" htmlFor={`${formId}-notes`}>
+            <Textarea id={`${formId}-notes`} name="notes" rows={2} maxLength={500} defaultValue={account?.notes ?? ""} placeholder="Opsional" />
           </Field>
-          <Field label="Catatan" htmlFor="acc-notes">
-            <Textarea id="acc-notes" name="notes" rows={2} placeholder="Opsional" />
-          </Field>
-          {error ? <p className="text-xs text-loss" role="alert">{error}</p> : null}
+          {errorMessage}
           <div className="flex justify-end gap-2 pt-1">
-            <Button variant="secondary" onClick={() => setOpen(false)}>Batal</Button>
+            <Button variant="secondary" onClick={() => setDialog(null)}>Batal</Button>
             <Button type="submit" disabled={loading}>{loading ? "Menyimpan…" : "Simpan"}</Button>
           </div>
         </form>
+        )}
       </Dialog>
+      {account && (
+        <Dialog open={dialog === "delete"} onClose={() => setDialog(null)} title="Hapus Akun Trading">
+          <div className="space-y-3">
+            <p className="text-sm">Hapus akun <strong>{account.name}</strong> secara permanen?</p>
+            <p className="text-xs text-muted">Hanya akun tanpa riwayat atau referensi yang dapat dihapus.</p>
+            {dialog === "delete" && errorMessage}
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setDialog(null)}>Batal</Button>
+              <Button variant="danger" disabled={loading} onClick={() => save("DELETE")}>{loading ? "Menghapus…" : "Hapus Akun"}</Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
     </>
   );
 }

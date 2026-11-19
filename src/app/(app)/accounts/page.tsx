@@ -52,6 +52,10 @@ export default async function AccountsPage() {
                 <Metric label="Withdrawal" value={fmtUSD(a.balance.withdrawals)} />
               </div>
               {a.notes ? <p className="text-[11px] text-faint">{a.notes}</p> : null}
+              <AccountsClient account={{
+                id: a.id, name: a.name, broker: a.broker, accountNumber: a.accountNumber,
+                notes: a.notes, isActive: a.isActive,
+              }} />
             </CardContent>
           </Card>
         ))}

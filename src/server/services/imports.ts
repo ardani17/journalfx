@@ -3,6 +3,7 @@ import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
 import { parseMt5Report } from "@/server/mt5-report";
+import { requireActiveAccount } from "./accounts";
 import { createTradeEntry, findInstrumentBySymbol, lockTradeWrites, recordTradeExecution } from "./trades";
 
 export interface ImportReport {
@@ -25,8 +26,7 @@ export async function importStatement(
   bytes: Buffer,
   req?: Request,
 ): Promise<ImportReport> {
-  const account = await prisma.tradingAccount.findFirst({ where: { id: accountId, userId } });
-  if (!account) throw new ApiError(404, "Akun tidak ditemukan");
+  const account = await requireActiveAccount(userId, accountId);
   if (account.currency !== "USD") throw new ApiError(400, "Pilih akun tujuan dengan mata uang USD");
 
   const { positions, cashflows, fees, errors } = await parseMt5Report(bytes);
@@ -41,6 +41,7 @@ export async function importStatement(
     try {
       const result = await prisma.$transaction(async (tx) => {
         await lockTradeWrites(tx, userId);
+        await requireActiveAccount(userId, accountId, tx);
         const existingTrade = await tx.trade.findUnique({
           where: { accountId_ticket: { accountId, ticket: row.ticket } },
           include: {
@@ -140,6 +141,7 @@ export async function importStatement(
     }
     const imported = await prisma.$transaction(async (tx) => {
       await lockTradeWrites(tx, userId);
+      await requireActiveAccount(userId, accountId, tx);
       const existing = await tx.accountTransaction.findUnique({
         where: { accountId_mt5DealId: { accountId, mt5DealId: row.dealId } },
         select: { id: true },

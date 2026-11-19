@@ -82,6 +82,7 @@ export function NewTradeForm({
           <div className="grid grid-cols-2 gap-3">
             <Field label="Akun" htmlFor="t-account">
               <Select id="t-account" name="accountId" required defaultValue={accounts[0]?.id ?? ""}>
+                {accounts.length === 0 && <option value="">Belum ada akun trading aktif</option>}
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
@@ -186,7 +187,7 @@ export function NewTradeForm({
         ) : null}
         <div className="flex justify-end gap-2">
           <Button variant="secondary" type="button" onClick={() => router.back()}>Batal</Button>
-          <Button type="submit" disabled={loading}>{loading ? "Menyimpan…" : "Simpan Trade"}</Button>
+          <Button type="submit" disabled={loading || accounts.length === 0}>{loading ? "Menyimpan…" : "Simpan Trade"}</Button>
         </div>
       </div>
     </form>

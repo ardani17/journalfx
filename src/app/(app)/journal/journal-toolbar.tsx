@@ -12,7 +12,7 @@ import type { ImportReport } from "@/server/services/imports";
 import { getJournalPageSize, journalHref, JOURNAL_PAGE_SIZES, type JournalFilters, type JournalPageSize } from "./journal-query";
 
 interface Props {
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; isActive: boolean }[];
   strategies: { id: string; name: string }[];
   active: JournalFilters;
   pageSize: JournalPageSize;
@@ -24,6 +24,7 @@ export function JournalToolbar({ accounts, strategies, active, pageSize }: Props
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<ImportReport | null>(null);
   const [loading, setLoading] = useState(false);
+  const importAccounts = accounts.filter((account) => account.isActive);
 
   function setFilter(key: keyof JournalFilters, value: string) {
     router.push(journalHref({ ...active, [key]: value }, 1, pageSize));
@@ -145,8 +146,9 @@ export function JournalToolbar({ accounts, strategies, active, pageSize }: Props
             Unggah Trade History MT5 (.xlsx) untuk mencatat posisi, deposit, dan withdrawal. Entri yang sudah diimpor ke akun tujuan akan dilewati.
           </p>
           <Field label="Akun Tujuan" htmlFor="imp-account">
-            <Select id="imp-account" name="accountId" required defaultValue={accounts[0]?.id ?? ""}>
-              {accounts.map((a) => (
+            <Select id="imp-account" name="accountId" required defaultValue={importAccounts[0]?.id ?? ""}>
+              {importAccounts.length === 0 && <option value="">Belum ada akun trading aktif</option>}
+              {importAccounts.map((a) => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </Select>
@@ -158,7 +160,7 @@ export function JournalToolbar({ accounts, strategies, active, pageSize }: Props
           {report && <Mt5ImportResult report={report} />}
           <div className="flex justify-end gap-2 pt-1">
             <Button type="button" variant="secondary" onClick={() => setImportOpen(false)}>Tutup</Button>
-            <Button type="submit" disabled={loading}>{loading ? "Mengimpor…" : "Impor"}</Button>
+            <Button type="submit" disabled={loading || importAccounts.length === 0}>{loading ? "Mengimpor…" : "Impor"}</Button>
           </div>
         </form>
       </Dialog>

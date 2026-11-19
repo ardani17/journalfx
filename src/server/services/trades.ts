@@ -13,6 +13,7 @@ import {
   rollupExecutions,
 } from "@/lib/finance/trades";
 import type { CreateTradeInput, AddExecutionInput } from "@/lib/validation/trades";
+import { requireActiveAccount } from "./accounts";
 
 /**
  * Trade lifecycle service.
@@ -52,10 +53,7 @@ export async function lockTradeWrites(tx: Prisma.TransactionClient, userId: stri
 }
 
 export async function createTrade(userId: string, input: CreateTradeInput, req?: Request) {
-  const account = await prisma.tradingAccount.findFirst({
-    where: { id: input.accountId, userId },
-  });
-  if (!account) throw new ApiError(404, "Akun tidak ditemukan");
+  await requireActiveAccount(userId, input.accountId);
   if (input.strategyId) {
     const strategy = await prisma.strategy.findFirst({ where: { id: input.strategyId, userId } });
     if (!strategy) throw new ApiError(404, "Strategi tidak ditemukan");
@@ -64,6 +62,7 @@ export async function createTrade(userId: string, input: CreateTradeInput, req?:
 
   const trade = await prisma.$transaction(async (tx) => {
     await lockTradeWrites(tx, userId);
+    const account = await requireActiveAccount(userId, input.accountId, tx);
     if (input.ticket) {
       const dup = await tx.trade.findUnique({ where: { accountId_ticket: { accountId: account.id, ticket: input.ticket } } });
       if (dup) throw new ApiError(409, `Trade dengan ticket ${input.ticket} sudah ada`);

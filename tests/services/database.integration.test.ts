@@ -12,7 +12,7 @@ import { importStatement } from "@/server/services/imports";
 import { mt5Sync, mt5SyncStatus } from "@/server/services/mt5-sync";
 import { findOrCreateGoogleUser } from "@/server/services/users";
 import { readAttachment } from "@/server/services/attachments";
-import { getAccount, updateAccount } from "@/server/services/accounts";
+import { createAccount, deleteAccount, getAccount, updateAccount } from "@/server/services/accounts";
 
 vi.mock("@/server/services/jisdor", () => ({
   getJisdorQuote: async () => ({ rate: "18252", at: new Date().toISOString(), source: "bi-jisdor", status: "latest" }),
@@ -75,6 +75,38 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     await expect(updateAccount(second.id, accountId, { name: "Foreign edit" })).rejects.toMatchObject({ status: 404 });
     await expect(readAttachment(second.id, attachment.id)).rejects.toMatchObject({ status: 403 });
     expect((await listTrades(second.id, { limit: 10, offset: 0 })).total).toBe(0);
+  });
+
+  it("protects account ownership and history while allowing account edits, deletion and reactivation", async () => {
+    const f = await fixture();
+    const other = await fixture();
+    const empty = await createAccount(f.userId, { name: "Empty QA account" });
+    await updateAccount(f.userId, empty.id, { name: "Updated QA account", broker: "Broker", accountNumber: "123", notes: "Edited" });
+    expect(await getAccount(f.userId, empty.id)).toMatchObject({ name: "Updated QA account", broker: "Broker", accountNumber: "123", notes: "Edited" });
+    await expect(deleteAccount(other.userId, empty.id)).rejects.toMatchObject({ status: 404 });
+    await deleteAccount(f.userId, empty.id);
+    await expect(getAccount(f.userId, empty.id)).rejects.toMatchObject({ status: 404 });
+
+    const funded = await createAccount(f.userId, { name: "Funded QA account", initialDeposit: 10 });
+    await expect(deleteAccount(f.userId, funded.id)).rejects.toMatchObject({ status: 409 });
+    const snapshotOnly = await createAccount(f.userId, { name: "Snapshot QA account" });
+    await prisma.equitySnapshot.create({ data: { userId: f.userId, accountId: snapshotOnly.id, at: new Date(), balance: 1, equity: 1 } });
+    await expect(deleteAccount(f.userId, snapshotOnly.id)).rejects.toMatchObject({ status: 409 });
+
+    const input = {
+      accountId: f.accountId, instrumentId, direction: "LONG" as const, lot: 0.1,
+      entryPrice: 2000, entryAt: "2026-11-01T00:00:00Z", commission: 0, swap: 0, fees: 0,
+    };
+    const trade = await createTrade(f.userId, input);
+    await updateAccount(f.userId, f.accountId, { isActive: false });
+    const report = readFileSync(new URL("../fixtures/mt5-history.xlsx", import.meta.url));
+    await expect(createTrade(f.userId, input)).rejects.toMatchObject({ status: 409 });
+    await expect(importStatement(f.userId, f.accountId, report)).rejects.toMatchObject({ status: 409 });
+    await expect(mt5Sync(f.userId, f.accountId, report)).rejects.toMatchObject({ status: 409 });
+    expect((await listTrades(f.userId, { accountId: f.accountId, limit: 10, offset: 0 })).items[0]?.id).toBe(trade.id);
+    expect((await computeBalance(f.userId, f.accountId)).balance.toNumber()).toBe(200);
+    await updateAccount(f.userId, f.accountId, { isActive: true });
+    await expect(createTrade(f.userId, input)).resolves.toMatchObject({ accountId: f.accountId });
   });
 
   it("recognizes each partial close in its own period, including net entry costs", async () => {
