@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+## [1.4.3] — 2026-11-19
+
 ### Added
 
 - Register an instrument symbol from the New Trade form without losing the trade details already entered. Existing symbols are reused.
