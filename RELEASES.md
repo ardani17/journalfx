@@ -1,19 +1,16 @@
 # Release Registry & Checklists
 
-MDTP follows the **Mandatory Git Workflow & Sequential Release Policy** (Linear: MDTP project
-resources). Summary of the rules enforced here:
+The [GitHub releases](https://github.com/ardani17/journalfx/releases) through `v1.4.0` use the
+original local Git tags. Future releases continue with `v1.4.1`, `v1.4.2`, and one patch per release.
 
-- Protected `main` (production) and `develop` (integration). Work happens on
-  `feature/ARD-xxx-short-name` / `fix/...` branched from `develop`; releases via `release/vX.Y.Z`.
-- Conventional Commits referencing the Linear issue (e.g. `feat(journal): add partial close (ARD-259)`).
-- Sequential versions only: patch +1 (v0.1.0 → v0.1.1), minor +1 with patch reset (v0.1.2 → v0.2.0),
-  never skip, reuse, or move tags. Stable v1.0.0 only after v0.6.x acceptance.
-- A release is tagged only after lint + strict typecheck + tests + production build pass and the
-  checklist below is recorded.
-- **Local-repo adaptation** (documented deviation): this repository currently has no remote/PR
-  hosting. Feature branches are merged locally into `develop` with `--no-ff` to preserve per-issue
-  commits; the release checklist records commit SHAs in place of PR links. When a remote is added,
-  PR gating resumes without policy change.
+1. Add release notes under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) and merge to `main`.
+2. Open [Actions → Release](https://github.com/ardani17/journalfx/actions/workflows/release.yml) and
+   run the workflow on `main`.
+3. After lint, type checking, tests, the production build, and Playwright pass, the workflow
+   updates the changelog and package versions, pushes an annotated tag, and publishes the GitHub
+   release. Run the workflow again to finish publishing if the tag was pushed before a failure.
+
+Use the Release workflow to keep package versions, tags, and release notes in sync.
 
 ## Release checklist template
 
