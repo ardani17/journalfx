@@ -13,12 +13,12 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 - Install Horizon Journal on Android and iPhone as a standalone web app.
 - Filter the Trading Journal by entry date and navigate paginated results.
 - Run a saved Compounding Plan on open and compare its projection with per-trade Monte Carlo simulations. The full cycle history is available in the planner.
-- Generate AI Journal Insights on demand from journal statistics when a provider is configured. Each finding links back to its evidence, and rule-based insights remain available.
+- Generate AI Journal Insights on demand from journal statistics when a provider is configured. Each finding includes supporting journal evidence, and rule-based insights remain available.
 - Edit, deactivate, and reactivate trading accounts. Delete empty accounts, import MT5 reports for USD and US cent accounts, and choose flexible debt repayment terms.
 
 ### Changed
 
-- Horizon Journal uses a shared Telegram bot. Enter the private chat ID in Settings and confirm the connection through Start. Existing Telegram destinations must reconnect after the migration. See the [database cutover instructions](https://github.com/ardani17/journalfx/blob/125c1688d9908c676a8c30b7b04771f604ee227e/DATABASE.md#migration-policy).
+- Horizon Journal uses a shared Telegram bot. Enter the private chat ID in Settings and confirm the connection through Start. Existing Telegram destinations must reconnect after the migration. See the [database cutover instructions](https://github.com/ardani17/journalfx/blob/125c1688d9908c676a8c30b7b04771f604ee227e/DATABASE.md#L28-L33).
 - Upgrade to Next.js 16.
 
 ### Fixed
