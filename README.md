@@ -64,6 +64,8 @@ node --env-file=.env scripts/register-telegram-webhook.mjs
 
 In **Pengaturan → Notifikasi Telegram**, open the bot with **Temukan Chat ID**, send `/id` in your private chat, and enter the returned number. Select **Hubungkan Telegram** and press **Start** in the same chat to verify it. In staging, pair two accounts in separate private chats and check that each chat receives one test message.
 
+For local testing with a loopback `APP_ORIGIN`, run `node --env-file=.env scripts/poll-telegram-local.mjs` alongside the app. Use one poller per bot and stop it before registering an HTTPS webhook.
+
 ## Quality gates (every release)
 
 ```bash
