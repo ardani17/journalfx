@@ -72,6 +72,7 @@ describe("wdRecommendation — PRD acceptance", () => {
       availableCash: 500,
     });
     expect(r.eligibleProfit.toFixed(2)).toBe("0.00");
+    expect(r.zeroReasons.join()).toContain("belum melewati High-Water Mark");
   });
 
   it("already-taken WD this period is subtracted", () => {
@@ -113,6 +114,26 @@ describe("wdRecommendation — PRD acceptance", () => {
     });
     expect(r.recommended.toFixed(2)).toBe("50.00");
     expect(r.caps.byCash).toBe(true);
+  });
+
+  it.each([
+    { condition: "no profit this week", limits: { periodProfit: 0 }, reason: "Profit terealisasi minggu ini belum positif" },
+    { condition: "no ratio allowance", limits: { maxWdRatioPct: 0 }, reason: "Batas rasio WD $0" },
+    { condition: "no cash above reserve", limits: { reserveUsd: 210 }, reason: "Kas tersedia tidak melebihi cadangan" },
+    { condition: "allowance used", limits: { needsTargetUsd: 4, periodWdTaken: 4 }, reason: "Jatah terpakai" },
+  ])("explains a zero recommendation when $condition", ({ limits, reason }) => {
+    const result = wdRecommendation({
+      cumulativeRealizedPnl: 10,
+      highWaterMark: 0,
+      periodProfit: 10,
+      periodWdTaken: 0,
+      maxWdRatioPct: 50,
+      availableCash: 210,
+      ...limits,
+    });
+
+    expect(result.recommended.isZero()).toBe(true);
+    expect(result.zeroReasons.join()).toContain(reason);
   });
 
   it("stale/unknown data produce warnings", () => {

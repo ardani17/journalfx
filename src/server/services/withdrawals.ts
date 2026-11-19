@@ -65,6 +65,7 @@ export async function updateRule(
 }
 
 export interface RecommendationBundle {
+  projectId: string;
   recommendation: WdRecommendation;
   rule: { maxWdRatio: string; needsTargetIdr: string | null; reserveUsd: string };
   needsWeeklyUsd: Decimal | null;
@@ -144,7 +145,9 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
   const outstanding = Decimal.max(planned.minus(funded).minus(otherIncome), 0);
   const outstandingDebt = Decimal.max(debtDue.minus(Decimal.max(debtFunds, coveredByPayments)), 0);
   const needsIdr = needsCapForWindow(outstanding, outstandingDebt);
-  const weeklyIdr = Decimal.min(monthlyToWeekly(planned.plus(debtDue)), needsIdr);
+  const plannedNeeds = planned.plus(debtDue);
+  const needsUnconfigured = rule.needsTargetIdr == null && plannedNeeds.isZero();
+  const weeklyIdr = Decimal.min(monthlyToWeekly(plannedNeeds), needsIdr);
   const configuredCap = rule.needsTargetIdr == null ? weeklyIdr : Decimal.min(weeklyIdr, monthlyToWeekly(rule.needsTargetIdr));
   const needsWeeklyUsd = convertUsdIdr(configuredCap, "IDR", fx);
 
@@ -157,17 +160,28 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
     needsTargetUsd: needsWeeklyUsd ?? undefined,
     availableCash: balances.balance,
     reserveUsd: Decimal.max(D(rule.reserveUsd), D(rule.minBalanceUsd)),
-    dataUnknown: !budget && rule.needsTargetIdr == null,
+    dataUnknown: needsUnconfigured,
     dataStale: false,
   });
   const recommended = fx ? rec.recommended.toDecimalPlaces(2, Decimal.ROUND_DOWN) : D(0);
-  if (!fx) rec.zeroReasons.unshift("Kurs acuan JISDOR belum tersedia.");
+  const zeroReasons = [...rec.zeroReasons];
+  if (configuredCap.isZero()) {
+    if (needsUnconfigured) {
+      zeroReasons.push("Kebutuhan bulanan belum disetel. Isi Kebutuhan Bulanan di Edit Aturan atau tambahkan anggaran dengan nominal.");
+    } else if (plannedNeeds.gt(0) && needsIdr.isZero() && !rule.needsTargetIdr?.isZero()) {
+      zeroReasons.push("Kebutuhan yang direncanakan sudah terpenuhi. Cek pemasukan, alokasi, dan pembayaran cicilan yang tercatat.");
+    } else {
+      zeroReasons.push("Batas kebutuhan Rp0. Cek nominal anggaran dan Kebutuhan Bulanan di Edit Aturan.");
+    }
+  }
+  if (!fx) zeroReasons.unshift("Kurs acuan JISDOR belum tersedia. Coba lagi saat kurs tersedia.");
   else if (rec.recommended.gt(0) && recommended.isZero()) {
-    rec.zeroReasons.push("Rekomendasi di bawah minimum $0,01.");
+    zeroReasons.push("Rekomendasi di bawah minimum $0,01.");
   }
 
   return {
-    recommendation: { ...rec, recommended },
+    projectId: rule.projectId,
+    recommendation: { ...rec, recommended, zeroReasons },
     rule: {
       maxWdRatio: rule.maxWdRatio.toString(),
       needsTargetIdr: rule.needsTargetIdr?.toString() ?? null,
@@ -181,6 +195,27 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
     availableCash: balances.balance,
     latestFx: fx,
   };
+}
+
+export async function listWithdrawalSourceAccounts(userId: string, projectId: string) {
+  const accounts = await prisma.tradingAccount.findMany({
+    where: { userId, projectId, isActive: true },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, currency: true },
+  });
+  if (accounts.length === 0) return [];
+
+  const totals = await prisma.accountTransaction.groupBy({
+    by: ["accountId"],
+    where: { userId, accountId: { in: accounts.map((account) => account.id) } },
+    _sum: { amount: true },
+  });
+  const byAccount = new Map(totals.map((row) => [row.accountId, row._sum.amount]));
+  return accounts.map(({ id, name, currency }) => ({
+    id,
+    name,
+    balanceUsd: tradingAmountToUsd(byAccount.get(id), currency).toDecimalPlaces(2, Decimal.ROUND_DOWN),
+  })).filter((account) => account.balanceUsd.gt(0));
 }
 
 export async function listWithdrawals(userId: string) {

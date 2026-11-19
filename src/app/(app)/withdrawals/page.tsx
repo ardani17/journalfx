@@ -1,27 +1,28 @@
 import { requireUser } from "@/server/auth";
-import { getRecommendation, listWithdrawals } from "@/server/services/withdrawals";
+import { getRecommendation, listWithdrawals, listWithdrawalSourceAccounts } from "@/server/services/withdrawals";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { WithdrawalsClient } from "./withdrawals-client";
-import { listAccounts } from "@/server/services/accounts";
 
 export const metadata = { title: "Withdrawal Plan (WD)" };
 
 export default async function WithdrawalsPage() {
   const user = await requireUser();
-  const [bundle, history, accounts] = await Promise.all([
+  const [bundle, history] = await Promise.all([
     getRecommendation(user.id),
     listWithdrawals(user.id),
-    listAccounts(user.id),
   ]);
+  const accounts = bundle.recommendation.recommended.gt(0)
+    ? await listWithdrawalSourceAccounts(user.id, bundle.projectId)
+    : [];
 
   return (
     <PageShell>
       <PageHeader
         title="Withdrawal Plan (WD)"
-        subtitle="Penarikan profit-only dengan pemulihan loss (high-water mark). Rekomendasi — eksekusi tetap manual di broker."
+        subtitle="Rencanakan penarikan laba trading dan catat dana yang diterima dari broker."
       />
       <WithdrawalsClient
-        accounts={accounts.filter((a) => a.isActive).map((a) => ({ id: a.id, name: a.name }))}
+        accounts={accounts.map(({ id, name, balanceUsd }) => ({ id, name, balanceUsd: balanceUsd.toString() }))}
         rec={{
           eligible: bundle.recommendation.eligibleProfit.toString(),
           recommended: bundle.recommendation.recommended.toString(),

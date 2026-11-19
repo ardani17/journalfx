@@ -5,7 +5,7 @@ const db = vi.hoisted(() => {
   const model = () => ({ findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn(), aggregate: vi.fn(),
     groupBy: vi.fn(), create: vi.fn(), update: vi.fn(), upsert: vi.fn(), count: vi.fn() });
   return { user: model(), trade: model(), expenseCategory: model(), financialTransaction: model(), budget: model(),
-    project: model(), financialBucket: model(), financialAllocation: model(),
+    project: model(), financialBucket: model(), financialAllocation: model(), tradingAccount: model(),
     accountTransaction: model(), riskSettings: model(), periodReview: model(),
     withdrawalRule: model(), withdrawal: model(), debt: model(), exchangeRate: model(),
     $transaction: vi.fn(), $executeRaw: vi.fn() };
@@ -15,7 +15,7 @@ vi.mock("@/server/audit", () => ({ audit: vi.fn() }));
 vi.mock("@/server/services/jisdor", () => ({ getJisdorQuote: vi.fn() }));
 import { addFinancialTransaction, allocateProfit, budgetOverview, financialTotals } from "@/server/services/finance";
 import { cancelTrade, listTrades } from "@/server/services/trades";
-import { getRecommendation, requestWithdrawal } from "@/server/services/withdrawals";
+import { getRecommendation, listWithdrawalSourceAccounts, requestWithdrawal } from "@/server/services/withdrawals";
 import { riskStatus } from "@/server/services/risk";
 import { getJisdorQuote } from "@/server/services/jisdor";
 
@@ -30,7 +30,7 @@ beforeEach(() => {
 describe("weekly withdrawal and risk reconciliation", () => {
   function setupLedger() {
     db.project.findFirst.mockResolvedValue({ id: "project" });
-    db.withdrawalRule.findFirst.mockResolvedValue({ maxWdRatio: D(50), reserveUsd: D(0), needsTargetIdr: D(520000), minBalanceUsd: null });
+    db.withdrawalRule.findFirst.mockResolvedValue({ projectId: "project", maxWdRatio: D(50), reserveUsd: D(0), needsTargetIdr: D(520000), minBalanceUsd: null });
     db.withdrawal.findMany.mockResolvedValue([]);
     db.periodReview.findMany.mockResolvedValue([]);
     db.budget.findFirst.mockResolvedValue(null);
@@ -101,9 +101,58 @@ describe("weekly withdrawal and risk reconciliation", () => {
     const result = await getRecommendation("owner");
     expect(result.recommendation.recommended.isZero()).toBe(true);
     expect(result.needsWeeklyUsd).toBeNull();
-    expect(result.recommendation.zeroReasons).toContain("Kurs acuan JISDOR belum tersedia.");
+    expect(result.recommendation.zeroReasons).toContain("Kurs acuan JISDOR belum tersedia. Coba lagi saat kurs tersedia.");
     await expect(requestWithdrawal("owner", 1)).rejects.toMatchObject({ status: 503 });
     expect(db.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes unconfigured, funded and zero-limit needs with positive eligible profit", async () => {
+    setupLedger();
+    const now = new Date();
+    db.accountTransaction.findMany.mockResolvedValue([
+      { id: "pnl", type: "REALIZED_PNL", amount: D(90), occurredAt: now, reversalOfId: null },
+    ]);
+    const rule = { projectId: "project", maxWdRatio: D(50), reserveUsd: D(0), minBalanceUsd: null };
+    db.withdrawalRule.findFirst.mockResolvedValue({ ...rule, needsTargetIdr: null });
+
+    const unconfigured = await getRecommendation("owner");
+    expect(unconfigured.recommendation.recommended.isZero()).toBe(true);
+    expect(unconfigured.recommendation.zeroReasons.join()).toMatch(/belum disetel.*Edit Aturan/);
+    const unavailable = await getRecommendation("owner", null);
+    expect(unavailable.recommendation.zeroReasons.join()).toMatch(/JISDOR belum tersedia.*Kebutuhan bulanan belum disetel/);
+    expect(unavailable.recommendation.needsCap).toBeNull();
+
+    db.withdrawalRule.findFirst.mockResolvedValue({ ...rule, needsTargetIdr: D(0) });
+    const zeroLimit = await getRecommendation("owner");
+    expect(zeroLimit.recommendation.recommended.isZero()).toBe(true);
+    expect(zeroLimit.recommendation.zeroReasons.join()).toContain("Batas kebutuhan Rp0");
+
+    db.withdrawalRule.findFirst.mockResolvedValue({ ...rule, needsTargetIdr: D(520000) });
+    db.financialTransaction.findMany.mockResolvedValue([
+      { kind: "INCOME", currency: "IDR", amount: D(520000), occurredAt: now },
+    ]);
+    const funded = await getRecommendation("owner");
+    expect(funded.recommendation.recommended.isZero()).toBe(true);
+    expect(funded.recommendation.zeroReasons.join()).toContain("sudah terpenuhi");
+    expect(funded.recommendation.zeroReasons.join()).not.toContain("belum disetel");
+  });
+
+  it("lists only funded active source accounts and converts cent balances to USD", async () => {
+    db.tradingAccount.findMany.mockResolvedValue([
+      { id: "usd", name: "USD", currency: "USD" },
+      { id: "cent", name: "Cent", currency: "USC" },
+      { id: "dust", name: "Dust", currency: "USC" },
+      { id: "empty", name: "Empty", currency: "USD" },
+    ]);
+    db.accountTransaction.groupBy.mockResolvedValue([
+      { accountId: "usd", _sum: { amount: D(30) } },
+      { accountId: "cent", _sum: { amount: D(499.75) } },
+      { accountId: "dust", _sum: { amount: D(0.99) } },
+    ]);
+
+    const accounts = await listWithdrawalSourceAccounts("owner", "project");
+    expect(accounts.map(({ id, balanceUsd }) => [id, balanceUsd.toString()])).toEqual([["usd", "30"], ["cent", "4.99"]]);
+    expect(db.tradingAccount.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "owner", projectId: "project", isActive: true } }));
   });
 
   it("unwithdrawn profit from a closed week is not eligible again next week", async () => {

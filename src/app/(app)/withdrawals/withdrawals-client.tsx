@@ -9,13 +9,14 @@ import { Badge } from "@/components/ui/badge";
 import { Field, Input, Textarea, Select } from "@/components/ui/field";
 import { Dialog, MutationForm } from "@/components/ui/misc";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
-import { D, fmtIDR, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
+import { D, Decimal, fmtIDR, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
 import { formatFxEstimate, parseConversionAmount, type JisdorQuote } from "@/lib/finance/exchange";
 import { JisdorRateNote } from "@/components/finance/jisdor-rate-note";
+import { WithdrawalGuide } from "./withdrawal-guide";
 
 interface Props {
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; balanceUsd: string }[];
   rec: {
     eligible: string;
     recommended: string;
@@ -45,6 +46,7 @@ export function WithdrawalsClient(props: Props) {
   const router = useRouter();
   const [ruleOpen, setRuleOpen] = useState(false);
   const [wdOpen, setWdOpen] = useState(false);
+  const [sourceId, setSourceId] = useState("");
   const [amountUsd, setAmountUsd] = useState("");
   const [completeId, setCompleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -77,6 +79,13 @@ export function WithdrawalsClient(props: Props) {
   }
 
   const rec = D(props.rec.recommended);
+  const source = props.accounts.find((account) => account.id === sourceId) ?? props.accounts[0];
+  const requestLimit = (balanceUsd: string) => Decimal.min(rec, balanceUsd);
+  const maxAmount = source ? requestLimit(source.balanceUsd) : D(0);
+  const requestAvailable = rec.gt(0) && Boolean(source);
+  const blockers = rec.isZero() ? props.rec.zeroReasons : source ? [] : [
+    "Belum ada akun sumber aktif dengan saldo minimal $0,01. Periksa status dan saldo di Akun Trading.",
+  ];
   const amount = parseConversionAmount(amountUsd);
   const previewIdr = amount && amount.gt(0) ? formatFxEstimate(amount, "USD", props.latestFx) : null;
 
@@ -93,24 +102,32 @@ export function WithdrawalsClient(props: Props) {
           <CardContent className="space-y-3">
             <p className="tnum text-3xl font-extrabold text-primary">{fmtUSD(rec)}</p>
             {props.latestFx ? <p className="tnum text-sm text-ink">{formatFxEstimate(rec, "USD", props.latestFx)}</p> : null}
-            {props.rec.zeroReasons.length > 0 && rec.isZero() ? (
-              <div className="rounded-lg border border-line bg-panel-2/60 p-2.5">
-                {props.rec.zeroReasons.map((z) => (
-                  <p key={z} className="text-[11px] leading-relaxed text-muted">• {z}</p>
-                ))}
-              </div>
-            ) : null}
             {props.rec.warnings.map((w) => (
               <p key={w} className="rounded-lg border border-warn/30 bg-warn/10 px-2.5 py-1.5 text-[11px] text-warn">⚠ {w}</p>
             ))}
             <div className="flex gap-2">
-              <Button onClick={() => { setError(null); setAmountUsd(rec.toFixed(2)); setWdOpen(true); }} disabled={loading || rec.lte(0)}>
+              <Button
+                onClick={() => { setError(null); setAmountUsd(maxAmount.toFixed(2)); setWdOpen(true); }}
+                disabled={loading || !requestAvailable}
+                aria-describedby={blockers.length ? "wd-blockers" : undefined}
+              >
                 <Wallet className="h-4 w-4" aria-hidden /> Ajukan WD
               </Button>
               <Button variant="purple" onClick={() => { setError(null); setRuleOpen(true); }}>
                 <Pencil className="h-4 w-4" aria-hidden /> Edit Aturan
               </Button>
             </div>
+            {blockers.length > 0 ? (
+              <div id="wd-blockers" className="space-y-1.5 rounded-lg border border-line bg-panel-2/60 p-2.5 text-xs leading-relaxed">
+                <p className="font-medium text-ink">Pengajuan WD belum tersedia</p>
+                <ul className="list-disc space-y-1 pl-4 text-muted">
+                  {blockers.map((reason) => <li key={reason}>{reason}</li>)}
+                </ul>
+              </div>
+            ) : null}
+            <a href="#panduan-wd" className="inline-block rounded text-xs font-medium text-primary underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-primary">
+              Baca panduan WD
+            </a>
           </CardContent>
         </Card>
 
@@ -124,7 +141,7 @@ export function WithdrawalsClient(props: Props) {
             <Row label="Cap Kebutuhan Mingguan" value={props.rec.needsCap !== null ? fmtUSD(props.rec.needsCap) : "— (kurs belum ada)"} />
             <Row label="Cap Kas di Atas Reserve" value={fmtUSD(props.rec.cashCap)} />
             <Row label="Profit Minggu Ini" value={fmtUSDdelta(props.periodProfit)} tone={Number(props.periodProfit) >= 0 ? "pos" : "neg"} />
-            <Row label="Sudah Diambil Minggu Ini" value={fmtUSD(props.periodTaken)} />
+            <Row label="Jatah WD Terpakai" value={fmtUSD(props.periodTaken)} />
             <Row label="Kas Tersedia" value={fmtUSD(props.availableCash)} />
             <div className="col-span-2 border-t border-line pt-2">
               <JisdorRateNote quote={props.latestFx} />
@@ -135,6 +152,8 @@ export function WithdrawalsClient(props: Props) {
 
       {error ? <p className="rounded-lg border border-loss/30 bg-loss/10 px-3 py-2 text-xs text-loss" role="alert">{error}</p> : null}
       {msg ? <p className="rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary" role="status">{msg}</p> : null}
+
+      <WithdrawalGuide />
 
       {/* History */}
       <TableWrap>
@@ -181,12 +200,6 @@ export function WithdrawalsClient(props: Props) {
           </TBody>
         </Table>
       </TableWrap>
-      <p className="text-[11px] leading-relaxed text-faint">
-        Aturan: WD hanya dari profit eligibel — loss wajib dipulihkan dulu (HWM); profit periode
-        harus positif; HWM naik setelah WD selesai sehingga eligibilitas tidak dipakai ulang. Unrealized
-        P&L tidak dihitung. Kurs dan dana diterima dicatat sebagai snapshot historis.
-      </p>
-
       {/* Rules dialog */}
       <Dialog open={ruleOpen} onClose={() => setRuleOpen(false)} title="Edit Aturan WD Dinamis">
         <MutationForm
@@ -237,12 +250,20 @@ export function WithdrawalsClient(props: Props) {
           className="space-y-3"
         >
           <Field label="Akun Sumber" htmlFor="wd-account">
-            <Select id="wd-account" name="accountId" required>
-              {props.accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            <Select id="wd-account" name="accountId" value={source?.id ?? ""} required onChange={(event) => {
+              const account = props.accounts.find((item) => item.id === event.target.value);
+              if (!account) return;
+              setSourceId(account.id);
+              const limit = requestLimit(account.balanceUsd);
+              if (amount?.gt(limit)) setAmountUsd(limit.toFixed(2));
+            }}>
+              {props.accounts.map((account) => (
+                <option key={account.id} value={account.id}>{account.name} ({fmtUSD(account.balanceUsd)})</option>
+              ))}
             </Select>
           </Field>
-          <Field label="Jumlah (USD)" htmlFor="wd-amt" hint={`Rekomendasi: ${fmtUSD(rec)}`}>
-            <Input id="wd-amt" name="amountUsd" type="number" min="0.01" step="0.01" value={amountUsd} onChange={(event) => setAmountUsd(event.target.value)} required />
+          <Field label="Jumlah (USD)" htmlFor="wd-amt" hint={`Maksimum untuk akun ini ${fmtUSD(maxAmount)}`}>
+            <Input id="wd-amt" name="amountUsd" type="number" min="0.01" max={maxAmount.toFixed(2)} step="0.01" value={amountUsd} onChange={(event) => setAmountUsd(event.target.value)} required />
           </Field>
           <output htmlFor="wd-amt" className="tnum block text-xs text-muted">
             Estimasi pencairan: {previewIdr ?? "—"}
@@ -253,7 +274,7 @@ export function WithdrawalsClient(props: Props) {
           <WithdrawalError error={error} />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" type="button" onClick={() => setWdOpen(false)}>Batal</Button>
-            <Button type="submit" disabled={loading}>Ajukan</Button>
+            <Button type="submit" disabled={loading || !requestAvailable}>Ajukan</Button>
           </div>
         </MutationForm>
       </Dialog>
@@ -281,13 +302,13 @@ export function WithdrawalsClient(props: Props) {
             bersifat historis dan tidak dapat diubah.
           </p>
           <Field label="Kurs USDIDR" htmlFor="wc-fx">
-            <Input id="wc-fx" name="fxRate" type="number" min="1" step="0.01" placeholder="15800" required />
+            <Input id="wc-fx" name="fxRate" type="number" min="1" step="0.0001" placeholder="15800" required />
           </Field>
           <Field label="Dana Diterima (IDR)" htmlFor="wc-recv">
-            <Input id="wc-recv" name="receivedAmount" type="number" min="0" step="1000" required />
+            <Input id="wc-recv" name="receivedAmount" type="number" min="0" step="0.01" required />
           </Field>
           <Field label="Biaya Transfer (IDR)" htmlFor="wc-fees">
-            <Input id="wc-fees" name="fees" type="number" min="0" step="1000" />
+            <Input id="wc-fees" name="fees" type="number" min="0" step="0.01" />
           </Field>
           <Field label="Catatan" htmlFor="wc-note">
             <Textarea id="wc-note" name="note" rows={2} placeholder="no. referensi broker/bank" />

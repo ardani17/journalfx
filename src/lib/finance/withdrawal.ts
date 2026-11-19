@@ -71,7 +71,7 @@ export function wdRecommendation(input: WdRecommendationInput): WdRecommendation
 
   const zeroReasons: string[] = [];
   const warnings: string[] = [];
-  if (input.dataUnknown) warnings.push("Data kebutihan belum lengkap — verifikasi anggaran & hutang sebelum WD");
+  if (input.dataUnknown) warnings.push("Data kebutuhan belum lengkap. Periksa anggaran dan cicilan sebelum mengajukan WD.");
   if (input.dataStale) warnings.push("Data ledger tidak segar — verifikasi balance broker sebelum eksekusi WD");
 
   const caps = {
@@ -85,13 +85,13 @@ export function wdRecommendation(input: WdRecommendationInput): WdRecommendation
   if (eligible.lte(0)) {
     zeroReasons.push(
       cum.lte(0)
-        ? "Belum ada laba kumulatif — loss harus dipulihkan dulu sebelum WD"
-        : "Seluruh laba eligibel periode sebelumnya sudah ditarik (HWM)",
+        ? "Laba kumulatif belum positif. Kerugian harus dipulihkan dulu sebelum WD."
+        : "Laba kumulatif belum melewati High-Water Mark, yaitu puncak laba dari minggu yang sudah ditutup.",
     );
     caps.byEligibility = true;
   }
   if (periodProfit.lte(0)) {
-    zeroReasons.push("Profit periode ini tidak positif — aturan profit-only melarang WD");
+    zeroReasons.push("Profit terealisasi minggu ini belum positif. Cek laba, rugi, dan biaya trading yang tercatat di jurnal.");
     caps.byPeriodProfit = true;
   }
 
@@ -110,8 +110,16 @@ export function wdRecommendation(input: WdRecommendationInput): WdRecommendation
     recommended = new Decimal(0);
   }
 
-  if (recommended.isZero() && zeroReasons.length === 0) {
-    zeroReasons.push("Rekomendasi menjadi 0 setelah batasan rasio/kebutuhan/kas/taken");
+  if (recommended.isZero()) {
+    if (cashCap.isZero()) {
+      zeroReasons.push("Kas tersedia tidak melebihi cadangan. Cek Kas Tersedia dan Reserve Kas di Edit Aturan.");
+    }
+    if (eligible.gt(0) && profitOnlyCap.lte(0)) {
+      zeroReasons.push("Batas rasio WD $0. Cek Cap WD di Edit Aturan.");
+    }
+    if ((profitOnlyCap.gt(0) && taken.gte(profitOnlyCap)) || (needsCap?.gt(0) && taken.gte(needsCap))) {
+      zeroReasons.push("Jatah terpakai oleh pengajuan yang masih menunggu atau WD yang selesai minggu ini. Cek statusnya di riwayat WD.");
+    }
   }
   if (taken.gt(0)) warnings.push(`Sudah ada WD ${fmtUSD(taken)} periode ini — dikurangkan dari rekomendasi`);
 
