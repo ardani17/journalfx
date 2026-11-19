@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-11-19
+
 ### Added
 
 - Google sign-in with a private journal for each account and automatic provisioning for new users.
