@@ -8,6 +8,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+### Security
+
+- Verify Cloudflare Turnstile before starting Google sign-in. Deployments that offer Google sign-in require both Turnstile keys.
+
 ## [1.4.2] — 2026-11-19
 
 ### Added
