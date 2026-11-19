@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sequential-release
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/ci.yml
+    with:
+      release: true
+
+  publish:
+    needs: quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Publish next patch release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TZ: Asia/Bangkok
+        run: bash scripts/publish-release.sh
