@@ -14,7 +14,9 @@ export default async function NewTradePage() {
     listStrategies(user.id),
     prisma.instrument.findMany({
       where: { OR: [{ ownerId: null }, { ownerId: user.id }] },
-      orderBy: { symbol: "asc" },
+      orderBy: [{ symbol: "asc" }, { ownerId: { sort: "asc", nulls: "first" } }],
+      distinct: ["symbol"],
+      select: { id: true, symbol: true },
     }),
   ]);
 
@@ -24,11 +26,7 @@ export default async function NewTradePage() {
       <NewTradeForm
         accounts={accounts.filter((a) => a.isActive).map(({ id, name, currency }) => ({ id, name, currency }))}
         strategies={strategies.map((s) => ({ id: s.id, name: s.name }))}
-        instruments={instruments.map((i) => ({
-          id: i.id,
-          symbol: i.symbol,
-          pricePrecision: i.pricePrecision,
-        }))}
+        instruments={instruments}
       />
     </PageShell>
   );

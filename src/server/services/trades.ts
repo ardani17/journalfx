@@ -52,6 +52,22 @@ export async function lockTradeWrites(tx: Prisma.TransactionClient, userId: stri
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
 }
 
+export async function registerTradeInstrument(userId: string, symbol: string, req?: Request) {
+  const { instrument, created } = await prisma.$transaction(async (tx) => {
+    await lockTradeWrites(tx, userId);
+    const existing = await findInstrumentBySymbol(tx, userId, symbol);
+    if (existing) return { instrument: existing, created: false };
+
+    const instrument = await tx.instrument.create({
+      data: { ownerId: userId, symbol, name: symbol, category: "custom" },
+    });
+    return { instrument, created: true };
+  });
+
+  if (created) await audit({ userId, action: "create", entity: "Instrument", entityId: instrument.id, after: { symbol }, req });
+  return { id: instrument.id, symbol: instrument.symbol };
+}
+
 export async function createTrade(userId: string, input: CreateTradeInput, req?: Request) {
   await requireActiveAccount(userId, input.accountId);
   if (input.strategyId) {
@@ -66,6 +82,16 @@ export async function createTrade(userId: string, input: CreateTradeInput, req?:
     if (input.ticket) {
       const dup = await tx.trade.findUnique({ where: { accountId_ticket: { accountId: account.id, ticket: input.ticket } } });
       if (dup) throw new ApiError(409, `Trade dengan ticket ${input.ticket} sudah ada`);
+    }
+    if (instrument.ownerId === userId) {
+      const pricePrecision = Math.max(...[input.entryPrice, input.initialStopLoss, input.initialTakeProfit]
+        .map((price) => D(price).toDecimalPlaces(6).decimalPlaces()));
+      if (pricePrecision > instrument.pricePrecision) {
+        await tx.instrument.updateMany({
+          where: { id: instrument.id, pricePrecision: { lt: pricePrecision } },
+          data: { pricePrecision },
+        });
+      }
     }
     return createTradeEntry(tx, userId, instrument, input);
   });
