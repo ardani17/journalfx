@@ -16,6 +16,8 @@ const issuer = "https://accounts.google.com";
 const clientId = "fixture.apps.googleusercontent.com";
 const authSecret = "fixture-auth-secret-for-tests-only";
 const callbackPath = "/api/auth/google/callback";
+const siteverifyUrl = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+const turnstileSecret = "fixture-turnstile-server-secret";
 const fakeUser = { id: "journal-owner-id", email: "trader@example.com", name: "Trader" };
 
 describe("Google-only authentication", () => {
@@ -31,6 +33,7 @@ describe("Google-only authentication", () => {
   let tokenAudience: string;
   let tokenSigner: CryptoKey;
   let tokenRequests: number;
+  let siteverify: ReturnType<typeof vi.fn<() => Response | Promise<Response>>>;
 
   beforeAll(async () => {
     const keys = await generateKeyPair("RS256");
@@ -44,6 +47,9 @@ describe("Google-only authentication", () => {
     vi.stubEnv("GOOGLE_CLIENT_ID", clientId);
     vi.stubEnv("GOOGLE_CLIENT_SECRET", "fixture-google-secret");
     vi.stubEnv("AUTH_SECRET", authSecret);
+    vi.stubEnv("TURNSTILE_SITE_KEY", "fixture-turnstile-site-key");
+    vi.stubEnv("TURNSTILE_SECRET_KEY", turnstileSecret);
+    siteverify = vi.fn(() => Response.json({ success: true, hostname: "localhost", action: "google_login" }));
     vi.mocked(findOrCreateGoogleUser).mockReset().mockResolvedValue(fakeUser);
     codeAccepted = false;
     emailVerified = true;
@@ -53,6 +59,14 @@ describe("Google-only authentication", () => {
     tokenRequests = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: URL | string, options?: RequestInit) => {
       const url = String(input);
+      if (url === siteverifyUrl) {
+        expect(options).toMatchObject({ method: "POST", cache: "no-store", redirect: "error" });
+        const body = new URLSearchParams(String(options?.body));
+        expect(body.get("secret")).toBe(turnstileSecret);
+        expect(body.get("response")).toBe("fixture-turnstile-token");
+        expect(options?.signal).toBeInstanceOf(AbortSignal);
+        return siteverify();
+      }
       if (url === `${issuer}/.well-known/openid-configuration`) {
         return Response.json({
           issuer, authorization_endpoint: `${issuer}/o/oauth2/v2/auth`,
@@ -89,9 +103,25 @@ describe("Google-only authentication", () => {
     vi.unstubAllGlobals();
   });
 
+  function requestLogin(body: string | undefined = JSON.stringify({ turnstileToken: "fixture-turnstile-token" }), requestOrigin = origin) {
+    return start(new Request(`${origin}/api/auth/google/start`, {
+      method: "POST", headers: { origin: requestOrigin, "content-type": "application/json" }, body,
+    }));
+  }
+
+  async function expectRejected(response: Response, status: number) {
+    expect(response.status).toBe(status);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = await response.json();
+    expect(body).toEqual({ ok: false, error: expect.any(String) });
+    expect(body.error).not.toContain(turnstileSecret);
+  }
+
   async function begin() {
-    const response = await start(new Request(`${origin}/api/auth/google/start`, { method: "POST", headers: { origin } }));
+    const response = await requestLogin();
     expect(response.status).toBe(200);
+    expect(siteverify).toHaveBeenCalledTimes(1);
     const url = new URL((await response.json()).data.authorizationUrl);
     expect(url.origin).toBe(issuer);
     expect(url.searchParams.get("scope")).toBe("openid email profile");
@@ -133,8 +163,8 @@ describe("Google-only authentication", () => {
   });
 
   it("rejects cross-origin login and expired or mismatched browser flows", async () => {
-    const url = `${origin}/api/auth/google/start`;
-    expect((await start(new Request(url, { method: "POST", headers: { origin: "https://other.example" } }))).status).toBe(403);
+    await expectRejected(await requestLogin(undefined, "https://other.example"), 403);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
     vi.useFakeTimers({ toFake: ["Date"] });
     const cookie = await begin();
     expect((await respond()).headers.get("location")).toBe("/login?error=expired");
@@ -143,6 +173,49 @@ describe("Google-only authentication", () => {
     vi.setSystemTime(Date.now() + (GOOGLE_FLOW_MAX_AGE + 1) * 1000);
     expect((await respond(cookie)).headers.get("location")).toBe("/login?error=expired");
     expect(tokenRequests).toBe(0);
+  });
+
+  it.each([
+    { name: "empty body", body: "" },
+    { name: "missing token", body: "{}" },
+    { name: "malformed JSON", body: "{broken" },
+    { name: "blank token", body: '{"turnstileToken":" "}' },
+    { name: "non-string token", body: '{"turnstileToken":123}' },
+    { name: "oversize token", body: JSON.stringify({ turnstileToken: "a".repeat(2049) }) },
+  ])("rejects $name before contacting a provider", async ({ body }) => {
+    await expectRejected(await requestLogin(body), 400);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it.each(["invalid-input-response", "timeout-or-duplicate"])("rejects a Turnstile %s token", async (code) => {
+    siteverify.mockImplementationOnce(() => Response.json({ success: false, "error-codes": [code] }));
+    await expectRejected(await requestLogin(), 403);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([{ hostname: "other.example", action: "google_login" }, { hostname: "localhost", action: "other_action" }])(
+    "rejects a successful token for another hostname or action (%j)", async (claims) => {
+      siteverify.mockImplementationOnce(() => Response.json({ success: true, ...claims }));
+      await expectRejected(await requestLogin(), 403);
+      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["TURNSTILE_SITE_KEY", "TURNSTILE_SECRET_KEY"])("requires %s to start OAuth", async (key) => {
+    vi.stubEnv(key, "");
+    await expectRejected(await requestLogin(), 503);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    () => { throw new DOMException("The operation timed out", "TimeoutError"); },
+    () => new Response(null, { status: 502 }),
+    () => new Response("not JSON"),
+    () => Response.json({ success: false, "error-codes": ["internal-error"] }),
+  ])("fails closed when Turnstile is unavailable (%#)", async (verify) => {
+    siteverify.mockImplementationOnce(verify);
+    await expectRejected(await requestLogin(), 503);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
   });
 
   it.each(["unverified email", "wrong audience", "wrong nonce", "wrong signature"])("rejects %s before creating a session", async (issue) => {
