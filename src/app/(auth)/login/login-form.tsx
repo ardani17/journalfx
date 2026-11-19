@@ -1,9 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import Script from "next/script";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import googleLogo from "@/assets/google-g.png";
 import { BrandLogo } from "@/components/layout/brand-logo";
 import { APP_NAME } from "@/lib/brand";
@@ -89,11 +88,23 @@ export function LoginForm({ turnstileSiteKey, initialError }: { turnstileSiteKey
     };
   }, [scriptReady, turnstileSiteKey]);
 
-  function resetChallenge() {
+  const resetChallenge = useCallback(() => {
     setToken(undefined);
     setChallengeIssue(undefined);
     if (widgetId.current !== null) window.turnstile?.reset(widgetId.current);
-  }
+  }, []);
+
+  useEffect(() => {
+    function restoreLogin(event: PageTransitionEvent) {
+      if (!event.persisted || !submitting.current) return;
+      submitting.current = false;
+      setLoading(false);
+      resetChallenge();
+    }
+
+    window.addEventListener("pageshow", restoreLogin);
+    return () => window.removeEventListener("pageshow", restoreLogin);
+  }, [resetChallenge]);
 
   async function startGoogleLogin() {
     if (!token || submitting.current) return;
@@ -173,8 +184,10 @@ export function LoginForm({ turnstileSiteKey, initialError }: { turnstileSiteKey
         </div>
 
         <nav aria-label="Informasi layanan" className="mt-4 flex justify-center gap-4 text-xs text-muted">
-          <Link href="/privacy" className="underline underline-offset-2">Kebijakan Privasi</Link>
-          <Link href="/terms" className="underline underline-offset-2">Ketentuan Penggunaan</Link>
+          {/* eslint-disable @next/next/no-html-link-for-pages -- Public policy pages need their own document CSP. */}
+          <a href="/privacy" className="underline underline-offset-2">Kebijakan Privasi</a>
+          <a href="/terms" className="underline underline-offset-2">Ketentuan Penggunaan</a>
+          {/* eslint-enable @next/next/no-html-link-for-pages */}
         </nav>
         <details className="mt-3 rounded-lg border border-line px-3 py-2 text-xs text-muted">
           <summary className="cursor-pointer font-medium text-ink">Pasang Horizon Journal</summary>

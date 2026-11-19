@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
@@ -9,8 +10,8 @@ import type { DebtCreateInput, DebtTermsInput } from "@/lib/validation/finance";
 import { zonedPeriod } from "@/lib/dates";
 
 /** Reversals cancel the original entry in reports, including across date windows. */
-export async function effectiveFinancialTransactions(userId: string) {
-  const rows = await prisma.financialTransaction.findMany({ where: { userId } });
+export async function effectiveFinancialTransactions(userId: string, db: Prisma.TransactionClient = prisma) {
+  const rows = await db.financialTransaction.findMany({ where: { userId } });
   const reversed = new Set(rows.flatMap((r) => r.reversalOfId ? [r.reversalOfId] : []));
   return rows.filter((r) => !r.reversalOfId && !reversed.has(r.id));
 }

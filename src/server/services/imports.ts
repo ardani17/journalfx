@@ -5,7 +5,7 @@ import { audit } from "@/server/audit";
 import { tradingAmountToUsd } from "@/lib/money";
 import { parseMt5Report } from "@/server/mt5-report";
 import { requireActiveAccount } from "./accounts";
-import { createTradeEntry, findInstrumentBySymbol, lockTradeWrites, recordTradeExecution } from "./trades";
+import { createTradeEntry, findInstrumentBySymbol, lockTradeWrites, raiseInstrumentPricePrecision, recordTradeExecution } from "./trades";
 
 export interface ImportReport {
   imported: number;
@@ -89,9 +89,7 @@ export async function importStatement(
         const instrument = existingInstrument ?? await tx.instrument.create({
           data: { ownerId: userId, symbol: row.symbol, name: row.symbol, category: "custom", pricePrecision },
         });
-        if (instrument.ownerId === userId && instrument.pricePrecision < pricePrecision) {
-          await tx.instrument.update({ where: { id: instrument.id }, data: { pricePrecision } });
-        }
+        await raiseInstrumentPricePrecision(tx, userId, instrument, pricePrecision);
 
         const trade = await createTradeEntry(tx, userId, instrument, {
           accountId,
