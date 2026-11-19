@@ -92,7 +92,7 @@ export interface TradeRollup {
 export function rollupExecutions(
   direction: Direction,
   executions: ExecutionLike[],
-  spec: InstrumentSpec,
+  spec: InstrumentSpec | null,
 ): TradeRollup {
   const entries = executions.filter((e) => e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY");
 
@@ -107,7 +107,9 @@ export function rollupExecutions(
       enteredQty = enteredQty.add(D(e.quantity));
     } else {
       closedQty = closedQty.add(D(e.quantity));
-      realized = realized.add(closePnl(direction, avgEntry, e, spec));
+      if (e.realizedPnl != null) realized = realized.add(D(e.realizedPnl));
+      else if (spec) realized = realized.add(closePnl(direction, avgEntry, e, spec));
+      else throw new Error("Eksekusi penutupan memerlukan P&L atau spesifikasi kontrak");
     }
   }
   return {

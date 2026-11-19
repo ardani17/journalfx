@@ -4,9 +4,7 @@ import { listReviews } from "@/server/services/reviews";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Table, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
-import { Download } from "lucide-react";
 import { fmtDateID } from "@/lib/dates";
 import { D, fmtNum, fmtUSD } from "@/lib/money";
 
@@ -22,12 +20,7 @@ export default async function ReportsPage() {
     <PageShell>
       <PageHeader
         title="Laporan"
-        subtitle="Review periodik dengan snapshot immutable, dan ekspor data"
-        actions={
-          <a href="/api/trades/export" download>
-            <Button variant="secondary"><Download className="h-4 w-4" aria-hidden /> Ekspor Trades CSV</Button>
-          </a>
-        }
+        subtitle="Review periodik dengan snapshot yang tersimpan"
       />
 
       <div className="grid gap-3 sm:grid-cols-3">

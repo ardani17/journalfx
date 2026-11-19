@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { EventsPanel } from "./events-panel";
 import { listEvents } from "@/server/services/economic-events";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { calendarDate, zonedPeriod } from "@/lib/dates";
+import { addUTCDays, calendarDate, zonedPeriod } from "@/lib/dates";
 
 export const metadata = { title: "Kalender Trading" };
 
@@ -25,20 +25,22 @@ export default async function CalendarPage({
   const user = await requireUser();
   const { m } = await searchParams;
   const now = calendarDate(new Date(), user.timezone);
-  const [yy, mm] = m && /^\d{4}-\d{2}$/.test(m)
+  const [yy, mm] = m && /^[1-9]\d{3}-(0[1-9]|1[0-2])$/.test(m)
     ? m.split("-").map(Number) as [number, number]
     : [now.getUTCFullYear(), now.getUTCMonth() + 1];
 
   const month = new Date(Date.UTC(yy, mm - 1, 15));
   const { start: from, end: to } = zonedPeriod("MONTHLY", month, user.timezone);
-  const days = await dailyPnl(user.id, from, to);
-  const events = await listEvents(user.id, { from, to });
+  const [days, events] = await Promise.all([
+    dailyPnl(user.id, from, to),
+    listEvents(user.id, { from, to }),
+  ]);
 
   // calendar grid: Monday-first
-  const lead = (calendarDate(from, user.timezone).getUTCDay() + 6) % 7;
-  const cells: ({ date: string; pnl: number; trades: number; day: number } | null)[] = [];
-  for (let i = 0; i < lead; i++) cells.push(null);
-  for (const d of days) cells.push({ ...d, day: Number(d.date.slice(8)) });
+  const firstDay = calendarDate(from, user.timezone);
+  const lead = (firstDay.getUTCDay() + 6) % 7;
+  const leadingDates = Array.from({ length: lead }, (_, offset) =>
+    addUTCDays(firstDay, offset - lead).toISOString().slice(0, 10));
 
   const monthPnl = days.reduce((s, d) => s + d.pnl, 0);
   const monthTrades = days.reduce((s, d) => s + d.trades, 0);
@@ -77,23 +79,22 @@ export default async function CalendarPage({
             {["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"].map((d) => <div key={d}>{d}</div>)}
           </div>
           <div className="grid grid-cols-7 gap-1.5">
-            {cells.map((c, i) => (
+            {leadingDates.map((date) => <div key={date} aria-hidden="true" />)}
+            {days.map((c) => (
               <div
-                key={i}
+                key={c.date}
                 className={cn(
                   "flex min-h-20 flex-col rounded-lg border p-2 text-left",
-                  c === null
-                    ? "border-transparent"
-                    : c.pnl > 0
-                      ? "border-primary/30 bg-primary/8"
-                      : c.pnl < 0
-                        ? "border-loss/30 bg-loss/8"
-                        : "border-line bg-panel-2/40",
+                  c.pnl > 0
+                    ? "border-primary/30 bg-primary/8"
+                    : c.pnl < 0
+                      ? "border-loss/30 bg-loss/8"
+                      : "border-line bg-panel-2/40",
                 )}
               >
                 {c ? (
                   <>
-                    <span className="tnum text-[11px] text-faint">{c.day}</span>
+                    <span className="tnum text-[11px] text-faint">{Number(c.date.slice(8))}</span>
                     <span className={cn("tnum mt-1 text-xs font-bold", c.pnl > 0 ? "text-primary" : c.pnl < 0 ? "text-loss" : "text-faint")}>
                       {c.pnl !== 0 ? fmtUSDdelta(c.pnl) : "·"}
                     </span>

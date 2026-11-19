@@ -18,6 +18,13 @@ import { D, Decimal } from "@/lib/money";
  */
 
 export type WdModeSim = "NONE" | "FIXED" | "DYNAMIC";
+export type CompoundingFrequency = "DAILY" | "WEEKLY" | "MONTHLY";
+
+export const frequencyDetails = {
+  DAILY: { name: "Harian", unit: "hari", perYear: 365 },
+  WEEKLY: { name: "Mingguan", unit: "minggu", perYear: 52 },
+  MONTHLY: { name: "Bulanan", unit: "bulan", perYear: 12 },
+} as const;
 
 export interface SimulateInput {
   initialCapital: Decimal | number | string;
@@ -158,19 +165,21 @@ export function simulate(input: SimulateInput): SimulateResult {
 }
 
 /** Estimated duration text: cycles → weeks/years for WEEKLY frequency. */
-export function describeDuration(cycles: number, frequency: "DAILY" | "WEEKLY" | "MONTHLY"): {
+export function describeDuration(cycles: number, frequency: CompoundingFrequency): {
   label: string;
   years: number | null;
 } {
   if (cycles <= 0) return { label: "—", years: null };
-  if (frequency === "WEEKLY") {
-    const years = cycles / 52;
-    return { label: `${cycles} minggu (± ${years.toFixed(1)} tahun)`, years };
-  }
-  if (frequency === "MONTHLY") {
-    const years = cycles / 12;
-    return { label: `${cycles} bulan (± ${years.toFixed(1)} tahun)`, years };
-  }
-  const years = cycles / 365;
-  return { label: `${cycles} hari (± ${years.toFixed(1)} tahun)`, years };
+  const { unit, perYear } = frequencyDetails[frequency];
+  const years = cycles / perYear;
+  return { label: `${cycles} ${unit} (± ${years.toFixed(1)} tahun)`, years };
+}
+
+export function describeProjection(
+  { reached, cyclesCount }: Pick<SimulateResult, "reached" | "cyclesCount">,
+  frequency: CompoundingFrequency,
+) {
+  if (!reached) return `Target belum tercapai dalam ${cyclesCount} ${frequencyDetails[frequency].unit}`;
+  if (cyclesCount === 0) return "Target sudah tercapai sejak awal";
+  return describeDuration(cyclesCount, frequency).label;
 }

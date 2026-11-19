@@ -16,7 +16,7 @@ export function SettingsClient({ user, project }: Props) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function save(section: "profile" | "project" | "password", e: React.FormEvent<HTMLFormElement>) {
+  async function save(section: "profile" | "project", e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setMsg(null);
     setLoading(true);
@@ -88,7 +88,7 @@ export function SettingsClient({ user, project }: Props) {
             </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Modal Awal (USD)" htmlFor="p-capital">
-                <Input id="p-capital" name="initialCapital" type="number" step="0.01" min="1" defaultValue={project.initialCapital} required />
+              <Input id="p-capital" name="initialCapital" type="number" step="0.01" min="0" defaultValue={project.initialCapital} required />
               </Field>
               <Field label="Target (USD)" htmlFor="p-target">
                 <Input id="p-target" name="targetAmount" type="number" step="1" min="1" defaultValue={project.targetAmount} required />
@@ -99,23 +99,6 @@ export function SettingsClient({ user, project }: Props) {
               ledger tidak berubah otomatis.
             </p>
             <Button type="submit" disabled={loading}>Simpan Project</Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <Card className="lg:col-span-2">
-        <CardHeader>
-          <CardTitle>Ganti Password</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={(e) => save("password", e)} className="flex flex-wrap items-end gap-3">
-            <Field label="Password Saat Ini" htmlFor="pw-cur" className="min-w-48 flex-1">
-              <Input id="pw-cur" name="currentPassword" type="password" required autoComplete="current-password" />
-            </Field>
-            <Field label="Password Baru" htmlFor="pw-new" className="min-w-48 flex-1" hint="Min. 8 karakter, huruf + angka">
-              <Input id="pw-new" name="newPassword" type="password" required minLength={8} autoComplete="new-password" />
-            </Field>
-            <Button type="submit" variant="secondary" disabled={loading}>Ganti Password</Button>
           </form>
         </CardContent>
       </Card>

@@ -1,5 +1,6 @@
 import { prisma } from "@/server/db";
 import { D } from "@/lib/money";
+import { APP_NAME } from "@/lib/brand";
 
 /**
  * Outbound notification channels (v1.2.0).
@@ -112,7 +113,7 @@ export async function dispatchNotification(
   const ok = await sendTelegram(
     ch.telegramBotToken,
     ch.telegramChatId,
-    `${icon} ${notification.title}${notification.body ? `\n${notification.body}` : ""}\n\n— MDTP`,
+    `${icon} ${notification.title}${notification.body ? `\n${notification.body}` : ""}\n\n— ${APP_NAME}`,
   );
   if (ok) {
     await prisma.notificationChannel.update({
@@ -128,5 +129,5 @@ export async function sendTestMessage(userId: string): Promise<boolean> {
   const ch = await getChannel(userId);
   if (!ch.telegramBotToken || !ch.telegramChatId) return false;
   void D; // (decimal import kept for consistency of module deps)
-  return sendTelegram(ch.telegramBotToken, ch.telegramChatId, "✅ Tes notifikasi MDTP — channel aktif.");
+  return sendTelegram(ch.telegramBotToken, ch.telegramChatId, `✅ Tes notifikasi ${APP_NAME} — channel aktif.`);
 }

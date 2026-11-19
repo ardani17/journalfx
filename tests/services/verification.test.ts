@@ -12,10 +12,12 @@ const db = vi.hoisted(() => {
 });
 vi.mock("@/server/db", () => ({ prisma: db }));
 vi.mock("@/server/audit", () => ({ audit: vi.fn() }));
+vi.mock("@/server/services/jisdor", () => ({ getJisdorQuote: vi.fn() }));
 import { addFinancialTransaction, allocateProfit, budgetOverview, financialTotals } from "@/server/services/finance";
 import { cancelTrade, listTrades } from "@/server/services/trades";
-import { getRecommendation } from "@/server/services/withdrawals";
+import { getRecommendation, requestWithdrawal } from "@/server/services/withdrawals";
 import { riskStatus } from "@/server/services/risk";
+import { getJisdorQuote } from "@/server/services/jisdor";
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -33,12 +35,76 @@ describe("weekly withdrawal and risk reconciliation", () => {
     db.periodReview.findMany.mockResolvedValue([]);
     db.budget.findFirst.mockResolvedValue(null);
     db.debt.findMany.mockResolvedValue([]);
-    db.exchangeRate.findFirst.mockResolvedValue({ rate: D(10000), at: new Date() });
+    vi.mocked(getJisdorQuote).mockResolvedValue({ rate: "18252", at: new Date().toISOString(), source: "bi-jisdor", status: "latest" });
     db.financialTransaction.findMany.mockResolvedValue([]);
     db.financialBucket.findMany.mockResolvedValue([]);
     db.riskSettings.findUnique.mockResolvedValue({ dailyLossLimit: D(2), weeklyLossLimit: D(5), maxOpenRisk: D(2), ddReview: D(10) });
     db.trade.findMany.mockResolvedValue([]);
   }
+
+  it("converts the monthly needs and debt cap with JISDOR and rounds only the actionable recommendation down", async () => {
+    setupLedger();
+    db.withdrawalRule.findFirst.mockResolvedValue({ maxWdRatio: D(50), reserveUsd: D(0), needsTargetIdr: null, minBalanceUsd: null });
+    db.budget.findFirst.mockResolvedValue({ categories: [{ isActive: true, plannedAmount: D(250000) }] });
+    db.debt.findMany.mockResolvedValue([{ id: "monthly", status: "ACTIVE", repaymentMode: null, installmentAmount: D(70000), installmentFreq: "monthly" }]);
+    db.accountTransaction.findMany.mockResolvedValue([
+      { id: "pnl", type: "REALIZED_PNL", amount: D(90), occurredAt: new Date(), reversalOfId: null },
+    ]);
+    const result = await getRecommendation("owner");
+    expect(result.needsWeeklyUsd?.toFixed(4)).toBe("4.0459");
+    expect(result.recommendation.recommended.toFixed(2)).toBe("4.04");
+    expect(db.exchangeRate.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("reserves a twelfth of yearly installments and excludes payments for nonrecurring debt", async () => {
+    setupLedger();
+    db.budget.findFirst.mockResolvedValue({ categories: [] });
+    db.debt.findMany.mockResolvedValue([
+      { id: "yearly", status: "ACTIVE", repaymentMode: "recurring", installmentAmount: D(840000), installmentFreq: "yearly" },
+      { id: "flexible", status: "ACTIVE", repaymentMode: "flexible", installmentAmount: null, installmentFreq: null },
+      { id: "once", status: "PAID", repaymentMode: "one_time", installmentAmount: null, installmentFreq: null },
+    ]);
+    db.financialTransaction.findMany.mockResolvedValue([
+      { kind: "EXPENSE", currency: "IDR", debtId: "flexible", amount: D(150000), occurredAt: new Date() },
+      { kind: "EXPENSE", currency: "IDR", debtId: "once", amount: D(300000), occurredAt: new Date() },
+    ]);
+    db.accountTransaction.findMany.mockResolvedValue([
+      { id: "pnl", type: "REALIZED_PNL", amount: D(90), occurredAt: new Date(), reversalOfId: null },
+    ]);
+    const result = await getRecommendation("owner");
+    expect(result.needsWeeklyUsd?.toFixed(4)).toBe(D(840000).div(52).div(18252).toFixed(4));
+    expect(result.recommendation.recommended.toFixed(2)).toBe("0.88");
+  });
+
+  it("keeps the next debt installment funded separately from payments on other debts", async () => {
+    setupLedger();
+    db.budget.findFirst.mockResolvedValue({ categories: [] });
+    db.debt.findMany.mockResolvedValue([
+      { id: "a", status: "ACTIVE", repaymentMode: "recurring", installmentAmount: D(10000), installmentFreq: "monthly" },
+      { id: "b", status: "ACTIVE", repaymentMode: "recurring", installmentAmount: D(20000), installmentFreq: "monthly" },
+    ]);
+    db.financialTransaction.findMany.mockResolvedValue([
+      { kind: "EXPENSE", currency: "IDR", debtId: "a", amount: D(90000), occurredAt: new Date() },
+      { kind: "EXPENSE", currency: "IDR", debtId: "paid-off", amount: D(90000), occurredAt: new Date() },
+    ]);
+    db.accountTransaction.findMany.mockResolvedValue([]);
+    const result = await getRecommendation("owner");
+    expect(result.needsWeeklyUsd?.toFixed(4)).toBe(D(30000).times(12).div(52).div(18252).toFixed(4));
+  });
+
+  it("blocks new withdrawals when no JISDOR rate is available", async () => {
+    setupLedger();
+    vi.mocked(getJisdorQuote).mockResolvedValue(null);
+    db.accountTransaction.findMany.mockResolvedValue([
+      { id: "pnl", type: "REALIZED_PNL", amount: D(90), occurredAt: new Date(), reversalOfId: null },
+    ]);
+    const result = await getRecommendation("owner");
+    expect(result.recommendation.recommended.isZero()).toBe(true);
+    expect(result.needsWeeklyUsd).toBeNull();
+    expect(result.recommendation.zeroReasons).toContain("Kurs acuan JISDOR belum tersedia.");
+    await expect(requestWithdrawal("owner", 1)).rejects.toMatchObject({ status: 503 });
+    expect(db.$transaction).not.toHaveBeenCalled();
+  });
 
   it("unwithdrawn profit from a closed week is not eligible again next week", async () => {
     setupLedger();

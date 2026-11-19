@@ -39,7 +39,7 @@ export function fmtUSD(v: Decimal.Value | null | undefined, opts?: { compact?: b
   const abs = d.abs();
   const body = opts?.compact && abs.gte(1_000_000)
     ? `${usdFmt0.format(Number(abs.div(1_000_000)))}jt`
-    : usdFmt.format(toNum(abs));
+    : usdFmt.format(abs.toString() as `${number}`);
   return `${neg ? "−" : ""}$${body}`;
 }
 
@@ -54,7 +54,7 @@ export function fmtUSD0(v: Decimal.Value | null | undefined): string {
 export function fmtIDR(v: Decimal.Value | null | undefined): string {
   const d = D(v);
   const neg = d.isNegative();
-  return `${neg ? "−" : ""}Rp${idrFmt.format(toNum(d.abs()))}`;
+  return `${neg ? "−" : ""}Rp${idrFmt.format(d.abs().toString() as `${number}`)}`;
 }
 
 /** 5,00% — percent from a percent-value (5.0000 → "5,00%") */
@@ -86,6 +86,14 @@ export function fmtNum(v: Decimal.Value | null | undefined, decimals = 2): strin
     maximumFractionDigits: decimals,
   });
   return f.format(toNum(d));
+}
+
+export function fmtDecimal(value: Decimal.Value, minimumFractionDigits = 2): string {
+  const number = D(value);
+  return new Intl.NumberFormat("id-ID", {
+    minimumFractionDigits,
+    maximumFractionDigits: Math.max(minimumFractionDigits, number.decimalPlaces()),
+  }).format(number.toFixed() as `${number}`);
 }
 
 export const ZERO = new Decimal(0);

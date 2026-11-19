@@ -35,6 +35,7 @@ export function NewTradeForm({
     const preChecklist: Record<string, boolean> = {};
     for (const c of PRE_CHECKS) preChecklist[c] = fd.get(`pre_${c}`) === "on";
     try {
+      const entryAt = String(fd.get("entryAt") ?? "");
       const res = await fetch("/api/trades", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -44,7 +45,7 @@ export function NewTradeForm({
           direction: fd.get("direction"),
           lot: fd.get("lot"),
           entryPrice: fd.get("entryPrice"),
-          entryAt: fd.get("entryAt") || new Date().toISOString(),
+          entryAt: (entryAt ? new Date(entryAt) : new Date()).toISOString(),
           initialStopLoss: fd.get("initialStopLoss") || undefined,
           initialTakeProfit: fd.get("initialTakeProfit") || undefined,
           strategyId: fd.get("strategyId") || undefined,
@@ -102,7 +103,7 @@ export function NewTradeForm({
               </Select>
             </Field>
             <Field label="Lot" htmlFor="t-lot">
-              <Input id="t-lot" name="lot" type="number" step="0.01" min="0.01" required placeholder="0.10" />
+              <Input id="t-lot" name="lot" type="number" step="0.00000001" min="0.00000001" required placeholder="0.10" />
             </Field>
             <Field label="Ticket (ops.)" htmlFor="t-ticket">
               <Input id="t-ticket" name="ticket" placeholder="100123" />
@@ -110,7 +111,7 @@ export function NewTradeForm({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Harga Entry" htmlFor="t-entry">
-              <Input id="t-entry" name="entryPrice" type="number" step="0.00001" min="0" required placeholder="2025.40" />
+              <Input id="t-entry" name="entryPrice" type="number" step="0.000001" min="0.000001" required placeholder="2025.40" />
             </Field>
             <Field label="Waktu Entry" htmlFor="t-entryat" hint="Kosongkan = sekarang">
               <Input id="t-entryat" name="entryAt" type="datetime-local" />
@@ -118,10 +119,10 @@ export function NewTradeForm({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Stop Loss Awal" htmlFor="t-sl">
-              <Input id="t-sl" name="initialStopLoss" type="number" step="0.00001" min="0" placeholder="2020.00" />
+              <Input id="t-sl" name="initialStopLoss" type="number" step="0.000001" min="0.000001" placeholder="2020.00" />
             </Field>
             <Field label="Take Profit Awal" htmlFor="t-tp">
-              <Input id="t-tp" name="initialTakeProfit" type="number" step="0.00001" min="0" placeholder="2045.00" />
+              <Input id="t-tp" name="initialTakeProfit" type="number" step="0.000001" min="0.000001" placeholder="2045.00" />
             </Field>
           </div>
           <div className="grid grid-cols-3 gap-3">

@@ -51,12 +51,14 @@ export async function eventsAround(userId: string, at: Date, windowMinutes = 120
 
 /** Explainable journal insights from the user's own trades. */
 export async function buildInsights(userId: string) {
-  const trades = await prisma.trade.findMany({
-    where: { userId },
-    orderBy: { entryAt: "asc" },
-    include: { journal: true },
-  });
-  const { journalInsights } = await import("@/lib/finance/insights");
+  const [trades, { journalInsights }] = await Promise.all([
+    prisma.trade.findMany({
+      where: { userId },
+      orderBy: { entryAt: "asc" },
+      include: { journal: true },
+    }),
+    import("@/lib/finance/insights"),
+  ]);
   type InsightTrade = import("@/lib/finance/insights").InsightTrade;
   let prevLoss = false;
   const mapped: InsightTrade[] = trades.map((tr) => {

@@ -1,11 +1,11 @@
-# MDTP — Million Dollar Trading Project
+# Horizon Journal
 
 Personal XAUUSD trading journal, compounding simulator, dynamic withdrawal, risk management and
 personal finance tracker.
 
 > **Protect Capital. Trade with Discipline. Withdraw Based on Needs. Compound the Rest.**
 
-MDTP is a responsive, single-user personal trading management application. It keeps an exact ledger
+Horizon Journal gives each Google account a private trading workspace. It keeps an exact ledger
 of trading accounts, a psychology-aware trading journal, a deterministic compounding simulator, a
 profit-only withdrawal engine with high-water-mark loss recovery, and a private budget/debt/expense
 planner. Actual and projected data are always clearly separated; the app never promises returns and
@@ -33,7 +33,7 @@ never executes broker actions.
 - **Framework**: Next.js (App Router) + TypeScript (strict)
 - **UI**: Tailwind CSS with shadcn-style local components, Lucide icons, Recharts
 - **Data**: PostgreSQL + Prisma (Decimal money, UTC timestamps)
-- **Auth**: credentials auth with signed httpOnly session cookies (bcrypt password hashing)
+- **Auth**: Google OpenID Connect with signed HttpOnly session cookies
 - **Validation**: Zod on every API route; ownership checks server-side
 - **Finance core**: deterministic, dependency-light engine (`src/lib/finance/`) using `decimal.js`
 - **Tests**: Vitest (unit/integration), Playwright (E2E + visual QA)
@@ -44,14 +44,15 @@ never executes broker actions.
 ```bash
 npm install
 cp .env.example .env            # then edit secrets
-docker compose up -d postgres   # local PostgreSQL 16 on :5432
-npx prisma migrate deploy       # apply migrations
-npx prisma generate             # (re)generate client
+docker compose up -d --wait postgres
+docker compose exec -T postgres createdb -U mdtp horizon_journal_google_local
+npm run db:deploy
+npm run db:seed:reference
+npx prisma generate
 npm run dev                     # http://localhost:3000
 ```
 
-Default first-run onboarding creates your private user account in-app. No seed of personal
-financial data exists or will be committed.
+Configure the Google Web OAuth client as described in the [Google sign-in and deployment guide](docs/deployment/google-sign-in.md). First sign-in creates an empty private journal. The optional demo seed is for the local `horizon_journal_google_test` database.
 
 ## Quality gates (every release)
 
@@ -60,7 +61,7 @@ npm run lint          # ESLint
 npm run typecheck     # tsc --noEmit (strict)
 npm run test          # Vitest unit + integration (financial engine)
 npm run build         # production build
-npm run e2e           # Playwright (requires dev server + DB)
+npm run e2e           # Playwright with the production build and seeded test database
 ```
 
 A release is tagged only when all gates pass. See `RELEASES.md` and `CHANGELOG.md`.

@@ -8,10 +8,10 @@ export async function POST(req: Request) {
   try {
     await requireUser();
     const input = await parseBody(req, positionSizeSchema);
-    const instrument = await prisma.instrument.findUnique({
-      where: { symbol: input.symbol.toUpperCase() },
+    const instrument = await prisma.instrument.findFirst({
+      where: { ownerId: null, symbol: input.symbol.toUpperCase() },
     });
-    if (!instrument) throw new ApiError(404, `Instrumen ${input.symbol} tidak ditemukan`);
+    if (!instrument || instrument.contractSize === null) throw new ApiError(404, `Spesifikasi ${input.symbol} tidak ditemukan`);
 
     const result = positionSize({
       balance: input.balance,

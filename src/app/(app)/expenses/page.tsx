@@ -9,12 +9,16 @@ import { Progress } from "@/components/ui/misc";
 import { BudgetClient } from "./budget-client";
 import { fmtIDR, fmtNum } from "@/lib/money";
 import { PiggyBank } from "lucide-react";
+import { getJisdorQuote } from "@/server/services/jisdor";
+import { JisdorRateNote } from "@/components/finance/jisdor-rate-note";
+import { formatFxEstimate } from "@/lib/finance/exchange";
+import { monthlyToWeekly } from "@/lib/finance/withdrawal";
 
 export const metadata = { title: "Kebutuhan Bulanan" };
 
 export default async function ExpensesPage() {
   const user = await requireUser();
-  const overview = await budgetOverview(user.id);
+  const [overview, fx] = await Promise.all([budgetOverview(user.id), getJisdorQuote()]);
   const { budget } = overview;
 
   return (
@@ -37,10 +41,12 @@ export default async function ExpensesPage() {
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-soft/20">
               <PiggyBank className="h-5 w-5 text-indigo-soft" aria-hidden />
             </span>
-            <div>
+            <div className="min-w-0">
               <p className="text-xs text-muted">Kebutuhan Bulanan (terencana)</p>
               <p className="tnum text-2xl font-bold">{fmtIDR(overview.planned)}</p>
-              <p className="tnum text-[11px] text-indigo-soft">≈ {fmtIDR(overview.planned.times(12).div(52))} / minggu</p>
+              <p className="tnum text-[11px] text-indigo-soft">≈ {fmtIDR(monthlyToWeekly(overview.planned))} / minggu</p>
+              {fx ? <p className="tnum mt-1 text-sm text-ink">{formatFxEstimate(overview.planned, "IDR", fx)} / bulan</p> : null}
+              <JisdorRateNote quote={fx} />
             </div>
           </CardContent>
         </Card>

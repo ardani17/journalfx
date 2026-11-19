@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog } from "@/components/ui/misc";
+import { Dialog, MutationForm } from "@/components/ui/misc";
 import { Field, Input, Select } from "@/components/ui/field";
 
 export function CashflowActions() {
@@ -15,16 +15,14 @@ export function CashflowActions() {
 
   return (
     <>
-      <Button size="sm" onClick={() => setOpen(true)}>
+      <Button size="sm" onClick={() => { setError(null); setOpen(true); }}>
         <Plus className="h-3.5 w-3.5" aria-hidden /> Catat Transaksi
       </Button>
       <Dialog open={open} onClose={() => setOpen(false)} title="Catat Transaksi Keuangan">
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
+        <MutationForm
+          action={async (fd) => {
             setError(null);
             setLoading(true);
-            const fd = new FormData(e.currentTarget);
             try {
               const res = await fetch("/api/finance/transactions", {
                 method: "POST",
@@ -42,6 +40,8 @@ export function CashflowActions() {
               }
               setOpen(false);
               router.refresh();
+            } catch {
+              setError("Tidak dapat menghubungi server");
             } finally {
               setLoading(false);
             }
@@ -67,7 +67,7 @@ export function CashflowActions() {
             <Button variant="secondary" type="button" onClick={() => setOpen(false)}>Batal</Button>
             <Button type="submit" disabled={loading}>Simpan</Button>
           </div>
-        </form>
+        </MutationForm>
       </Dialog>
     </>
   );

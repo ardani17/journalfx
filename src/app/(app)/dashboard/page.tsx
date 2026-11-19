@@ -24,6 +24,8 @@ import { EmptyState } from "@/components/ui/misc";
 import { Badge } from "@/components/ui/badge";
 import { BalanceChart } from "@/components/dashboard/balance-chart";
 import { PlanCards } from "@/components/dashboard/plan-cards";
+import { CurrencyConverter } from "@/components/finance/currency-converter";
+import { formatFxEstimate } from "@/lib/finance/exchange";
 import { D, fmtNum, fmtPct, fmtPctDelta, fmtUSD, fmtUSDdelta } from "@/lib/money";
 
 export const metadata = { title: "Dashboard" };
@@ -44,6 +46,9 @@ export default async function DashboardPage() {
   ]);
 
   const balance = balances.balance;
+  const fx = wdBundle.latestFx;
+  const balanceIdr = formatFxEstimate(balance, "USD", fx);
+  const pnlIdr = formatFxEstimate(weekly.realizedPnl, "USD", fx);
   const target = D(project.targetAmount);
   const progressPct = target.isZero() ? D(0) : balance.div(target).times(100);
   const nextMilestone =
@@ -97,7 +102,7 @@ export default async function DashboardPage() {
           </p>
         </div>
         <Badge className="border-white/30 bg-white/15 !text-white" tone="success">
-          {weekly.realizedPnl.isPositive() ? "● Minggu Profit" : "● Berjalan"}
+          {weekly.realizedPnl.gt(0) ? "● Minggu Profit" : "● Berjalan"}
         </Badge>
       </section>
 
@@ -108,11 +113,14 @@ export default async function DashboardPage() {
           tone="primary"
           icon={Wallet}
           sub={
-            growthPct !== null ? (
-              <span className={growthPct.isPositive() ? "text-primary" : "text-loss"}>
-                {fmtPctDelta(growthPct)} ({fmtUSDdelta(balance.minus(balances.deposits))})
-              </span>
-            ) : undefined
+            <>
+              {balanceIdr ? <span className="block">{balanceIdr}</span> : null}
+              {growthPct !== null ? (
+                <span className={growthPct.isPositive() ? "text-primary" : "text-loss"}>
+                  {fmtPctDelta(growthPct)} ({fmtUSDdelta(balance.minus(balances.deposits))})
+                </span>
+              ) : null}
+            </>
           }
         />
         <StatCard label="Equity" value={fmtUSD(balance)} tone="info" icon={Activity} sub="Unrealized: 0 (belum ada harga berjalan)" />
@@ -150,31 +158,10 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CalendarRange className="h-4 w-4 text-primary" aria-hidden /> Ringkasan Mingguan
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <SummaryRow icon={<BarChart3 className="h-3.5 w-3.5" />} label="Total Trade" value={fmtNum(weekly.tradesCount, 0)} />
-            <SummaryRow
-              icon={<Percent className="h-3.5 w-3.5" />}
-              label="Return Mingguan"
-              value={weekly.returnPct ? fmtPctDelta(weekly.returnPct) : "—"}
-              tone={weekly.returnPct ? (weekly.returnPct.isPositive() ? "pos" : "neg") : undefined}
-            />
-            <SummaryRow
-              icon={<TrendingUp className="h-3.5 w-3.5" />}
-              label="P&L Realisasi"
-              value={fmtUSDdelta(weekly.realizedPnl)}
-              tone={weekly.realizedPnl.isPositive() ? "pos" : weekly.realizedPnl.isNegative() ? "neg" : undefined}
-            />
-            <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Deposit" value={fmtUSD(weekly.deposits)} />
-            <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Withdrawal" value={fmtUSD(weekly.withdrawals)} />
-          </CardContent>
-        </Card>
+        <WeeklySummaryCard weekly={weekly} pnlIdr={pnlIdr} />
       </div>
+
+      <CurrencyConverter quote={fx} />
 
       <PlanCards
         data={{
@@ -189,6 +176,43 @@ export default async function DashboardPage() {
   );
 }
 
+function WeeklySummaryCard({ weekly, pnlIdr }: {
+  weekly: Awaited<ReturnType<typeof weeklySummary>>;
+  pnlIdr: ReturnType<typeof formatFxEstimate>;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CalendarRange className="h-4 w-4 text-primary" aria-hidden /> Ringkasan Mingguan
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <SummaryRow icon={<BarChart3 className="h-3.5 w-3.5" />} label="Total Trade" value={fmtNum(weekly.tradesCount, 0)} />
+        <SummaryRow
+          icon={<Percent className="h-3.5 w-3.5" />}
+          label="Return Mingguan"
+          value={weekly.returnPct ? fmtPctDelta(weekly.returnPct) : "—"}
+          tone={weekly.returnPct ? (weekly.returnPct.gt(0) ? "pos" : "neg") : undefined}
+        />
+        <SummaryRow
+          icon={<TrendingUp className="h-3.5 w-3.5" />}
+          label="P&L Realisasi"
+          value={
+            <>
+              {fmtUSDdelta(weekly.realizedPnl)}
+              {pnlIdr ? <span className="block text-xs font-normal text-muted">{pnlIdr}</span> : null}
+            </>
+          }
+          tone={weekly.realizedPnl.gt(0) ? "pos" : weekly.realizedPnl.lt(0) ? "neg" : undefined}
+        />
+        <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Deposit" value={fmtUSD(weekly.deposits)} />
+        <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Withdrawal" value={fmtUSD(weekly.withdrawals)} />
+      </CardContent>
+    </Card>
+  );
+}
+
 function SummaryRow({
   icon,
   label,
@@ -197,7 +221,7 @@ function SummaryRow({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: string;
+  value: React.ReactNode;
   tone?: "pos" | "neg";
 }) {
   return (
@@ -207,7 +231,7 @@ function SummaryRow({
         <span className="text-xs">{label}</span>
       </span>
       <span
-        className={`tnum font-semibold ${
+        className={`tnum text-right font-semibold ${
           tone === "pos" ? "text-primary" : tone === "neg" ? "text-loss" : "text-ink"
         }`}
       >

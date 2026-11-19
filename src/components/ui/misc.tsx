@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "./button";
@@ -71,6 +71,7 @@ export function Dialog({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
 
   useEffect(() => {
     const dlg = ref.current;
@@ -92,6 +93,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onClose={onClose}
       className={cn(
         "m-auto w-[calc(100vw-2rem)] rounded-[14px] border border-line bg-panel p-0 text-ink backdrop:bg-black/60",
@@ -99,7 +101,7 @@ export function Dialog({
       )}
     >
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
+        <h2 id={titleId} className="text-sm font-semibold">{title}</h2>
         <Button variant="ghost" size="icon" onClick={onClose} aria-label="Tutup">
           <X className="h-4 w-4" />
         </Button>
@@ -107,6 +109,11 @@ export function Dialog({
       <div className="p-4">{children}</div>
     </dialog>
   );
+}
+
+// These dialogs close on success. Keep uncontrolled input values available for retries.
+export function MutationForm(props: Omit<React.ComponentProps<"form">, "onReset">) {
+  return <form {...props} onReset={(event) => event.preventDefault()} />;
 }
 
 /* ───────────────────────── Progress ───────────────────────── */

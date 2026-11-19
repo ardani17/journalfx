@@ -1,26 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Bell, ChevronDown, LogOut, Menu, Settings, User } from "lucide-react";
 import { MOBILE_NAV } from "./nav";
 import { SidebarContent } from "./sidebar";
+import { BrandLogo } from "./brand-logo";
+import { APP_NAME } from "@/lib/brand";
 import { cn } from "@/lib/utils";
 import { useUnreadNotifications } from "@/components/providers";
 
 export function Header({
   user,
+  dateLabel,
   progressPct,
   progressLabel,
 }: {
   user: { name: string; email: string };
+  dateLabel: string;
   progressPct: number;
   progressLabel: string;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerRef = useRef<HTMLDialogElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const unread = useUnreadNotifications();
 
@@ -45,15 +49,21 @@ export function Header({
       <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-line bg-surface/95 px-4 backdrop-blur lg:px-6">
         <button
           className="rounded-lg p-2 text-muted hover:bg-panel hover:text-ink lg:hidden"
-          onClick={() => setDrawerOpen(true)}
+          onClick={() => drawerRef.current?.showModal()}
+          aria-haspopup="dialog"
           aria-label="Buka menu navigasi"
         >
           <Menu className="h-5 w-5" />
         </button>
 
+        <Link href="/dashboard" className="flex min-w-0 items-center gap-2 lg:hidden">
+          <BrandLogo mark />
+          <span className="truncate text-sm font-bold">{APP_NAME}</span>
+        </Link>
+
         <div className="ml-auto flex items-center gap-2">
           <span className="tnum hidden rounded-lg border border-line bg-panel px-3 py-1.5 text-xs text-muted sm:block">
-            {new Date().toLocaleDateString("id-ID", { day: "numeric", month: "long", year: "numeric" })}
+            {dateLabel}
           </span>
 
           <Link
@@ -70,6 +80,7 @@ export function Header({
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setMenuOpen((v) => !v)}
+              aria-label="Menu akun"
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               className="flex items-center gap-2 rounded-lg p-1 pr-2 hover:bg-panel"
@@ -117,41 +128,44 @@ export function Header({
         </div>
       </header>
 
-      {/* Mobile drawer */}
-      {drawerOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-          <div
-            className="absolute inset-0 bg-black/60"
-            onClick={() => setDrawerOpen(false)}
-            aria-hidden
+      <dialog
+        ref={drawerRef}
+        aria-label="Menu navigasi"
+        className="fixed inset-0 m-0 h-dvh max-h-none w-screen max-w-none bg-transparent p-0 text-ink backdrop:bg-black/60 lg:hidden"
+      >
+        <div className="relative z-10 h-full w-[260px] border-r border-line">
+          <SidebarContent
+            progressPct={progressPct}
+            progressLabel={progressLabel}
+            onNavigate={() => drawerRef.current?.close()}
           />
-          <div className="absolute inset-y-0 left-0 w-[260px] border-r border-line">
-            <SidebarContent
-              progressPct={progressPct}
-              progressLabel={progressLabel}
-              onNavigate={() => setDrawerOpen(false)}
-            />
-          </div>
         </div>
-      ) : null}
+        <button
+          type="button"
+          aria-label="Tutup menu navigasi"
+          className="absolute inset-y-0 left-[260px] right-0"
+          onClick={() => drawerRef.current?.close()}
+        />
+      </dialog>
     </>
   );
 }
 
 export function MobileBottomNav() {
-  const pathname = typeof window !== "undefined" ? window.location.pathname : "";
+  const pathname = usePathname();
   return (
     <nav
       aria-label="Navigasi bawah"
       className="fixed inset-x-0 bottom-0 z-30 flex border-t border-line bg-surface/95 backdrop-blur lg:hidden"
     >
       {MOBILE_NAV.map((item) => {
-        const active = pathname.startsWith(item.href);
+        const active = pathname === item.href || pathname.startsWith(item.href + "/");
         const Icon = item.icon;
         return (
           <Link
             key={item.href}
             href={item.href}
+            aria-current={active ? "page" : undefined}
             className={cn(
               "flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px]",
               active ? "text-primary" : "text-faint",

@@ -33,13 +33,12 @@ export default async function WithdrawalsPage() {
           caps: bundle.recommendation.caps,
         }}
         rule={bundle.rule}
-        needsWeeklyUsd={bundle.needsWeeklyUsd?.toString() ?? null}
         cumulativePnl={bundle.cumulativePnl.toString()}
         hwm={bundle.hwm.toString()}
         periodProfit={bundle.periodProfit.toString()}
         periodTaken={bundle.periodTaken.toString()}
         availableCash={bundle.availableCash.toString()}
-        latestFx={bundle.latestFx ? { rate: bundle.latestFx.rate, at: bundle.latestFx.at.toISOString() } : null}
+        latestFx={bundle.latestFx}
         history={history.map((w) => ({
           id: w.id,
           status: w.status,
@@ -48,6 +47,7 @@ export default async function WithdrawalsPage() {
           receivedAmount: w.receivedAmount?.toString() ?? null,
           fees: w.fees?.toString() ?? null,
           note: w.note,
+          mt5DealId: w.mt5DealId,
           createdAt: w.createdAt.toISOString(),
           completedAt: w.completedAt?.toISOString() ?? null,
         }))}

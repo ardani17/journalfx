@@ -1,14 +1,20 @@
 import { redirect } from "next/navigation";
 import { getSessionUser } from "@/server/auth";
-import { countUsers } from "@/server/services/users";
+import { getGoogleConfig } from "@/server/google-oauth";
 import { LoginForm } from "./login-form";
 
 export const metadata = { title: "Login" };
 
-export default async function LoginPage() {
+const loginErrors = new Map([
+  ["unavailable", "Login Google sedang tidak tersedia."],
+  ["expired", "Permintaan login sudah berakhir. Silakan mulai lagi."],
+  ["cancelled", "Login Google dibatalkan."],
+  ["invalid", "Login Google belum berhasil. Silakan coba lagi."],
+]);
+
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string | string[] }> }) {
   const user = await getSessionUser();
   if (user) redirect("/dashboard");
-  const hasUser = (await countUsers()) > 0;
-  if (!hasUser) redirect("/onboarding");
-  return <LoginForm />;
+  const { error } = await searchParams;
+  return <LoginForm enabled={Boolean(getGoogleConfig())} initialError={typeof error === "string" ? loginErrors.get(error) : undefined} />;
 }

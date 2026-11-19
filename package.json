@@ -1,21 +1,23 @@
 {
-  "name": "mdtp",
+  "name": "horizon-journal",
   "version": "1.4.0",
   "private": true,
-  "description": "MDTP — Million Dollar Trading Project: personal XAUUSD trading journal, compounding simulator, dynamic withdrawal and finance tracker",
+  "description": "Horizon Journal: personal XAUUSD trading journal, compounding simulator, dynamic withdrawal and finance tracker",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "prebuild": "prisma generate",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose stop postgres",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "db:seed:reference": "prisma db seed",
+    "db:seed:demo": "tsx prisma/seed-demo.ts",
     "db:studio": "prisma studio",
     "e2e": "playwright test"
   },
@@ -24,37 +26,46 @@
     "@prisma/client": "6.19.3",
     "@tanstack/react-query": "5.107.1",
     "@tanstack/react-table": "9.3.1",
-    "bcryptjs": "3.0.3",
     "clsx": "2.1.1",
     "date-fns": "4.4.0",
     "decimal.js": "10.6.0",
+    "fast-xml-parser": "5.12.1",
     "jose": "6.2.17",
     "lucide-react": "1.73.0",
-    "next": "15.5.29",
+    "next": "16.4.6",
+    "openid-client": "6.9.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-hook-form": "7.92.0",
     "recharts": "3.10.1",
     "tailwind-merge": "3.3.1",
+    "yauzl": "3.4.0",
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@eslint/eslintrc": "3.3.7",
     "@playwright/test": "1.65.1",
     "@tailwindcss/postcss": "4.3.5",
     "@types/node": "22.19.10",
     "@types/react": "19.1.16",
     "@types/react-dom": "19.1.9",
+    "@types/yauzl": "3.4.0",
     "eslint": "9.39.5",
-    "eslint-config-next": "15.5.29",
+    "eslint-config-next": "16.4.6",
     "prisma": "6.19.3",
     "tailwindcss": "4.3.5",
     "tsx": "4.20.6",
     "typescript": "5.9.3",
     "vitest": "5.1.0"
   },
+  "overrides": {
+    "postcss": "8.5.33",
+    "picomatch": "npm:@ryotsu/picomatch@4.0.7-a",
+    "@prisma/config@6.19.3": {
+      "deepmerge-ts": "8.0.2"
+    }
+  },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.9.0"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

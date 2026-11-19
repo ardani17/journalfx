@@ -1,6 +1,7 @@
 import { requireUser } from "@/server/auth";
 import { listAccounts } from "@/server/services/accounts";
-import { listTransactions } from "@/server/services/ledger";
+import { listTransactionsQuery } from "@/lib/validation/ledger";
+import { canReverseLedgerEntry, listTransactions } from "@/server/services/ledger";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { TransactionsClient } from "./transactions-client";
 
@@ -11,15 +12,14 @@ export default async function TransactionsPage({
 }: {
   searchParams: Promise<{ type?: string; accountId?: string }>;
 }) {
-  const user = await requireUser();
-  const { type, accountId } = await searchParams;
-  const accounts = await listAccounts(user.id);
-  const filter = {
-    ...(type ? { type: type as never } : {}),
-    ...(accountId ? { accountId } : {}),
-    limit: 100,
-  };
-  const { items, total } = await listTransactions(user.id, filter);
+  const [user, params] = await Promise.all([requireUser(), searchParams]);
+  const parsedType = listTransactionsQuery.shape.type.safeParse(params.type);
+  const type = parsedType.success ? parsedType.data : undefined;
+  const accountId = typeof params.accountId === "string" ? params.accountId : undefined;
+  const [accounts, { items, total }] = await Promise.all([
+    listAccounts(user.id),
+    listTransactions(user.id, { type, accountId, limit: 100 }),
+  ]);
 
   return (
     <PageShell>
@@ -37,7 +37,8 @@ export default async function TransactionsPage({
           amount: Number(t.amount),
           occurredAt: t.occurredAt.toISOString(),
           note: t.note,
-          reversalOfId: t.reversalOfId,
+          mt5DealId: t.mt5DealId,
+          canReverse: t.reversals.length === 0 && canReverseLedgerEntry(t),
         }))}
         total={total}
         activeType={type ?? ""}

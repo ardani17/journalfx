@@ -16,9 +16,9 @@ datasource db {
 
 model User {
   id           String   @id @default(cuid())
-  email        String   @unique
+  email        String
   name         String
-  passwordHash String
+  googleSubject String  @unique
   timezone     String   @default("Asia/Jakarta")
   locale       String   @default("id") // "id" | "en"
   createdAt    DateTime @default(now())
@@ -26,6 +26,7 @@ model User {
 
   projects           Project[]
   tradingAccounts    TradingAccount[]
+  customInstruments  Instrument[]
   strategies         Strategy[]
   trades             Trade[]
   accountTransactions AccountTransaction[]
@@ -48,7 +49,6 @@ model User {
   economicEvents     EconomicEvent[]
   auditLogs          AuditLog[]
 
-  @@index([email])
 }
 
 // ─────────────────────────────── Trading ───────────────────────────────
@@ -61,6 +61,8 @@ model Project {
   description    String?
   initialCapital Decimal  @db.Decimal(18, 2)
   targetAmount   Decimal  @db.Decimal(18, 2) @default(1000000)
+  activeScenarioId String? @unique
+  activeScenario CompoundingScenario? @relation("ActiveScenario", fields: [activeScenarioId], references: [id], onDelete: SetNull)
   startDate      DateTime?
   targetDate     DateTime?
   isDefault      Boolean  @default(true)
@@ -71,6 +73,7 @@ model Project {
   accounts   TradingAccount[]
   scenarios  CompoundingScenario[]
   milestones Milestone[]
+  roadmapAchievements RoadmapMilestoneAchievement[]
   withdrawals Withdrawal[]
   withdrawalRules WithdrawalRule[]
   buckets    FinancialBucket[]
@@ -106,14 +109,16 @@ model TradingAccount {
   @@index([userId, projectId])
 }
 
-// Reference instrument specifications (global config data, not personal)
+// Shared reference instruments and private symbols registered from MT5 history.
 model Instrument {
   id            String  @id @default(cuid())
-  symbol        String  @unique
+  ownerId       String?
+  owner         User?   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  symbol        String
   name          String
   category      String // "metal" | "forex" | "index" | "crypto"
   quoteCurrency String  @default("USD")
-  contractSize  Decimal @db.Decimal(18, 4) @default(100)
+  contractSize  Decimal? @db.Decimal(18, 4)
   tickSize      Decimal @db.Decimal(18, 6) @default(0.01)
   tickValue     Decimal @db.Decimal(18, 6) @default(1) // USD per tick per 1 lot
   lotMin        Decimal @db.Decimal(18, 2) @default(0.01)
@@ -122,6 +127,9 @@ model Instrument {
   pricePrecision Int    @default(2)
 
   trades Trade[]
+
+  // A partial SQL index also enforces uniqueness for shared symbols (ownerId IS NULL).
+  @@unique([ownerId, symbol])
 }
 
 model Strategy {
@@ -161,13 +169,13 @@ model Trade {
   accountId       String
   account         TradingAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   instrumentId    String
-  instrument      Instrument    @relation(fields: [instrumentId], references: [id])
+  instrument      Instrument    @relation(fields: [instrumentId], references: [id], onDelete: NoAction)
   strategyId      String?
   strategy        Strategy?     @relation(fields: [strategyId], references: [id], onDelete: SetNull)
   ticket          String? // broker ticket (dedupe key with account when present)
   direction       TradeDirection
   status          TradeStatus   @default(OPEN)
-  lot             Decimal       @db.Decimal(18, 2)
+  lot             Decimal       @db.Decimal(24, 8)
   entryPrice      Decimal       @db.Decimal(18, 6)
   exitPrice       Decimal?      @db.Decimal(18, 6)
   initialStopLoss Decimal?      @db.Decimal(18, 6)
@@ -208,7 +216,7 @@ model TradeExecution {
   tradeId     String
   trade       Trade         @relation(fields: [tradeId], references: [id], onDelete: Cascade)
   kind        ExecutionKind
-  quantity    Decimal       @db.Decimal(18, 2)
+  quantity    Decimal       @db.Decimal(24, 8)
   price       Decimal       @db.Decimal(18, 6)
   commission  Decimal       @db.Decimal(18, 2) @default(0)
   swap        Decimal       @db.Decimal(18, 2) @default(0)
@@ -291,6 +299,7 @@ model AccountTransaction {
   occurredAt    DateTime
   note          String?
   sourceTradeId String? // trade that produced REALIZED_PNL
+  mt5DealId     String? // broker ID for an imported cash movement
   withdrawalId  String?
   withdrawal    Withdrawal?    @relation(fields: [withdrawalId], references: [id], onDelete: SetNull)
   reversalOfId  String? @unique // this row reverses that row
@@ -299,6 +308,7 @@ model AccountTransaction {
 
   reversals AccountTransaction[] @relation("Reversal")
 
+  @@unique([accountId, mt5DealId])
   @@index([userId, accountId, occurredAt])
   @@index([type, occurredAt])
 }
@@ -339,6 +349,7 @@ model CompoundingScenario {
   user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectId      String
   project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activeFor      Project?            @relation("ActiveScenario")
   name           String
   initialCapital Decimal             @db.Decimal(18, 2)
   targetAmount   Decimal             @db.Decimal(18, 2)
@@ -368,6 +379,16 @@ model Milestone {
   balanceAtHit  Decimal?  @db.Decimal(18, 2)
 
   @@unique([projectId, order])
+}
+
+model RoadmapMilestoneAchievement {
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  amount       Decimal  @db.Decimal(18, 2)
+  achievedAt   DateTime
+  balanceAtHit Decimal  @db.Decimal(18, 2)
+
+  @@id([projectId, amount])
 }
 
 model RiskSettings {
@@ -460,7 +481,9 @@ model Debt {
   principalRemaining Decimal  @db.Decimal(18, 2)
   interestRate      Decimal?  @db.Decimal(9, 4) // annual percent, unknown → null
   installmentAmount Decimal?  @db.Decimal(18, 2) // required installment, unknown → null
-  installmentFreq   String?   // "monthly" | "weekly"
+  installmentFreq   String?   // "weekly" | "monthly" | "yearly"
+  repaymentMode     String?   // "recurring" | "one_time" | "flexible" | null for legacy debts
+  dueDate           DateTime? @db.Date // one-time due date or first yearly installment
   dueDay            Int? // day of month
   startDate         DateTime?
   targetDate        DateTime?
