@@ -2,7 +2,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { prisma } from "@/server/db";
-import { createTrade, addExecution, cancelTrade, getTrade, listTrades } from "@/server/services/trades";
+import { createTrade, addExecution, cancelTrade, getTrade, listTrades, registerTradeInstrument } from "@/server/services/trades";
+import { registerInstrumentSchema } from "@/lib/validation/trades";
 import { balanceSeries, computeBalance, reverseTransaction, weeklySummary } from "@/server/services/ledger";
 import { dailyPnl, coreMetrics } from "@/server/services/analytics";
 import { allocateProfit, budgetOverview, payDebt } from "@/server/services/finance";
@@ -75,6 +76,34 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     await expect(updateAccount(second.id, accountId, { name: "Foreign edit" })).rejects.toMatchObject({ status: 404 });
     await expect(readAttachment(second.id, attachment.id)).rejects.toMatchObject({ status: 403 });
     expect((await listTrades(second.id, { limit: 10, offset: 0 })).total).toBe(0);
+  });
+
+  it("registers a private symbol once and keeps shared and imported instruments selectable", async () => {
+    const owner = await fixture();
+    const other = await fixture();
+    const parseSymbol = (value: string) => registerInstrumentSchema.parse({ symbol: value }).symbol;
+    expect(registerInstrumentSchema.safeParse({ symbol: "  " }).success).toBe(false);
+    expect(registerInstrumentSchema.safeParse({ symbol: "X".repeat(65) }).success).toBe(false);
+    expect(await registerTradeInstrument(owner.userId, parseSymbol(` ${symbol.toLowerCase()} `))).toEqual({ id: instrumentId, symbol });
+
+    const [first, duplicate] = await Promise.all([
+      registerTradeInstrument(owner.userId, parseSymbol("  xyZ.cash  ")),
+      registerTradeInstrument(owner.userId, parseSymbol("XYZ.CASH")),
+    ]);
+    expect(first).toEqual(duplicate);
+    const registered = await prisma.instrument.findMany({ where: { ownerId: owner.userId, symbol: "XYZ.CASH" } });
+    expect(registered.map((row) => [row.id, row.contractSize])).toEqual([[first.id, null]]);
+
+    const input = { accountId: owner.accountId, instrumentId: first.id, direction: "LONG" as const, lot: 0.1,
+      entryPrice: 2000, entryAt: new Date().toISOString(), commission: 0, swap: 0, fees: 0 };
+    const trade = await createTrade(owner.userId, input);
+    expect(trade.instrumentId).toBe(first.id);
+    await expect(createTrade(other.userId, { ...input, accountId: other.accountId })).rejects.toMatchObject({ status: 404 });
+    expect((await registerTradeInstrument(other.userId, parseSymbol(first.symbol))).id).not.toBe(first.id);
+
+    await importStatement(owner.userId, owner.accountId, readFileSync(new URL("../fixtures/mt5-history.xlsx", import.meta.url)));
+    const imported = await prisma.instrument.findUniqueOrThrow({ where: { ownerId_symbol: { ownerId: owner.userId, symbol: "US100.DEMO" } } });
+    expect(await registerTradeInstrument(owner.userId, parseSymbol("us100.demo"))).toEqual({ id: imported.id, symbol: imported.symbol });
   });
 
   it("protects account ownership and history while allowing account edits, deletion and reactivation", async () => {

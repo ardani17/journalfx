@@ -5,6 +5,10 @@ const isoDate = z.string().datetime({ offset: true }).or(z.string().date());
 const lotSize = z.coerce.number().positive().refine((value) => value < 1e16 && D(value).decimalPlaces() <= 8,
   "Lot harus memiliki paling banyak delapan desimal");
 
+export const registerInstrumentSchema = z.object({
+  symbol: z.string().trim().toUpperCase().min(1, "Kode simbol wajib diisi").max(64, "Kode simbol maksimal 64 karakter"),
+});
+
 export const createTradeSchema = z.object({
   accountId: z.string().min(1),
   instrumentId: z.string().min(1).optional(),
