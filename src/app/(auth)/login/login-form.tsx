@@ -58,6 +58,13 @@ export function LoginForm({ enabled, initialError }: { enabled: boolean; initial
           <Link href="/privacy" className="underline underline-offset-2">Kebijakan Privasi</Link>
           <Link href="/terms" className="underline underline-offset-2">Ketentuan Penggunaan</Link>
         </nav>
+        <details className="mt-3 rounded-lg border border-line px-3 py-2 text-xs text-muted">
+          <summary className="cursor-pointer font-medium text-ink">Pasang Horizon Journal</summary>
+          <ul className="mt-2 list-disc space-y-1.5 pl-4">
+            <li><strong>Android Chrome</strong> · Buka menu ⋮, pilih <em>Tambahkan ke layar utama</em>, lalu pilih <em>Instal</em>.</li>
+            <li><strong>iPhone Safari</strong> · Ketuk <em>Bagikan</em>, pilih <em>Tambah ke Layar Utama</em>, aktifkan <em>Buka sebagai App Web</em> jika tersedia, lalu ketuk <em>Tambah</em>.</li>
+          </ul>
+        </details>
       </div>
     </main>
   );

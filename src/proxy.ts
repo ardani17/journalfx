@@ -1,7 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, verifySession } from "@/lib/session";
 
-const PUBLIC_PAGES = new Set(["/", "/login", "/privacy", "/terms"]);
+const PUBLIC_PAGES = new Set([
+  "/", "/login", "/privacy", "/terms", "/manifest.webmanifest",
+  "/pwa/icon-192.png", "/pwa/icon-512.png", "/pwa/icon-maskable-512.png", "/pwa/apple-touch-icon.png",
+]);
 const PUBLIC_API = new Set([
   "/api/health", "/api/auth/google/start", "/api/auth/google/callback", "/api/auth/logout",
   "/api/integrations/telegram/webhook",

@@ -10,6 +10,7 @@ export const metadata: Metadata = {
     template: `%s · ${APP_NAME}`,
   },
   icons: {
+    apple: [{ url: "/pwa/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
     icon: [
       { url: horizonMarkDark.src, type: "image/png", sizes: "96x96" },
       { url: horizonMarkWhite.src, type: "image/png", sizes: "96x96", media: "(prefers-color-scheme: dark)" },
