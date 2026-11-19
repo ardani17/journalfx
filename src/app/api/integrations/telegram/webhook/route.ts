@@ -1,11 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { connectTelegramChat, telegramWebhookSecret } from "@/server/services/notify-channels";
+import { handleTelegramChatMessage, telegramWebhookSecret } from "@/server/services/notify-channels";
 import { fail, handleRouteError, ok } from "@/lib/api";
 
 const messageSchema = z.object({
   message: z.object({
-    chat: z.object({ id: z.number().int().positive(), type: z.literal("private") }),
+    chat: z.object({ id: z.number().int().positive().max(2 ** 52 - 1), type: z.literal("private") }),
     text: z.string(),
   }),
 });
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     const body = messageSchema.safeParse(await req.json().catch(() => null));
     if (body.success) {
       const { chat, text } = body.data.message;
-      await connectTelegramChat(String(chat.id), text);
+      await handleTelegramChatMessage(String(chat.id), text.trim());
     }
     return ok({ received: true });
   } catch (error) {

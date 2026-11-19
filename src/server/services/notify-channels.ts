@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
@@ -16,6 +16,7 @@ type DispatchResult = {
 export interface ChannelConfig extends Preferences {
   telegramAvailable: boolean;
   telegramConnected: boolean;
+  telegramChatId: string | null;
 }
 
 function botToken() {
@@ -23,8 +24,8 @@ function botToken() {
 }
 
 export function telegramWebhookSecret() {
-  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
-  return secret && /^[A-Za-z0-9_-]{1,256}$/.test(secret) ? secret : undefined;
+  const token = botToken();
+  return token ? createHmac("sha256", token).update("horizon-journal:telegram-webhook:v1").digest("hex") : undefined;
 }
 
 export async function channelConfig(userId: string): Promise<ChannelConfig> {
@@ -33,8 +34,9 @@ export async function channelConfig(userId: string): Promise<ChannelConfig> {
     select: { telegramChatId: true, quietStartHour: true, quietEndHour: true, isActive: true },
   });
   return {
-    telegramAvailable: Boolean(botToken() && telegramWebhookSecret()),
+    telegramAvailable: Boolean(botToken()),
     telegramConnected: Boolean(channel?.telegramChatId),
+    telegramChatId: channel?.telegramChatId ?? null,
     quietStartHour: channel?.quietStartHour ?? DEFAULT_PREFERENCES.quietStartHour,
     quietEndHour: channel?.quietEndHour ?? DEFAULT_PREFERENCES.quietEndHour,
     isActive: channel?.isActive ?? DEFAULT_PREFERENCES.isActive,
@@ -67,36 +69,48 @@ async function telegramRequest(token: string, method: "getMe" | "sendMessage", d
   }
 }
 
-function hashLinkCode(code: string) {
-  return createHash("sha256").update(code).digest("hex");
+function hashLinkCode(code: string, chatId: string) {
+  return createHash("sha256").update(`${code}:${chatId}`).digest("hex");
 }
 
-export async function createTelegramLink(userId: string) {
+export async function telegramBotUrl() {
   const token = botToken();
-  if (!token || !telegramWebhookSecret()) throw new ApiError(503, "Bot Telegram belum dikonfigurasi.");
+  if (!token) throw new ApiError(503, "Bot Telegram belum dikonfigurasi.");
   const bot = await telegramRequest(token, "getMe");
   if (typeof bot?.username !== "string" || !/^[A-Za-z0-9_]+$/.test(bot.username)) {
     throw new ApiError(503, "Bot Telegram sedang tidak dapat dihubungi.");
   }
+  return `https://t.me/${bot.username}`;
+}
 
+export async function createTelegramLink(userId: string, chatId: string) {
+  const botUrl = await telegramBotUrl();
   const code = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + LINK_LIFETIME_MS);
-  const pending = { telegramLinkCodeHash: hashLinkCode(code), telegramLinkExpiresAt: expiresAt };
+  const pending = { telegramLinkCodeHash: hashLinkCode(code, chatId), telegramLinkExpiresAt: expiresAt };
   await prisma.notificationChannel.upsert({
     where: { userId },
     create: { userId, ...pending },
     update: pending,
   });
-  return { url: `https://t.me/${bot.username}?start=${code}`, expiresAt: expiresAt.toISOString() };
+  return { url: `${botUrl}?start=${code}`, expiresAt: expiresAt.toISOString() };
 }
 
-export async function connectTelegramChat(chatId: string, text: string) {
+export async function handleTelegramChatMessage(chatId: string, text: string) {
+  if (text === "/start" || text === "/id") {
+    const token = botToken();
+    if (token) await telegramRequest(token, "sendMessage", {
+      chat_id: chatId,
+      text: `Chat ID Telegram Anda: ${chatId}\n\nMasukkan angka ini di Pengaturan → Notifikasi Telegram Horizon Journal, lalu pilih Hubungkan Telegram.`,
+    });
+    return;
+  }
   const code = /^\/start ([A-Za-z0-9_-]{43})$/.exec(text)?.[1];
   if (!code) return;
 
   try {
     await prisma.notificationChannel.updateMany({
-      where: { telegramLinkCodeHash: hashLinkCode(code), telegramLinkExpiresAt: { gt: new Date() } },
+      where: { telegramLinkCodeHash: hashLinkCode(code, chatId), telegramLinkExpiresAt: { gt: new Date() } },
       data: { telegramChatId: chatId, telegramLinkCodeHash: null, telegramLinkExpiresAt: null },
     });
   } catch (error) {

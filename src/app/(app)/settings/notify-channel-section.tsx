@@ -26,11 +26,13 @@ const testMessages: Record<string, string> = {
 
 export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
   const [cfg, setCfg] = useState(initial);
-  const [link, setLink] = useState<{ url: string; expiresAt: string } | null>(null);
+  const [chatId, setChatId] = useState(initial.telegramChatId ?? "");
+  const [link, setLink] = useState<{ url: string; expiresAt: string; chatId: string } | null>(null);
+  const [botUrl, setBotUrl] = useState<string | null>(null);
   const [linkExpired, setLinkExpired] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState<"link" | "save" | "test" | null>(null);
+  const [pending, setPending] = useState<"link" | "bot" | "save" | "test" | null>(null);
 
   useEffect(() => {
     if (!link) return;
@@ -46,22 +48,36 @@ export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
     refetchOnWindowFocus: true,
     refetchIntervalInBackground: true,
     refetchInterval: (query) => {
-      if (linkExpired || query.state.data?.telegramConnected) return false;
+      if (linkExpired || query.state.data?.telegramChatId === link?.chatId) return false;
       return 2000;
     },
   });
-  const connected = cfg.telegramConnected || connection.data?.telegramConnected;
+  const verifiedChatId = connection.data?.telegramChatId ?? cfg.telegramChatId;
+  const enteredChatId = chatId.trim();
+  const connected = verifiedChatId !== null && verifiedChatId === enteredChatId;
+  const awaitingConfirmation = link && verifiedChatId !== link.chatId;
 
-  async function connect() {
-    setPending("link");
+  async function openTelegram(chatId?: string) {
+    setPending(chatId ? "link" : "bot");
     setError(null);
     setMsg(null);
     const tab = window.open("about:blank", "_blank");
     if (tab) tab.opener = null;
     try {
-      const next = await channelRequest<NonNullable<typeof link>>(`${CHANNEL_ENDPOINT}/telegram-link`, { method: "POST" });
+      const endpoint = `${CHANNEL_ENDPOINT}/telegram-link`;
+      if (!chatId) {
+        const bot = await channelRequest<{ url: string }>(endpoint, { cache: "no-store" });
+        setBotUrl(bot.url);
+        tab?.location.replace(bot.url);
+        return;
+      }
+      const next = await channelRequest<{ url: string; expiresAt: string }>(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chatId }),
+      });
       setLinkExpired(false);
-      setLink(next);
+      setLink({ ...next, chatId });
       tab?.location.replace(next.url);
     } catch (error) {
       tab?.close();
@@ -118,25 +134,37 @@ export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {!connected && (
-          <div className="space-y-2">
-            {!cfg.telegramAvailable ? (
-              <p className="text-xs text-muted">Bot Telegram belum tersedia.</p>
-            ) : (
-              <Button type="button" variant="secondary" onClick={connect} disabled={pending !== null}>
-                {pending === "link" ? "Membuat tautan…" : linkExpired ? "Buat Tautan Baru" : "Hubungkan Telegram"}
+        <form aria-label="Hubungkan Chat ID Telegram" className="space-y-2" onSubmit={(event) => {
+          event.preventDefault();
+          if (enteredChatId) void openTelegram(enteredChatId);
+        }}>
+          <Field label="Chat ID Telegram" htmlFor="nc-chat-id">
+            <Input id="nc-chat-id" autoComplete="off" inputMode="numeric" required
+              aria-describedby="nc-chat-id-hint" value={chatId} onChange={(event) => setChatId(event.target.value)} />
+          </Field>
+          <p id="nc-chat-id-hint" className="text-xs text-muted">Di chat pribadi bot, kirim <strong>/id</strong>, lalu masukkan angka yang dikirim bot.</p>
+          {!cfg.telegramAvailable ? (
+            <p className="text-xs text-muted">Bot Telegram belum tersedia.</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="secondary" onClick={() => openTelegram()} disabled={pending !== null}>
+                {pending === "bot" ? "Membuka bot…" : "Temukan Chat ID"}
               </Button>
-            )}
-            {link && (linkExpired ? (
+              <Button type="submit" variant="secondary" disabled={pending !== null || connected || !enteredChatId}>
+                {pending === "link" ? "Membuat tautan…" : linkExpired && awaitingConfirmation ? "Buat Tautan Baru" : "Hubungkan Telegram"}
+              </Button>
+              {botUrl ? <a className="text-xs text-primary underline" href={botUrl} target="_blank" rel="noreferrer">Buka chat bot</a> : null}
+            </div>
+          )}
+          {awaitingConfirmation && (linkExpired ? (
               <p className="text-xs text-muted" role="status">Tautan kedaluwarsa. Buat tautan baru untuk melanjutkan.</p>
             ) : (
               <p className="text-xs text-muted" role="status">
-                Tekan <strong>Start</strong> di chat pribadi bot.{" "}
+                Tekan <strong>Start</strong> di chat pribadi bot untuk memverifikasi ID {link.chatId}.{" "}
                 <a className="text-primary underline" href={link.url} target="_blank" rel="noreferrer">Buka Telegram</a>
               </p>
-            ))}
-          </div>
-        )}
+          ))}
+        </form>
         <form onSubmit={save} className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Jam Tenang Mulai" htmlFor="nc-qs">

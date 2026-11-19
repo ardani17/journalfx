@@ -56,17 +56,13 @@ Configure the Google Web OAuth client as described in the [Google sign-in and de
 
 ## Shared Telegram bot
 
-Set `TELEGRAM_BOT_TOKEN` and an independently generated `TELEGRAM_WEBHOOK_SECRET` in the server environment. Apply database migrations, deploy the app, and register its public HTTPS webhook with the same secret. The migration from per-user tokens preserves preferences and clears old connections so users can pair again via **Pengaturan → Hubungkan Telegram**.
+Set `TELEGRAM_BOT_TOKEN` in the server environment. The app derives the webhook secret from this token. After deployment, register the public HTTPS webhook using the derived secret. Register it again after switching from a separately configured secret or rotating the bot token.
 
-```bash
-curl --fail-with-body --silent --show-error \
-  "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
-  --data-urlencode "url=${APP_ORIGIN%/}/api/integrations/telegram/webhook" \
-  --data-urlencode "secret_token=${TELEGRAM_WEBHOOK_SECRET}" \
-  --data-urlencode 'allowed_updates=["message"]'
+```text
+node --env-file=.env scripts/register-telegram-webhook.mjs
 ```
 
-In staging, pair two app accounts in separate private Telegram chats and check one test message arrives in each chat. A claimed delivery is attempted once, including when Telegram times out. Notifications remain available in the app.
+In **Pengaturan → Notifikasi Telegram**, open the bot with **Temukan Chat ID**, send `/id` in your private chat, and enter the returned number. Select **Hubungkan Telegram** and press **Start** in the same chat to verify it. In staging, pair two accounts in separate private chats and check that each chat receives one test message.
 
 ## Quality gates (every release)
 

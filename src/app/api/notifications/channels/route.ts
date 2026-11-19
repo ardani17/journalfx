@@ -14,7 +14,9 @@ const channelSchema = z.strictObject({
 export async function GET() {
   try {
     const user = await requireUser();
-    return ok(await channelConfig(user.id));
+    const response = ok(await channelConfig(user.id));
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
   } catch (e) {
     return handleRouteError(e);
   }
