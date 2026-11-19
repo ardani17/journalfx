@@ -3,6 +3,7 @@ import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import { attributedLedger } from "./ledger";
 import { calendarDate, startOfUTCDay, addUTCDays } from "@/lib/dates";
 import { userTimezone } from "./time";
+import { tradeFilterWhere, type ListTradesFilter } from "./trades";
 
 /**
  * Basic performance analytics (v0.2). Advanced breakdowns & discipline score
@@ -34,10 +35,11 @@ export interface CoreMetrics {
 
 export async function coreMetrics(
   userId: string,
-  filter?: { accountId?: string; from?: Date; to?: Date },
+  filter?: { accountId?: string; from?: Date; to?: Date; journal?: Omit<ListTradesFilter, "limit" | "offset"> },
 ): Promise<CoreMetrics> {
+  const journal = filter?.journal;
   const trades = await prisma.trade.findMany({
-    where: {
+    where: journal ? tradeFilterWhere(userId, journal) : {
       userId,
       status: { in: ["CLOSED", "PARTIAL"] },
       ...(filter?.accountId ? { accountId: filter.accountId } : {}),
@@ -51,7 +53,7 @@ export async function coreMetrics(
         : {}),
     },
     orderBy: { exitAt: "asc" },
-    select: { status: true, realizedPnl: true, actualR: true, entryAt: true, exitAt: true, account: { select: { currency: true } } },
+    select: { id: true, status: true, realizedPnl: true, actualR: true, entryAt: true, exitAt: true, account: { select: { currency: true } } },
   });
 
   const closed = trades.filter((t) => t.status === "CLOSED" && t.realizedPnl !== null);
@@ -103,13 +105,15 @@ export async function coreMetrics(
   }
 
   const n = closed.length;
+  const journalTradeIds = journal ? new Set(trades.map((trade) => trade.id)) : null;
   const periodLedger = (await attributedLedger(userId)).filter((r) =>
     (r.type === "REALIZED_PNL" || r.type === "FEE") &&
     (!filter?.accountId || r.accountId === filter.accountId) &&
+    (!journalTradeIds || (r.sourceTradeId !== null && journalTradeIds.has(r.sourceTradeId))) &&
     (!filter?.from || r.occurredAt >= filter.from) && (!filter?.to || r.occurredAt < filter.to));
   const netPnl = periodLedger.reduce((sum, r) => sum.plus(filter?.accountId ? D(r.amount) : tradingAmountToUsd(r.amount, r.currency)), D(0));
   return {
-    totalTrades: n,
+    totalTrades: journal ? trades.length : n,
     closedTrades: n,
     wins,
     losses,

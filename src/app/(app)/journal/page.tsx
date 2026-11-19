@@ -19,9 +19,8 @@ import {
   TR,
 } from "@/components/ui/table";
 import { JournalToolbar } from "./journal-toolbar";
-import { getJournalPageSize, journalHref } from "./journal-query";
+import { getJournalPageSize, journalDateRange, journalHref } from "./journal-query";
 import { D, fmtDecimal, fmtNum, fmtTradingDelta } from "@/lib/money";
-import { fmtDateID } from "@/lib/dates";
 import { listTradesQuery } from "@/lib/validation/trades";
 import { BarChart3, BookOpen, Percent, TrendingUp } from "lucide-react";
 
@@ -52,14 +51,20 @@ export default async function JournalPage({
     strategyId: typeof sp.strategyId === "string" ? sp.strategyId : undefined,
     accountId: typeof sp.accountId === "string" ? sp.accountId : undefined,
     sort: listTradesQuery.shape.sort.safeParse(sp.sort).data,
+    dateFrom: typeof sp.dateFrom === "string" ? sp.dateFrom : undefined,
+    dateTo: typeof sp.dateTo === "string" ? sp.dateTo : undefined,
   };
+  const rangeFilter = journalDateRange(filters.dateFrom, filters.dateTo, user.timezone);
+  const hasDateRange = Boolean(rangeFilter.from || rangeFilter.to);
+  const tradeFilters = { ...filters, from: rangeFilter.from, to: rangeFilter.to };
+  const dateFormatter = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeZone: user.timezone });
   const pageSize = getJournalPageSize(sp.pageSize);
   const requestedPage = typeof sp.page === "string" && /^[1-9]\d*$/.test(sp.page) ? Number(sp.page) : 1;
   const page = Number.isSafeInteger((requestedPage - 1) * pageSize) ? requestedPage : 1;
   const offset = (page - 1) * pageSize;
   const [{ items, total }, metrics, accounts, strategies] = await Promise.all([
-    listTrades(user.id, { ...filters, limit: pageSize, offset }),
-    coreMetrics(user.id, filters.accountId ? { accountId: filters.accountId } : undefined),
+    listTrades(user.id, { ...tradeFilters, limit: pageSize, offset }),
+    coreMetrics(user.id, { accountId: filters.accountId, journal: hasDateRange ? tradeFilters : undefined }),
     listAccounts(user.id),
     listStrategies(user.id),
   ]);
@@ -80,6 +85,7 @@ export default async function JournalPage({
         strategies={strategies.map((s) => ({ id: s.id, name: s.name }))}
         active={filters}
         pageSize={pageSize}
+        dateError={rangeFilter.error}
       />
 
       {/* KPI strip */}
@@ -131,7 +137,7 @@ export default async function JournalPage({
           <TBody>
             {items.length === 0 ? (
               <EmptyRow colSpan={10}>
-                {Object.values(filters).some(Boolean)
+                {hasDateRange ? "Tidak ada trade pada periode tersebut." : Object.values(filters).some(Boolean)
                   ? "Tidak ada trade yang cocok dengan filter."
                   : "Belum ada trade. Klik “Tambah Trade” untuk mencatat posisi pertama Anda."}
               </EmptyRow>
@@ -142,7 +148,7 @@ export default async function JournalPage({
                   <TR key={t.id}>
                     <TD className="tnum whitespace-nowrap text-xs">
                       <Link href={`/journal/${t.id}`} className="hover:text-primary">
-                        {fmtDateID(t.entryAt, "d MMM yyyy")}
+                        {dateFormatter.format(t.entryAt)}
                       </Link>
                     </TD>
                     <TD className="text-xs font-medium">{t.instrument.symbol}</TD>

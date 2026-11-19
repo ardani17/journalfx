@@ -25,7 +25,7 @@ export function calendarDate(at: Date, timezone = DEFAULT_TZ): Date {
   return new Date(Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute"), n("second")));
 }
 
-function calendarInstant(wall: Date, timezone: string): Date {
+export function calendarInstant(wall: Date, timezone: string): Date {
   let instant = wall;
   for (let i = 0; i < 3; i++) {
     const offset = calendarDate(instant, timezone).getTime() - Math.floor(instant.getTime() / 1000) * 1000;
