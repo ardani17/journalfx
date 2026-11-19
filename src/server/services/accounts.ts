@@ -35,10 +35,12 @@ export async function requireActiveAccount(userId: string, id: string, tx?: Pris
 
 export async function createAccount(userId: string, input: CreateAccountInput, req?: Request) {
   const project = await getDefaultProject(userId);
+  const currency = input.currency ?? "USD";
   const account = await prisma.tradingAccount.create({
     data: {
       userId,
       projectId: project.id,
+      currency,
       name: input.name,
       broker: input.broker || null,
       accountNumber: input.accountNumber || null,
@@ -48,6 +50,7 @@ export async function createAccount(userId: string, input: CreateAccountInput, r
           userId,
           type: "DEPOSIT",
           amount: input.initialDeposit,
+          currency,
           occurredAt: new Date(),
           note: "Deposit awal",
         } },
@@ -61,7 +64,7 @@ export async function createAccount(userId: string, input: CreateAccountInput, r
 export async function updateAccount(
   userId: string,
   id: string,
-  data: Partial<Omit<CreateAccountInput, "initialDeposit">> & { isActive?: boolean },
+  data: Partial<Omit<CreateAccountInput, "initialDeposit" | "currency">> & { isActive?: boolean },
   req?: Request,
 ) {
   const [account] = await prisma.tradingAccount.updateManyAndReturn({

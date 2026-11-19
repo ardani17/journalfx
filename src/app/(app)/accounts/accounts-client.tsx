@@ -5,7 +5,7 @@ import { useId, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/misc";
-import { Field, Input, Textarea } from "@/components/ui/field";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
 
 type EditableAccount = {
   id: string;
@@ -22,10 +22,12 @@ export function AccountsClient({ account }: { account?: EditableAccount }) {
   const [dialog, setDialog] = useState<"form" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [currency, setCurrency] = useState("USD");
   const endpoint = account ? `/api/accounts/${encodeURIComponent(account.id)}` : "/api/accounts";
 
   function openDialog(next: "form" | "delete") {
     setError(null);
+    setCurrency("USD");
     setDialog(next);
   }
 
@@ -59,7 +61,7 @@ export function AccountsClient({ account }: { account?: EditableAccount }) {
       broker: fd.get("broker"),
       accountNumber: fd.get("accountNumber"),
       notes: fd.get("notes"),
-      ...(!account && { initialDeposit: fd.get("initialDeposit") || undefined }),
+      ...(!account && { currency, initialDeposit: fd.get("initialDeposit") || undefined }),
     });
   }
 
@@ -98,9 +100,17 @@ export function AccountsClient({ account }: { account?: EditableAccount }) {
             </Field>
           </div>
           {!account && (
-            <Field label="Deposit Awal (USD)" htmlFor={`${formId}-deposit`} hint="Tercatat sebagai transaksi DEPOSIT di ledger">
-              <Input id={`${formId}-deposit`} name="initialDeposit" type="number" step="0.01" min="0" placeholder="0" />
-            </Field>
+            <>
+              <Field label="Mata Uang" htmlFor={`${formId}-currency`}>
+                <Select id={`${formId}-currency`} value={currency} onChange={(event) => setCurrency(event.target.value)}>
+                  <option value="USD">USD</option>
+                  <option value="USC">USC (US cent)</option>
+                </Select>
+              </Field>
+              <Field label={`Deposit Awal (${currency})`} htmlFor={`${formId}-deposit`} hint="Tercatat sebagai transaksi DEPOSIT di ledger">
+                <Input id={`${formId}-deposit`} name="initialDeposit" type="number" step="0.01" min="0" placeholder="0" />
+              </Field>
+            </>
           )}
           <Field label="Catatan" htmlFor={`${formId}-notes`}>
             <Textarea id={`${formId}-notes`} name="notes" rows={2} maxLength={500} defaultValue={account?.notes ?? ""} placeholder="Opsional" />

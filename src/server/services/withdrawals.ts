@@ -2,7 +2,7 @@ import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, tradingAmountToUsd, usdToTradingAmount } from "@/lib/money";
 import { monthlyToWeekly, needsCapForWindow, wdRecommendation } from "@/lib/finance/withdrawal";
 import { DEBT_PERIODS_PER_YEAR, debtSchedule, isRecurringDebt } from "@/lib/finance/debt";
 import { attributedLedger, computeBalance } from "./ledger";
@@ -95,8 +95,9 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
     if (previousWeek !== null && rowWeek !== previousWeek && previousWeek < weekStart.getTime()) {
       hwm = Decimal.max(hwm, cumulative);
     }
-    cumulative = cumulative.plus(D(row.amount));
-    if (row.occurredAt >= weekStart && row.occurredAt < weekEnd) periodProfit = periodProfit.plus(D(row.amount));
+    const amount = tradingAmountToUsd(row.amount, row.currency);
+    cumulative = cumulative.plus(amount);
+    if (row.occurredAt >= weekStart && row.occurredAt < weekEnd) periodProfit = periodProfit.plus(amount);
     previousWeek = rowWeek;
   }
   if (previousWeek !== null && previousWeek < weekStart.getTime()) hwm = Decimal.max(hwm, cumulative);
@@ -215,14 +216,14 @@ export async function requestWithdrawal(userId: string, amountUsd: number, note?
     const account = accountId ? accounts.find((a) => a.id === accountId) : accounts.length === 1 ? accounts[0] : null;
     if (!account) throw new ApiError(400, "Pilih akun sumber withdrawal yang aktif");
     const cash = await tx.accountTransaction.aggregate({ where: { userId, accountId: account.id }, _sum: { amount: true } });
-    if (D(cash._sum.amount).lt(amountUsd)) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
+    if (tradingAmountToUsd(cash._sum.amount, account.currency).lt(amountUsd)) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
     const w = await tx.withdrawal.create({
       data: {
         userId,
         projectId: project.id,
         accountId: account.id,
         status: "REQUESTED",
-        amountUSD: new Decimal(amountUsd),
+        amountUSD: D(amountUsd).toDecimalPlaces(2),
         note: note ?? null,
         requestedAt: new Date(),
       },
@@ -260,7 +261,7 @@ export async function completeWithdrawal(
       : accounts.length === 1 ? account : null;
     if (!source) throw new ApiError(400, "Akun sumber withdrawal harus ditentukan");
     const cash = await tx.accountTransaction.aggregate({ where: { userId, accountId: source.id }, _sum: { amount: true } });
-    if (D(cash._sum.amount).lt(D(current.amountUSD))) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
+    if (tradingAmountToUsd(cash._sum.amount, source.currency).lt(D(current.amountUSD))) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
     // historical FX snapshot (immutable once referenced)
     const at = new Date();
     await tx.exchangeRate.create({
@@ -285,7 +286,8 @@ export async function completeWithdrawal(
         userId,
         accountId: source.id,
         type: "WITHDRAWAL",
-        amount: D(w.amountUSD).neg(),
+        amount: usdToTradingAmount(w.amountUSD, source.currency).neg(),
+        currency: source.currency,
         occurredAt: at,
         note: `WD #${w.id.slice(-6)} — diterima ${input.receivedAmount} IDR @ ${input.fxRate}`,
         withdrawalId: w.id,

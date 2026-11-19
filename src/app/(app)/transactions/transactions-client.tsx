@@ -16,7 +16,7 @@ import {
   TransactionTableHeader,
   TR,
 } from "@/components/ui/table";
-import { fmtUSD } from "@/lib/money";
+import { D, fmtTradingMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 interface Row {
@@ -24,7 +24,8 @@ interface Row {
   accountId: string;
   accountName: string;
   type: string;
-  amount: number;
+  amount: string;
+  currency: string;
   occurredAt: string;
   note: string | null;
   mt5DealId: string | null;
@@ -47,7 +48,7 @@ export function TransactionsClient({
   activeType,
   activeAccountId,
 }: {
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; currency: string }[];
   rows: Row[];
   total: number;
   activeType: string;
@@ -59,6 +60,8 @@ export function TransactionsClient({
   const [reverseId, setReverseId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [accountId, setAccountId] = useState("");
+  const selectedAccount = accounts.find((account) => account.id === accountId) ?? accounts[0];
 
   async function create(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -183,11 +186,11 @@ export function TransactionsClient({
                   <TD
                     className={cn(
                       "tnum text-right font-semibold",
-                      r.amount >= 0 ? "text-primary" : "text-loss",
+                      D(r.amount).gte(0) ? "text-primary" : "text-loss",
                     )}
                   >
-                    {r.amount >= 0 ? "+" : ""}
-                    {fmtUSD(r.amount)}
+                    {D(r.amount).gte(0) ? "+" : ""}
+                    {fmtTradingMoney(r.amount, r.currency)}
                   </TD>
                   <TD className="max-w-64 truncate text-xs text-muted">
                     {r.mt5DealId ? "MT5 · " + (r.note ?? r.mt5DealId) : r.note ?? "—"}
@@ -215,9 +218,9 @@ export function TransactionsClient({
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="Catat Transaksi Manual">
         <form onSubmit={create} className="space-y-3">
           <Field label="Akun" htmlFor="tx-account">
-            <Select id="tx-account" name="accountId" required defaultValue={accounts[0]?.id ?? ""}>
+            <Select id="tx-account" name="accountId" required value={selectedAccount?.id ?? ""} onChange={(event) => setAccountId(event.target.value)}>
               {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
               ))}
             </Select>
           </Field>
@@ -229,7 +232,7 @@ export function TransactionsClient({
                 <option value="ADJUSTMENT">Adjustment</option>
               </Select>
             </Field>
-            <Field label="Jumlah (USD)" htmlFor="tx-amount">
+            <Field label={`Jumlah (${selectedAccount?.currency ?? "USD"})`} htmlFor="tx-amount">
               <Input id="tx-amount" name="amount" type="number" step="0.01" min={transactionType === "ADJUSTMENT" ? undefined : "0.01"} required />
             </Field>
           </div>

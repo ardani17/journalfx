@@ -2,7 +2,7 @@ import { Prisma, type Trade } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import {
   actualR,
   avgEntryPrice,
@@ -204,6 +204,7 @@ export async function listTrades(userId: string, filter: ListTradesFilter) {
       skip: filter.offset,
       include: {
         instrument: { select: { symbol: true, pricePrecision: true } },
+        account: { select: { currency: true } },
         strategy: { select: { name: true } },
         journal: { select: { tags: true, mistakes: true } },
       },
@@ -244,7 +245,7 @@ export async function recordTradeExecution(
 ) {
   const trade = await tx.trade.findFirst({
     where: { id: tradeId, userId },
-    include: { executions: true, instrument: true },
+    include: { executions: true, instrument: true, account: { select: { currency: true } } },
   });
   if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
   if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
@@ -255,7 +256,8 @@ export async function recordTradeExecution(
     if (dup) throw new ApiError(409, "Eksekusi dengan ID eksternal tersebut sudah ada");
   }
 
-  const spec = trade.instrument.contractSize === null ? null : { contractSize: trade.instrument.contractSize };
+  const currency = trade.account.currency;
+  const spec = trade.instrument.contractSize === null ? null : { contractSize: trade.instrument.contractSize, accountCurrency: currency };
   const isClose = input.kind === "CLOSE" || input.kind === "PARTIAL_CLOSE";
   const qty = D(input.quantity);
   const price = D(input.price);
@@ -310,6 +312,7 @@ export async function recordTradeExecution(
         accountId: trade.accountId,
         type: "REALIZED_PNL",
         amount: execution.realizedPnl,
+        currency,
         occurredAt: execution.executedAt,
         note: `${trade.instrument.symbol} ${trade.direction} ${input.kind === "CLOSE" ? "close" : "partial close"} ${qty}`,
         sourceTradeId: trade.id,
@@ -328,7 +331,9 @@ export async function recordTradeExecution(
     data: {
       status,
       realizedPnl: rollup.closedQty.isZero() ? null : rollup.realizedPnl,
-      actualR: rollup.closedQty.isZero() || !trade.initialRisk ? null : actualR(rollup.realizedPnl, D(trade.initialRisk)),
+      actualR: rollup.closedQty.isZero() || !trade.initialRisk
+        ? null
+        : actualR(tradingAmountToUsd(rollup.realizedPnl, currency), D(trade.initialRisk)),
       exitPrice: lastClose ? D(lastClose.price) : null,
       exitAt: lastClose?.executedAt ?? null,
       commission: executions.reduce((s, e) => s.add(D(e.commission)), new Decimal(0)),

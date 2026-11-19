@@ -9,6 +9,17 @@ export { Decimal };
 export const D = (v: Decimal.Value | null | undefined): Decimal =>
   v === null || v === undefined ? new Decimal(0) : new Decimal(v);
 
+export const TRADING_CURRENCIES = ["USD", "USC"] as const;
+export type TradingCurrency = typeof TRADING_CURRENCIES[number];
+
+export function tradingAmountToUsd(amount: Decimal.Value | null | undefined, currency: string) {
+  return currency === "USC" ? D(amount).div(100) : D(amount);
+}
+
+export function usdToTradingAmount(amount: Decimal.Value | null | undefined, currency: string) {
+  return currency === "USC" ? D(amount).times(100) : D(amount);
+}
+
 export function toNum(d: Decimal): number {
   return Number(d.toString());
 }
@@ -70,6 +81,16 @@ export function fmtUSDdelta(v: Decimal.Value | null | undefined): string {
   const d = D(v);
   if (d.isZero()) return fmtUSD(d);
   return `${d.isPositive() ? "+" : ""}${fmtUSD(d)}`;
+}
+
+export function fmtTradingMoney(value: Decimal.Value, currency: string): string {
+  const amount = D(value);
+  return currency === "USD" ? fmtUSD(amount) : `${usdFmt.format(amount.toString() as `${number}`)} ${currency}`;
+}
+
+export function fmtTradingDelta(value: Decimal.Value, currency: string): string {
+  const amount = D(value);
+  return `${amount.gt(0) ? "+" : ""}${fmtTradingMoney(amount, currency)}`;
 }
 
 /** Signed percent: +24,20% */

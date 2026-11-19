@@ -3,7 +3,7 @@ import { Prisma, type LedgerEntryType } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
-import { D, Decimal, fmtUSD0 } from "@/lib/money";
+import { D, Decimal, fmtUSD0, tradingAmountToUsd } from "@/lib/money";
 import { startOfUTCDay, zonedPeriod } from "@/lib/dates";
 import type { CreateTransactionInput } from "@/lib/validation/ledger";
 
@@ -109,6 +109,7 @@ export async function createManualTransaction(
       accountId: account.id,
       type: input.type,
       amount: signedAmount(input.type, amount),
+      currency: account.currency,
       occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date(),
       note: input.note || null,
     },
@@ -135,6 +136,7 @@ export async function reverseTransaction(userId: string, id: string, reason: str
         accountId: original.accountId,
         type: "REVERSAL",
         amount: original.amount.neg(),
+        currency: original.currency,
         occurredAt: new Date(),
         note: `Pembatalan: ${reason}`,
         reversalOfId: original.id,
@@ -161,7 +163,7 @@ export interface AccountBalance {
   balance: Decimal;
 }
 
-/** Aggregate ledger for one account (or all user accounts when accountId omitted). */
+/** Aggregate in the account currency, or in USD across all accounts. */
 export async function computeBalance(userId: string, accountId?: string, upTo?: Date): Promise<AccountBalance> {
   const rows = await prisma.accountTransaction.findMany({
     where: {
@@ -169,7 +171,7 @@ export async function computeBalance(userId: string, accountId?: string, upTo?: 
       ...(accountId ? { accountId } : {}),
       ...(upTo ? { occurredAt: { lt: upTo } } : {}),
     },
-    select: { type: true, amount: true, reversalOfId: true },
+    select: { type: true, amount: true, currency: true, reversalOfId: true },
   });
 
   // Reversals cancel their original's bucket contribution (net, not gross):
@@ -217,7 +219,7 @@ export async function computeBalance(userId: string, accountId?: string, upTo?: 
   };
 
   for (const r of rows) {
-    const amt = D(r.amount);
+    const amt = accountId ? D(r.amount) : tradingAmountToUsd(r.amount, r.currency);
     acc.balance = acc.balance.add(amt);
     if (r.type === "REVERSAL") {
       const originalType = r.reversalOfId ? typeById.get(r.reversalOfId) : undefined;
@@ -254,14 +256,15 @@ export async function balanceSeries(
         : {}),
     },
     orderBy: { occurredAt: "asc" },
-    select: { occurredAt: true, amount: true },
+    select: { occurredAt: true, amount: true, currency: true },
   });
   if (rows.length === 0) return [];
 
   const byDay = new Map<string, Decimal>();
   for (const r of rows) {
     const key = startOfUTCDay(r.occurredAt).toISOString().slice(0, 10);
-    byDay.set(key, (byDay.get(key) ?? new Decimal(0)).add(D(r.amount)));
+    const amount = accountId ? D(r.amount) : tradingAmountToUsd(r.amount, r.currency);
+    byDay.set(key, (byDay.get(key) ?? new Decimal(0)).add(amount));
   }
   const days = [...byDay.keys()].sort();
   let running = new Decimal(0);
@@ -287,7 +290,7 @@ export async function weeklySummary(userId: string, at = new Date()): Promise<We
     computeBalance(userId, undefined, start),
     prisma.accountTransaction.findMany({
       where: { userId, occurredAt: { gte: start, lt: end } },
-      select: { type: true, amount: true, sourceTradeId: true, reversalOfId: true },
+      select: { type: true, amount: true, currency: true, sourceTradeId: true, reversalOfId: true },
     }),
   ]);
 
@@ -326,13 +329,14 @@ export async function weeklySummary(userId: string, at = new Date()): Promise<We
   };
 
   for (const r of rows) {
+    const amount = tradingAmountToUsd(r.amount, r.currency);
     if (r.type === "REVERSAL") {
       const originalType = r.reversalOfId ? typeById.get(r.reversalOfId) : undefined;
-      if (originalType) bucket(originalType, D(r.amount)); // cancel original
+      if (originalType) bucket(originalType, amount); // cancel original
       continue;
     }
     if (r.type === "REALIZED_PNL" && r.sourceTradeId) tradeIds.add(r.sourceTradeId);
-    bucket(r.type, D(r.amount));
+    bucket(r.type, amount);
   }
   const base = opening.balance;
   const returnPct = base.isZero() ? null : realizedPnl.div(base).times(100);

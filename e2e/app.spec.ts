@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
 
 const prisma = new PrismaClient();
@@ -69,6 +70,63 @@ test("journal list + analytics + calendar + finance pages render", async ({ page
   for (const path of ["/journal", "/calendar", "/analytics", "/roadmap", "/simulator", "/risk", "/risk/calculator", "/withdrawals", "/expenses", "/debts", "/finance/cashflow", "/finance/allocation", "/reports", "/reviews/weekly", "/notifications", "/transactions", "/accounts", "/settings"]) {
     const res = await page.goto(path);
     expect(res?.status(), `page ${path}`).toBe(200);
+  }
+});
+
+test("trading accounts can be managed on desktop and mobile", async ({ page }) => {
+  await login(page);
+  await page.goto("/accounts");
+  const suffix = randomUUID().slice(0, 8);
+  const emptyName = `Akun kosong ${suffix}`;
+  const centName = `Akun cent ${suffix}`;
+  const editedName = `Akun cent baru ${suffix}`;
+  const card = (name: string) => page.getByRole("group", { name, exact: true });
+  try {
+    await page.getByRole("button", { name: "Tambah Akun", exact: true }).click();
+    const add = page.getByRole("dialog", { name: "Tambah Akun Trading" });
+    await expect(add.getByLabel("Mata Uang")).toHaveValue("USD");
+    await add.getByLabel("Nama Akun").fill(emptyName);
+    await add.getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card(emptyName)).toBeVisible();
+    await card(emptyName).getByRole("button", { name: "Hapus", exact: true }).click();
+    const remove = page.getByRole("dialog", { name: "Hapus Akun Trading" });
+    await expect(remove).toContainText(emptyName);
+    await remove.getByRole("button", { name: "Hapus Akun" }).click();
+    await expect(card(emptyName)).toHaveCount(0);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "Tambah Akun", exact: true }).click();
+    await add.getByLabel("Nama Akun").fill(centName);
+    await add.getByLabel("Mata Uang").selectOption("USC");
+    await add.getByLabel("Deposit Awal (USC)").fill("1250");
+    await add.getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card(centName).getByText("1.250,00 USC", { exact: true }).first()).toBeVisible();
+    await card(centName).getByRole("button", { name: "Edit", exact: true }).click();
+    const edit = page.getByRole("dialog", { name: "Edit Akun Trading" });
+    await expect(edit.getByLabel("Nama Akun")).toHaveValue(centName);
+    await edit.getByLabel("Nama Akun").fill(editedName);
+    await edit.getByLabel("Nomor Akun").fill("123456");
+    await edit.getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card(editedName)).toBeVisible();
+    await page.reload();
+    await expect(card(editedName)).toContainText("123456");
+    await card(editedName).getByRole("button", { name: "Nonaktifkan", exact: true }).click();
+    await expect(card(editedName).getByText("Nonaktif", { exact: true })).toBeVisible();
+
+    await page.goto("/journal");
+    await expect(page.getByLabel("Filter akun").getByRole("option", { name: editedName })).toHaveCount(1);
+    await page.getByRole("button", { name: "Impor", exact: true }).click();
+    const destination = page.getByLabel("Akun Tujuan");
+    await expect(destination.getByRole("option", { name: `${editedName} (USC)` })).toHaveCount(0);
+    await page.goto("/accounts");
+    await card(editedName).getByRole("button", { name: "Aktifkan Kembali" }).click();
+    await expect(card(editedName).getByText("Aktif", { exact: true })).toBeVisible();
+    await page.goto("/journal");
+    await page.getByRole("button", { name: "Impor", exact: true }).click();
+    await expect(destination.getByRole("option", { name: `${editedName} (USC)` })).toHaveCount(1);
+  } finally {
+    const demo = await prisma.user.findUniqueOrThrow({ where: { googleSubject: "horizon-journal-demo" } });
+    await prisma.tradingAccount.deleteMany({ where: { userId: demo.id, name: { in: [emptyName, centName, editedName] } } });
   }
 });
 

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
+import { tradingAmountToUsd } from "@/lib/money";
 import { parseMt5Report } from "@/server/mt5-report";
 import { requireActiveAccount } from "./accounts";
 import { createTradeEntry, findInstrumentBySymbol, lockTradeWrites, recordTradeExecution } from "./trades";
@@ -27,9 +28,10 @@ export async function importStatement(
   req?: Request,
 ): Promise<ImportReport> {
   const account = await requireActiveAccount(userId, accountId);
-  if (account.currency !== "USD") throw new ApiError(400, "Pilih akun tujuan dengan mata uang USD");
-
-  const { positions, cashflows, fees, errors } = await parseMt5Report(bytes);
+  const { currency, positions, cashflows, fees, errors } = await parseMt5Report(bytes);
+  if (currency !== account.currency) {
+    throw new ApiError(400, `Mata uang laporan MT5 (${currency}) berbeda dengan akun tujuan (${account.currency}).`);
+  }
   const report: ImportReport = {
     imported: 0, duplicates: 0, reconciled: 0, depositsImported: 0, withdrawalsImported: 0, cashflowDuplicates: 0,
     feesImported: 0, feeDuplicates: 0,
@@ -151,7 +153,7 @@ export async function importStatement(
       const withdrawal = row.type === "WITHDRAWAL" ? await tx.withdrawal.create({
         data: {
           userId, projectId: account.projectId, accountId, status: "COMPLETED",
-          amountUSD: row.amount.abs(), completedAt: row.occurredAt, note: row.comment,
+          amountUSD: tradingAmountToUsd(row.amount.abs(), currency), completedAt: row.occurredAt, note: row.comment,
         },
         select: { id: true },
       }) : null;

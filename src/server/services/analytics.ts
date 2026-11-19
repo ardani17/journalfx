@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db";
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import { attributedLedger } from "./ledger";
 import { calendarDate, startOfUTCDay, addUTCDays } from "@/lib/dates";
 import { userTimezone } from "./time";
@@ -51,7 +51,7 @@ export async function coreMetrics(
         : {}),
     },
     orderBy: { exitAt: "asc" },
-    select: { status: true, realizedPnl: true, actualR: true, entryAt: true, exitAt: true },
+    select: { status: true, realizedPnl: true, actualR: true, entryAt: true, exitAt: true, account: { select: { currency: true } } },
   });
 
   const closed = trades.filter((t) => t.status === "CLOSED" && t.realizedPnl !== null);
@@ -62,8 +62,8 @@ export async function coreMetrics(
   let grossLoss = new Decimal(0);
   let rSum = new Decimal(0);
   let rCount = 0;
-  let best = new Decimal(0);
-  let worst = new Decimal(0);
+  let best: Decimal | null = null;
+  let worst: Decimal | null = null;
   let holdMs = 0;
   let holdCount = 0;
   let curWin = 0;
@@ -72,7 +72,7 @@ export async function coreMetrics(
   let maxLoss = 0;
 
   for (const t of closed) {
-    const pnl = D(t.realizedPnl);
+    const pnl = filter?.accountId ? D(t.realizedPnl) : tradingAmountToUsd(t.realizedPnl, t.account.currency);
     if (pnl.gt(0)) {
       wins++;
       grossWin = grossWin.add(pnl);
@@ -90,8 +90,8 @@ export async function coreMetrics(
       curWin = 0;
       curLoss = 0;
     }
-    best = Decimal.max(best, pnl);
-    worst = Decimal.min(worst, pnl);
+    best = best === null ? pnl : Decimal.max(best, pnl);
+    worst = worst === null ? pnl : Decimal.min(worst, pnl);
     if (t.actualR !== null) {
       rSum = rSum.add(D(t.actualR));
       rCount++;
@@ -107,7 +107,7 @@ export async function coreMetrics(
     (r.type === "REALIZED_PNL" || r.type === "FEE") &&
     (!filter?.accountId || r.accountId === filter.accountId) &&
     (!filter?.from || r.occurredAt >= filter.from) && (!filter?.to || r.occurredAt < filter.to));
-  const netPnl = periodLedger.reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  const netPnl = periodLedger.reduce((sum, r) => sum.plus(filter?.accountId ? D(r.amount) : tradingAmountToUsd(r.amount, r.currency)), D(0));
   return {
     totalTrades: n,
     closedTrades: n,
@@ -123,8 +123,8 @@ export async function coreMetrics(
     avgLoss: losses > 0 ? grossLoss.div(losses) : null,
     expectancy: n > 0 ? netPnl.div(n) : null,
     avgR: rCount > 0 ? Number(rSum.div(rCount).toFixed(2)) : null,
-    bestTrade: n ? Decimal.max(...closed.map((t) => D(t.realizedPnl))) : best,
-    worstTrade: n ? Decimal.min(...closed.map((t) => D(t.realizedPnl))) : worst,
+    bestTrade: best ?? D(0),
+    worstTrade: worst ?? D(0),
     maxWinStreak: maxWin,
     maxLossStreak: maxLoss,
     avgHoldMinutes: holdCount > 0 ? Math.round(holdMs / holdCount / 60000) : null,
@@ -143,7 +143,7 @@ export interface StrategyBreakdown {
 export async function byStrategy(userId: string): Promise<StrategyBreakdown[]> {
   const trades = await prisma.trade.findMany({
     where: { userId, status: { in: ["CLOSED", "PARTIAL"] }, realizedPnl: { not: null } },
-    include: { strategy: { select: { id: true, name: true } } },
+    include: { strategy: { select: { id: true, name: true } }, account: { select: { currency: true } } },
   });
   const map = new Map<string, StrategyBreakdown>();
   for (const t of trades) {
@@ -152,7 +152,7 @@ export async function byStrategy(userId: string): Promise<StrategyBreakdown[]> {
       map.get(key) ??
       ({ strategyId: t.strategy?.id ?? null, name: t.strategy?.name ?? "Tanpa Strategi", trades: 0, netPnl: new Decimal(0), winRate: null } as StrategyBreakdown);
     entry.trades++;
-    entry.netPnl = entry.netPnl.add(D(t.realizedPnl));
+    entry.netPnl = entry.netPnl.add(tradingAmountToUsd(t.realizedPnl, t.account.currency));
     map.set(key, entry);
   }
   const rows = [...map.values()];
@@ -186,7 +186,7 @@ export async function dailyPnl(
   for (const row of ledger) {
     const key = calendarDate(row.occurredAt, timezone).toISOString().slice(0, 10);
     const cur = map.get(key) ?? { pnl: D(0), ids: new Set<string>() };
-    cur.pnl = cur.pnl.plus(D(row.amount));
+    cur.pnl = cur.pnl.plus(accountId ? D(row.amount) : tradingAmountToUsd(row.amount, row.currency));
     if (row.sourceTradeId) cur.ids.add(row.sourceTradeId);
     map.set(key, cur);
   }

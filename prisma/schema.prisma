@@ -422,7 +422,7 @@ model Withdrawal {
   accountId     String?
   account       TradingAccount?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
   status        WithdrawalStatus @default(RECOMMENDED)
-  amountUSD     Decimal          @db.Decimal(18, 2)
+  amountUSD     Decimal          @db.Decimal(20, 4)
   fxRate        Decimal?         @db.Decimal(18, 4) // USDIDR at completion
   rateAt        DateTime?        // historical snapshot time
   receivedAmount Decimal?        @db.Decimal(18, 2) // actual received in IDR

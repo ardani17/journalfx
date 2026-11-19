@@ -30,7 +30,7 @@ export default async function SettingsPage() {
         }}
       />
       <Mt5SyncSection
-        accounts={accounts.filter((a) => a.isActive).map((a) => ({ id: a.id, name: a.name }))}
+        accounts={accounts.filter((a) => a.isActive).map(({ id, name, currency }) => ({ id, name, currency }))}
         status={{
           lastSyncAt: syncStatus.lastSyncAt?.toISOString() ?? null,
           lastSyncResult: syncStatus.lastSyncResult,

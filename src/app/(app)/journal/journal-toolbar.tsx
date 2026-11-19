@@ -12,7 +12,7 @@ import type { ImportReport } from "@/server/services/imports";
 import { getJournalPageSize, journalHref, JOURNAL_PAGE_SIZES, type JournalFilters, type JournalPageSize } from "./journal-query";
 
 interface Props {
-  accounts: { id: string; name: string; isActive: boolean }[];
+  accounts: { id: string; name: string; currency: string; isActive: boolean }[];
   strategies: { id: string; name: string }[];
   active: JournalFilters;
   pageSize: JournalPageSize;
@@ -149,7 +149,7 @@ export function JournalToolbar({ accounts, strategies, active, pageSize }: Props
             <Select id="imp-account" name="accountId" required defaultValue={importAccounts[0]?.id ?? ""}>
               {importAccounts.length === 0 && <option value="">Belum ada akun trading aktif</option>}
               {importAccounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
               ))}
             </Select>
           </Field>

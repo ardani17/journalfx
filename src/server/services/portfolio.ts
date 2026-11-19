@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db";
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import { computeBalance } from "./ledger";
 import { monteCarlo } from "@/lib/finance/montecarlo";
 
@@ -8,6 +8,7 @@ export interface AccountRow {
   id: string;
   name: string;
   broker: string | null;
+  currency: string;
   isProp: boolean;
   balance: Decimal;
   realizedPnl: Decimal;
@@ -41,16 +42,18 @@ export async function portfolioOverview(userId: string): Promise<AccountRow[]> {
       const targetPct = a.propTargetPct ? D(a.propTargetPct) : null;
       const dailyPct = a.propMaxDailyLossPct ? D(a.propMaxDailyLossPct) : null;
       const ddPct = a.propMaxTotalDdPct ? D(a.propMaxTotalDdPct) : null;
-      const targetUsd = targetPct ? initial.times(targetPct).div(100) : null;
+      const targetUsd = targetPct ? tradingAmountToUsd(initial, a.currency).times(targetPct).div(100) : null;
       const progressPct = targetUsd && !targetUsd.isZero()
-        ? bal.realizedPnl.div(targetUsd).times(100)
+        ? tradingAmountToUsd(bal.realizedPnl, a.currency).div(targetUsd).times(100)
         : null;
-      const maxDailyUsd = dailyPct ? bal.balance.times(dailyPct).div(100) : null;
-      const maxDdUsd = ddPct ? bal.balance.times(ddPct).div(100) : null;
+      const balanceUsd = tradingAmountToUsd(bal.balance, a.currency);
+      const maxDailyUsd = dailyPct ? balanceUsd.times(dailyPct).div(100) : null;
+      const maxDdUsd = ddPct ? balanceUsd.times(ddPct).div(100) : null;
       return {
         id: a.id,
         name: a.name,
         broker: a.broker,
+        currency: a.currency,
         isProp: true,
         balance: bal.balance,
         realizedPnl: bal.realizedPnl,
@@ -70,6 +73,7 @@ export async function portfolioOverview(userId: string): Promise<AccountRow[]> {
       id: a.id,
       name: a.name,
       broker: a.broker,
+      currency: a.currency,
       isProp: false,
       balance: bal.balance,
       realizedPnl: bal.realizedPnl,
@@ -88,7 +92,7 @@ export async function runMonteCarlo(
   const [trades, balances, settings] = await Promise.all([
     prisma.trade.findMany({
       where: { userId, status: "CLOSED", OR: [{ actualR: { not: null } }, { initialRisk: { gt: 0 }, realizedPnl: { not: null } }] },
-      select: { actualR: true, initialRisk: true, realizedPnl: true },
+      select: { actualR: true, initialRisk: true, realizedPnl: true, account: { select: { currency: true } } },
     }),
     computeBalance(userId),
     prisma.riskSettings.findUnique({ where: { userId } }),
@@ -98,7 +102,7 @@ export async function runMonteCarlo(
   for (const t of trades) {
     if (t.actualR !== null) historicalR.push(Number(t.actualR));
     else if (t.initialRisk && Number(t.initialRisk) !== 0 && t.realizedPnl !== null) {
-      historicalR.push(Number(t.realizedPnl) / Number(t.initialRisk));
+      historicalR.push(tradingAmountToUsd(t.realizedPnl, t.account.currency).div(D(t.initialRisk)).toNumber());
     }
   }
   return monteCarlo({
