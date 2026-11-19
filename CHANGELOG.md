@@ -1,15 +1,24 @@
 # Changelog
 
-All notable changes to MDTP are documented here. Versions follow the mandatory sequential release
-policy (see `RELEASES.md`): exactly one patch or minor increment at a time, no skipped tags.
+All notable changes to Horizon Journal are documented here. GitHub releases follow the existing
+tag history. Starting at `v1.4.0`, each new release increments the patch by one. See the
+[release workflow](RELEASES.md) and [GitHub releases](https://github.com/ardani17/journalfx/releases).
 
 Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `vX.Y.Z` in git.
 
 ## [Unreleased]
 
-### Planned (sequential, no skipping)
+### Added
 
-_(roadmap lengkap — v0.0.0 hingga v1.4.0 — telah dirilis)_
+- Google sign-in with a private journal for each account and automatic provisioning for new users.
+- Bank Indonesia JISDOR exchange rates for withdrawal planning and USD-to-IDR financial summaries.
+- MT5 Trade History XLSX import for positions, deposits, and withdrawals with per-account
+  deduplication. Imported withdrawals also appear in the Withdrawal Plan.
+
+### Changed
+
+- The app is now called Horizon Journal.
+- The journal and MT5 Sync share the same XLSX importer. Trade CSV import and export were removed.
 
 ## [1.4.0] — 2026-11-16
 
