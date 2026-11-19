@@ -42,7 +42,8 @@ read -rp "Type RESTORE to import into this empty target: " confirm
 
 echo "[restore] Applying db.dump..."
 "${compose[@]}" exec -T postgres sh -ec '
-  exec pg_restore --single-transaction --exit-on-error --no-owner --no-privileges     -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+  exec pg_restore --single-transaction --exit-on-error --no-owner --no-privileges \
+    -U "$POSTGRES_USER" -d "$POSTGRES_DB"
 ' < "$SRC/db.dump"
 
 echo "[restore] Extracting uploads..."

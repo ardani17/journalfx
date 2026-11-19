@@ -11,8 +11,9 @@ mkdir -p backups
 mkdir -- "$DEST"
 
 echo "[backup] dumping database..."
-docker compose -f "$COMPOSE_FILE" exec -T postgres \
-  pg_dump -U "${POSTGRES_USER:-mdtp}" -Fc "${POSTGRES_DB:-mdtp}" > "$DEST/db.dump"
+docker compose -f "$COMPOSE_FILE" exec -T postgres sh -ec '
+  exec pg_dump -U "$POSTGRES_USER" -Fc "$POSTGRES_DB"
+' > "$DEST/db.dump"
 
 echo "[backup] archiving uploads..."
 if docker compose -f "$COMPOSE_FILE" ps -q app >/dev/null 2>&1 && [ -n "$(docker compose -f "$COMPOSE_FILE" ps -q app)" ]; then
