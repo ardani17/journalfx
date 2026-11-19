@@ -8,11 +8,12 @@ import { attributedLedger, computeBalance } from "./ledger";
 import { zonedPeriod } from "@/lib/dates";
 
 export async function getRiskSettings(userId: string) {
-  let settings = await prisma.riskSettings.findUnique({ where: { userId } });
-  if (!settings) {
-    settings = await prisma.riskSettings.create({ data: { userId } });
-  }
-  return settings;
+  const settings = await prisma.riskSettings.findUnique({ where: { userId } });
+  return settings ?? prisma.riskSettings.upsert({
+    where: { userId },
+    create: { userId },
+    update: { userId },
+  });
 }
 
 export async function updateRiskSettings(
@@ -62,22 +63,20 @@ export interface RiskStatus {
 
 /** Live risk usage vs configured (illustrative) limits — warning only, never blocking. */
 export async function riskStatus(userId: string): Promise<RiskStatus> {
-  const settings = await getRiskSettings(userId);
-  const balances = await computeBalance(userId);
-  const balance = balances.balance;
-  const equity = balance; // unrealized arrives with open trades pricing (v0.5 market data)
-
   const now = new Date();
-  const timezone = await userTimezone(userId);
-  const { start: dayStart } = zonedPeriod("DAILY", now, timezone);
-  const { start: weekStart } = zonedPeriod("WEEKLY", now, timezone);
-
-  const [openTrades, ledger] = await Promise.all([
+  const [settings, balances, timezone, openTrades, ledger] = await Promise.all([
+    getRiskSettings(userId),
+    computeBalance(userId),
+    userTimezone(userId),
     prisma.trade.findMany({
       where: { userId, status: { in: ["OPEN", "PARTIAL"] } }, select: { initialRisk: true },
     }),
     attributedLedger(userId),
   ]);
+  const balance = balances.balance;
+  const equity = balance; // unrealized arrives with open trades pricing (v0.5 market data)
+  const { start: dayStart } = zonedPeriod("DAILY", now, timezone);
+  const { start: weekStart } = zonedPeriod("WEEKLY", now, timezone);
   const openRisk = openTrades.reduce((sum, t) => sum.plus(D(t.initialRisk)), D(0));
   const realized = ledger.filter((r) => (r.type === "REALIZED_PNL" || r.type === "FEE") && r.occurredAt <= now);
   const dayPnl = realized.filter((r) => r.occurredAt >= dayStart).reduce((sum, r) => sum.plus(D(r.amount)), D(0));

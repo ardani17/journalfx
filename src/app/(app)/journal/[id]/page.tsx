@@ -4,10 +4,9 @@ import { getTrade } from "@/server/services/trades";
 import { ApiError } from "@/lib/api";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
-import { TradeDetail } from "./trade-detail";
+import { TradeDetail, type TradeDTO } from "./trade-detail";
 import { fmtDateID } from "@/lib/dates";
-import { fmtNum, fmtUSD } from "@/lib/money";
-import { D } from "@/lib/money";
+import { D, fmtDecimal, fmtUSD } from "@/lib/money";
 
 export const metadata = { title: "Detail Trade" };
 
@@ -26,86 +25,103 @@ export default async function TradeDetailPage({ params }: { params: Promise<{ id
   return (
     <PageShell>
       <PageHeader
-        title={`${t.instrument.symbol} · ${t.direction === "LONG" ? "Buy" : "Sell"} ${fmtNum(D(t.lot), 2)}`}
+        title={`${t.instrument.symbol} · ${t.direction === "LONG" ? "Buy" : "Sell"} ${fmtDecimal(t.lot)}`}
         subtitle={`${fmtDateID(t.entryAt, "d MMM yyyy, HH:mm")} · ${t.account.name}${t.ticket ? ` · #${t.ticket}` : ""}`}
         actions={
           <div className="flex items-center gap-2">
-            <Badge tone={t.status === "CLOSED" ? "success" : t.status === "OPEN" ? "info" : t.status === "PARTIAL" ? "warn" : "neutral"}>
-              {t.status}
-            </Badge>
-            {t.realizedPnl !== null ? (
-              <Badge tone={D(t.realizedPnl).isPositive() ? "success" : "danger"}>
-                {fmtUSD(D(t.realizedPnl))}
-              </Badge>
-            ) : null}
+            <Badge tone={tradeStatusTone[t.status]}>{t.status}</Badge>
+            <RealizedPnlBadge value={t.realizedPnl} />
           </div>
         }
       />
-      <TradeDetail
-        trade={{
-          id: t.id,
-          status: t.status,
-          direction: t.direction,
-          symbol: t.instrument.symbol,
-          pricePrecision: t.instrument.pricePrecision,
-          lot: Number(t.lot),
-          entryPrice: Number(t.entryPrice),
-          exitPrice: t.exitPrice ? Number(t.exitPrice) : null,
-          initialStopLoss: t.initialStopLoss ? Number(t.initialStopLoss) : null,
-          initialTakeProfit: t.initialTakeProfit ? Number(t.initialTakeProfit) : null,
-          initialRisk: t.initialRisk ? Number(t.initialRisk) : null,
-          plannedRR: t.plannedRR ? Number(t.plannedRR) : null,
-          actualR: t.actualR ? Number(t.actualR) : null,
-          realizedPnl: t.realizedPnl ? Number(t.realizedPnl) : null,
-          commission: Number(t.commission),
-          swap: Number(t.swap),
-          fees: Number(t.fees),
-          session: t.session,
-          timeframe: t.timeframe,
-          strategy: t.strategy?.name ?? null,
-          entryAt: t.entryAt.toISOString(),
-          exitAt: t.exitAt?.toISOString() ?? null,
-          executions: t.executions.map((e) => ({
-            id: e.id,
-            kind: e.kind,
-            quantity: Number(e.quantity),
-            price: Number(e.price),
-            commission: Number(e.commission),
-            swap: Number(e.swap),
-            fees: Number(e.fees),
-            realizedPnl: e.realizedPnl ? Number(e.realizedPnl) : null,
-            executedAt: e.executedAt.toISOString(),
-          })),
-          journal: t.journal
-            ? {
-                marketContext: t.journal.marketContext,
-                entryReason: t.journal.entryReason,
-                exitReason: t.journal.exitReason,
-                emotionBefore: t.journal.emotionBefore,
-                emotionDuring: t.journal.emotionDuring,
-                emotionAfter: t.journal.emotionAfter,
-                confidence: t.journal.confidence,
-                stressLevel: t.journal.stressLevel,
-                fomo: t.journal.fomo,
-                revenge: t.journal.revenge,
-                overtrading: t.journal.overtrading,
-                compliant: t.journal.compliant,
-                mistakes: t.journal.mistakes,
-                lessons: t.journal.lessons,
-                improvement: t.journal.improvement,
-                tags: t.journal.tags,
-                preChecklist: (t.journal.preChecklist ?? null) as Record<string, boolean> | null,
-                postChecklist: (t.journal.postChecklist ?? null) as Record<string, boolean> | null,
-              }
-            : null,
-          attachments: t.attachments.map((a) => ({
-            id: a.id,
-            kind: a.kind,
-            fileName: a.fileName,
-            createdAt: a.createdAt.toISOString(),
-          })),
-        }}
-      />
+      <TradeDetail trade={serializeTrade(t)} />
     </PageShell>
   );
+}
+
+type SavedTrade = Awaited<ReturnType<typeof getTrade>>;
+
+const tradeStatusTone = {
+  CLOSED: "success", OPEN: "info", PARTIAL: "warn", PLANNED: "neutral", CANCELLED: "neutral",
+} as const;
+
+function RealizedPnlBadge({ value }: { value: SavedTrade["realizedPnl"] }) {
+  if (value === null) return null;
+  const pnl = D(value);
+  return <Badge tone={pnl.gt(0) ? "success" : pnl.lt(0) ? "danger" : "neutral"}>{fmtUSD(pnl)}</Badge>;
+}
+
+function decimalNumber(value: SavedTrade["realizedPnl"]) {
+  return value === null ? null : Number(value);
+}
+
+function serializeTrade(t: SavedTrade): TradeDTO {
+  return {
+    id: t.id,
+    status: t.status,
+    direction: t.direction,
+    symbol: t.instrument.symbol,
+    pricePrecision: t.instrument.pricePrecision,
+    requiresReportedPnl: t.instrument.contractSize === null,
+    lot: t.lot.toString(),
+    entryPrice: t.entryPrice.toString(),
+    exitPrice: t.exitPrice?.toString() ?? null,
+    initialStopLoss: t.initialStopLoss?.toString() ?? null,
+    initialTakeProfit: t.initialTakeProfit?.toString() ?? null,
+    initialRisk: decimalNumber(t.initialRisk),
+    plannedRR: decimalNumber(t.plannedRR),
+    actualR: decimalNumber(t.actualR),
+    realizedPnl: decimalNumber(t.realizedPnl),
+    commission: Number(t.commission),
+    swap: Number(t.swap),
+    fees: Number(t.fees),
+    session: t.session,
+    timeframe: t.timeframe,
+    strategy: t.strategy?.name ?? null,
+    entryAt: t.entryAt.toISOString(),
+    exitAt: t.exitAt?.toISOString() ?? null,
+    executions: t.executions.map((e) => ({
+      id: e.id,
+      kind: e.kind,
+      quantity: e.quantity.toString(),
+      price: e.price.toString(),
+      commission: Number(e.commission),
+      swap: Number(e.swap),
+      fees: Number(e.fees),
+      realizedPnl: decimalNumber(e.realizedPnl),
+      executedAt: e.executedAt.toISOString(),
+    })),
+    journal: serializeJournal(t.journal),
+    attachments: t.attachments.map((a) => ({
+      id: a.id,
+      kind: a.kind,
+      fileName: a.fileName,
+      createdAt: a.createdAt.toISOString(),
+    })),
+  };
+}
+
+function serializeJournal(journal: SavedTrade["journal"]): TradeDTO["journal"] {
+  if (!journal) return null;
+  return {
+    marketContext: journal.marketContext,
+    entryReason: journal.entryReason,
+    exitReason: journal.exitReason,
+    emotionBefore: journal.emotionBefore,
+    emotionDuring: journal.emotionDuring,
+    emotionAfter: journal.emotionAfter,
+    confidence: journal.confidence,
+    stressLevel: journal.stressLevel,
+    fomo: journal.fomo,
+    revenge: journal.revenge,
+    overtrading: journal.overtrading,
+    compliant: journal.compliant,
+    mistakes: journal.mistakes,
+    lessons: journal.lessons,
+    improvement: journal.improvement,
+    tags: journal.tags,
+    preChecklist: (journal.preChecklist ?? null) as Record<string, boolean> | null,
+    postChecklist: (journal.postChecklist ?? null) as Record<string, boolean> | null,
+
+  };
 }

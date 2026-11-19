@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/server/auth";
 import { listTrades } from "@/server/services/trades";
 import { coreMetrics } from "@/server/services/analytics";
@@ -18,32 +19,53 @@ import {
   TR,
 } from "@/components/ui/table";
 import { JournalToolbar } from "./journal-toolbar";
-import { D, fmtNum, fmtUSDdelta } from "@/lib/money";
+import { getJournalPageSize, journalHref } from "./journal-query";
+import { D, fmtDecimal, fmtNum, fmtUSDdelta } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
+import { listTradesQuery } from "@/lib/validation/trades";
 import { BarChart3, BookOpen, Percent, TrendingUp } from "lucide-react";
 
 export const metadata = { title: "Jurnal Trading" };
 
+function PageLink({ href, children }: { href?: string; children: string }) {
+  const className = "inline-flex h-10 items-center rounded-lg border border-line bg-panel px-3 text-xs text-ink";
+
+  return href ? (
+    <Link href={href} className={`${className} hover:bg-panel-2 focus-visible:outline-2 focus-visible:outline-primary`}>
+      {children}
+    </Link>
+  ) : (
+    <button type="button" disabled className={`${className} opacity-50`}>{children}</button>
+  );
+}
+
 export default async function JournalPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; result?: string; strategyId?: string; accountId?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await requireUser();
   const sp = await searchParams;
+  const filters = {
+    status: listTradesQuery.shape.status.safeParse(sp.status).data,
+    result: listTradesQuery.shape.result.safeParse(sp.result).data,
+    strategyId: typeof sp.strategyId === "string" ? sp.strategyId : undefined,
+    accountId: typeof sp.accountId === "string" ? sp.accountId : undefined,
+    sort: listTradesQuery.shape.sort.safeParse(sp.sort).data,
+  };
+  const pageSize = getJournalPageSize(sp.pageSize);
+  const requestedPage = typeof sp.page === "string" && /^[1-9]\d*$/.test(sp.page) ? Number(sp.page) : 1;
+  const page = Number.isSafeInteger((requestedPage - 1) * pageSize) ? requestedPage : 1;
+  const offset = (page - 1) * pageSize;
   const [{ items, total }, metrics, accounts, strategies] = await Promise.all([
-    listTrades(user.id, {
-      ...(sp.status ? { status: sp.status } : {}),
-      ...(sp.result ? { result: sp.result as "win" | "loss" | "be" } : {}),
-      ...(sp.strategyId ? { strategyId: sp.strategyId } : {}),
-      ...(sp.accountId ? { accountId: sp.accountId } : {}),
-      limit: 50,
-      offset: 0,
-    }),
-    coreMetrics(user.id, sp.accountId ? { accountId: sp.accountId } : undefined),
+    listTrades(user.id, { ...filters, limit: pageSize, offset }),
+    coreMetrics(user.id, filters.accountId ? { accountId: filters.accountId } : undefined),
     listAccounts(user.id),
     listStrategies(user.id),
   ]);
+  if (page > 1 && offset >= total) redirect(journalHref(filters, 1, pageSize));
+
+  const range = items.length ? `${fmtNum(offset + 1, 0)}–${fmtNum(offset + items.length, 0)}` : "0";
 
   return (
     <PageShell>
@@ -55,7 +77,8 @@ export default async function JournalPage({
       <JournalToolbar
         accounts={accounts.map((a) => ({ id: a.id, name: a.name }))}
         strategies={strategies.map((s) => ({ id: s.id, name: s.name }))}
-        active={sp}
+        active={filters}
+        pageSize={pageSize}
       />
 
       {/* KPI strip */}
@@ -92,7 +115,7 @@ export default async function JournalPage({
         <Table>
           <THead>
             <TR>
-              <TH>Tanggal</TH>
+              <TH aria-sort={filters.sort === "asc" ? "ascending" : "descending"}>Tanggal</TH>
               <TH>Pair</TH>
               <TH>Arah</TH>
               <TH className="text-right">Lot</TH>
@@ -107,7 +130,9 @@ export default async function JournalPage({
           <TBody>
             {items.length === 0 ? (
               <EmptyRow colSpan={10}>
-                Belum ada trade. Klik “Tambah Trade” untuk mencatat posisi pertama Anda.
+                {Object.values(filters).some(Boolean)
+                  ? "Tidak ada trade yang cocok dengan filter."
+                  : "Belum ada trade. Klik “Tambah Trade” untuk mencatat posisi pertama Anda."}
               </EmptyRow>
             ) : (
               items.map((t) => {
@@ -125,11 +150,11 @@ export default async function JournalPage({
                         {t.direction === "LONG" ? "Buy" : "Sell"}
                       </Badge>
                     </TD>
-                    <TD className="tnum text-right text-xs">{fmtNum(D(t.lot), 2)}</TD>
-                    <TD className="tnum text-right text-xs">{fmtNum(D(t.entryPrice), t.instrument.pricePrecision)}</TD>
+                    <TD className="tnum text-right text-xs">{fmtDecimal(t.lot)}</TD>
+                    <TD className="tnum text-right text-xs">{fmtDecimal(t.entryPrice, t.instrument.pricePrecision)}</TD>
                     <TD className="tnum text-right text-xs">
                       {t.exitPrice ? (
-                        fmtNum(D(t.exitPrice), t.instrument.pricePrecision)
+                        fmtDecimal(t.exitPrice, t.instrument.pricePrecision)
                       ) : (
                         <Badge tone={t.status === "OPEN" ? "info" : "neutral"}>{t.status}</Badge>
                       )}
@@ -161,7 +186,19 @@ export default async function JournalPage({
           </TBody>
         </Table>
       </TableWrap>
-      <p className="tnum text-xs text-faint">{total} trade total</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="tnum text-xs text-muted" aria-live="polite">
+          Menampilkan {range} dari {fmtNum(total, 0)} trade
+        </p>
+        <nav aria-label="Paginasi jurnal" className="flex flex-wrap gap-2">
+          <PageLink href={page > 1 ? journalHref(filters, page - 1, pageSize) : undefined}>
+            Sebelumnya
+          </PageLink>
+          <PageLink href={offset + pageSize < total ? journalHref(filters, page + 1, pageSize) : undefined}>
+            Berikutnya
+          </PageLink>
+        </nav>
+      </div>
     </PageShell>
   );
 }

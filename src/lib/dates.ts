@@ -90,4 +90,10 @@ export function fmtDateID(d: Date | string | null | undefined, pattern = "d MMM 
   );
 }
 
+const calendarDateFormatterID = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeZone: "UTC" });
+
+export function fmtCalendarDateID(date: string): string {
+  return calendarDateFormatterID.format(new Date(date));
+}
+
 export { addDays, subDays, differenceInCalendarDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, format };

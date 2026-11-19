@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
 import { D, Decimal } from "@/lib/money";
 import { monthlyToWeekly, needsCapForWindow, wdRecommendation } from "@/lib/finance/withdrawal";
+import { DEBT_PERIODS_PER_YEAR, debtSchedule, isRecurringDebt } from "@/lib/finance/debt";
 import { attributedLedger, computeBalance } from "./ledger";
 import { effectiveFinancialTransactions } from "./finance";
 import { zonedPeriod } from "@/lib/dates";
@@ -124,13 +125,23 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
     .reduce((sum, r) => sum.plus(D(r.amount)), D(0));
   const debtFunds = personal.filter((r) => r.kind === "ALLOCATION" && r.bucketId && debtIds.has(r.bucketId))
     .reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  const paymentsByDebt = new Map<string, Decimal>();
+  for (const entry of personal) {
+    if (entry.kind !== "EXPENSE" || !entry.debtId) continue;
+    paymentsByDebt.set(entry.debtId, (paymentsByDebt.get(entry.debtId) ?? D(0)).plus(entry.amount));
+  }
   const debts = await prisma.debt.findMany({ where: { userId, status: "ACTIVE" } });
-  const debtDue = debts.reduce((sum, d) => sum.plus(
-    d.installmentAmount ? D(d.installmentAmount).times(d.installmentFreq === "weekly" ? D(52).div(12) : 1) : 0), D(0));
-  const paidDebt = personal.filter((r) => r.kind === "EXPENSE" && r.debtId)
-    .reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  let debtDue = D(0);
+  let coveredByPayments = D(0);
+  for (const debt of debts) {
+    const schedule = debtSchedule(debt);
+    if (!isRecurringDebt(schedule)) continue;
+    const due = D(debt.installmentAmount).times(DEBT_PERIODS_PER_YEAR[schedule]).div(12);
+    debtDue = debtDue.plus(due);
+    coveredByPayments = coveredByPayments.plus(Decimal.min(due, paymentsByDebt.get(debt.id) ?? 0));
+  }
   const outstanding = Decimal.max(planned.minus(funded).minus(otherIncome), 0);
-  const outstandingDebt = Decimal.max(debtDue.minus(Decimal.max(debtFunds, paidDebt)), 0);
+  const outstandingDebt = Decimal.max(debtDue.minus(Decimal.max(debtFunds, coveredByPayments)), 0);
   const needsIdr = needsCapForWindow(outstanding, outstandingDebt);
   const weeklyIdr = Decimal.min(monthlyToWeekly(planned.plus(debtDue)), needsIdr);
   const configuredCap = rule.needsTargetIdr == null ? weeklyIdr : Decimal.min(weeklyIdr, monthlyToWeekly(rule.needsTargetIdr));
@@ -172,11 +183,17 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
 }
 
 export async function listWithdrawals(userId: string) {
-  return prisma.withdrawal.findMany({
+  const withdrawals = await prisma.withdrawal.findMany({
     where: { userId },
     orderBy: { createdAt: "desc" },
     take: 100,
+    include: {
+      transactions: { where: { mt5DealId: { not: null } }, select: { mt5DealId: true }, take: 1 },
+    },
   });
+  return withdrawals.map(({ transactions, ...withdrawal }) => ({
+    ...withdrawal, mt5DealId: transactions[0]?.mt5DealId ?? null,
+  }));
 }
 
 export async function requestWithdrawal(userId: string, amountUsd: number, note?: string, req?: Request, accountId?: string) {

@@ -91,6 +91,56 @@ test("allocation percentages are configurable and invalid review kinds return 40
   await page.screenshot({ path: "test-results/allocation-mobile.png", fullPage: true });
 });
 
+test("mobile navigation opens as a named dialog and follows page changes", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const trigger = page.getByRole("button", { name: "Buka menu navigasi" });
+  await trigger.click();
+  const drawer = page.getByRole("dialog", { name: "Menu navigasi" });
+  await expect(drawer).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(trigger).toBeFocused();
+  const bottom = page.getByRole("navigation", { name: "Navigasi bawah" });
+  await bottom.getByRole("link", { name: "Jurnal" }).click();
+  await expect(bottom.getByRole("link", { name: "Jurnal" })).toHaveAttribute("aria-current", "page");
+});
+
+test("keeps debt inputs available after a rejected submission", async ({ page }) => {
+  await login(page);
+  await page.goto("/debts");
+  await page.route("**/api/debts", (route) => route.fulfill({
+    status: 400, json: { ok: false, error: "Pembayaran belum dapat disimpan" },
+  }));
+  await page.getByRole("button", { name: "Tambah Hutang" }).click();
+  const dialog = page.getByRole("dialog", { name: "Tambah Hutang" });
+  await dialog.getByLabel("Nama", { exact: true }).fill("Hutang uji");
+  await dialog.getByLabel("Pokok (IDR)").fill("100.25");
+  await dialog.getByLabel("Jadwal Pembayaran").selectOption("flexible");
+  await dialog.getByRole("button", { name: "Simpan" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("Pembayaran belum dapat disimpan");
+  await expect(dialog.getByLabel("Nama", { exact: true })).toHaveValue("Hutang uji");
+  await expect(dialog.getByLabel("Pokok (IDR)")).toHaveValue("100.25");
+});
+
+test("saves a manual transaction entered with a local date and time", async ({ page }) => {
+  await login(page);
+  await page.goto("/transactions");
+  await page.getByRole("button", { name: "Catat Transaksi" }).click();
+  const dialog = page.getByRole("dialog", { name: "Catat Transaksi Manual" });
+  await dialog.getByLabel("Jumlah (USD)").fill("0.37");
+  await dialog.getByLabel("Waktu").fill("2026-11-03T11:30");
+  await dialog.getByLabel("Catatan").fill("Regresi waktu transaksi");
+  const result = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/transactions" && response.request().method() === "POST");
+  await dialog.getByRole("button", { name: "Simpan" }).click();
+  const response = await result;
+  expect(response.ok()).toBe(true);
+  expect(new Date(response.request().postDataJSON().occurredAt).toISOString()).toMatch(/^2026-11-0[234]T/);
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("Regresi waktu transaksi")).toBeVisible();
+});
+
 test.describe("visual QA evidence (1440/1280/390)", () => {
   for (const vp of [
     { name: "1440x900", width: 1440, height: 900 },

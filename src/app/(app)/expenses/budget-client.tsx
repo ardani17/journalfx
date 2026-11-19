@@ -6,7 +6,7 @@ import { Plus, Trash2, Wallet } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
-import { Dialog, Progress } from "@/components/ui/misc";
+import { Dialog, MutationForm, Progress } from "@/components/ui/misc";
 import { fmtIDR } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -113,10 +113,8 @@ export function BudgetClient({ categories }: { categories: Cat[] }) {
       </Card>
 
       <Dialog open={catOpen} onClose={() => setCatOpen(false)} title="Tambah Kategori Kebutuhan">
-        <form onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          submit("/api/budget/categories", "POST", () => setCatOpen(false), { name: fd.get("name"), plannedAmount: fd.get("plannedAmount") });
+        <MutationForm action={(fd) => {
+          return submit("/api/budget/categories", "POST", () => setCatOpen(false), { name: fd.get("name"), plannedAmount: fd.get("plannedAmount") });
         }} className="space-y-3">
           <Field label="Nama Kategori" htmlFor="bc-name">
             <Input id="bc-name" name="name" required minLength={2} placeholder="cth. Kebutuhan HK/pangan" />
@@ -129,14 +127,12 @@ export function BudgetClient({ categories }: { categories: Cat[] }) {
             <Button variant="secondary" type="button" onClick={() => setCatOpen(false)}>Batal</Button>
             <Button type="submit" disabled={loading}>Simpan</Button>
           </div>
-        </form>
+        </MutationForm>
       </Dialog>
 
       <Dialog open={txOpen} onClose={() => setTxOpen(false)} title="Catat Pemasukan / Pengeluaran">
-        <form onSubmit={(e) => {
-          e.preventDefault();
-          const fd = new FormData(e.currentTarget);
-          submit("/api/finance/transactions", "POST", () => setTxOpen(false), {
+        <MutationForm action={(fd) => {
+          return submit("/api/finance/transactions", "POST", () => setTxOpen(false), {
             kind: fd.get("kind"),
             amount: fd.get("amount"),
             description: fd.get("description") || undefined,
@@ -170,7 +166,7 @@ export function BudgetClient({ categories }: { categories: Cat[] }) {
             <Button variant="secondary" type="button" onClick={() => setTxOpen(false)}>Batal</Button>
             <Button type="submit" disabled={loading}>Simpan</Button>
           </div>
-        </form>
+        </MutationForm>
       </Dialog>
     </>
   );

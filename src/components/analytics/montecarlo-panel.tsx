@@ -1,15 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import dynamic from "next/dynamic";
 import { Dices } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -29,6 +21,39 @@ interface McResult {
   sampleTrades: number;
   caveat: string | null;
 }
+
+const MonteCarloPlot = dynamic(() => import("recharts").then(({
+  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
+}) => function MonteCarloPlot({ data }: { data: { trade: number; p10: number | undefined; p50: number; p90: number | undefined }[] }) {
+  return (
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+          <defs>
+            <linearGradient id="mcFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#22e69a" stopOpacity={0.25} />
+              <stop offset="100%" stopColor="#22e69a" stopOpacity={0.02} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis dataKey="trade" tickLine={false} axisLine={false} minTickGap={40} />
+          <YAxis
+            tickFormatter={(v: number) => `$${Math.round(v / 100) / 10}rb`}
+            tickLine={false}
+            axisLine={false}
+            width={52}
+          />
+          <Tooltip
+            contentStyle={{ background: "#131b2e", border: "1px solid #303b50", borderRadius: 10, fontSize: 12 }}
+            labelFormatter={(l) => `Trade ke-${l}`}
+            formatter={(value, name) => [fmtUSD(Number(value)), name === "p50" ? "Median" : name === "p90" ? "P90" : "P10"]}
+          />
+          <Area type="monotone" dataKey="p10" stroke="#f87171" strokeWidth={1} fill="none" dot={false} name="P10" />
+          <Area type="monotone" dataKey="p90" stroke="#22e69a" strokeWidth={1} fill="none" dot={false} name="P90" />
+          <Area type="monotone" dataKey="p50" stroke="#22e69a" strokeWidth={2} fill="url(#mcFill)" dot={false} name="Median" />
+        </AreaChart>
+      </ResponsiveContainer>
+  );
+}), { ssr: false });
 
 export function MonteCarloPanel() {
   const [risk, setRisk] = useState(1);
@@ -104,32 +129,7 @@ export function MonteCarloPanel() {
               <Box label="Median Max DD" value={`${fmtNum(result.medianMaxDdPct, 1)}%`} />
             </div>
             <div className="h-[240px]" role="img" aria-label="Pita Monte Carlo p10 p50 p90">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="mcFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#22e69a" stopOpacity={0.25} />
-                      <stop offset="100%" stopColor="#22e69a" stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="trade" tickLine={false} axisLine={false} minTickGap={40} />
-                  <YAxis
-                    tickFormatter={(v: number) => `$${Math.round(v / 100) / 10}rb`}
-                    tickLine={false}
-                    axisLine={false}
-                    width={52}
-                  />
-                  <Tooltip
-                    contentStyle={{ background: "#131b2e", border: "1px solid #303b50", borderRadius: 10, fontSize: 12 }}
-                    labelFormatter={(l) => `Trade ke-${l}`}
-                    formatter={(value, name) => [fmtUSD(Number(value)), name === "p50" ? "Median" : name === "p90" ? "P90" : "P10"]}
-                  />
-                  <Area type="monotone" dataKey="p10" stroke="#f87171" strokeWidth={1} fill="none" dot={false} name="P10" />
-                  <Area type="monotone" dataKey="p90" stroke="#22e69a" strokeWidth={1} fill="none" dot={false} name="P90" />
-                  <Area type="monotone" dataKey="p50" stroke="#22e69a" strokeWidth={2} fill="url(#mcFill)" dot={false} name="Median" />
-                </AreaChart>
-              </ResponsiveContainer>
+              <MonteCarloPlot data={data} />
             </div>
           </>
         ) : null}

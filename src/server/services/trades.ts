@@ -25,17 +25,30 @@ import type { CreateTradeInput, AddExecutionInput } from "@/lib/validation/trade
  * - Status is derived from entered vs closed quantity, never stored by hand.
  */
 
-async function resolveInstrument(input: CreateTradeInput) {
+export function findInstrumentBySymbol(db: Prisma.TransactionClient, userId: string, symbol: string) {
+  return db.instrument.findFirst({
+    where: { symbol, OR: [{ ownerId: null }, { ownerId: userId }] },
+    orderBy: { ownerId: { sort: "asc", nulls: "first" } },
+  });
+}
+
+async function resolveInstrument(userId: string, input: CreateTradeInput) {
   if (input.instrumentId) {
-    const inst = await prisma.instrument.findUnique({ where: { id: input.instrumentId } });
+    const inst = await prisma.instrument.findFirst({
+      where: { id: input.instrumentId, OR: [{ ownerId: null }, { ownerId: userId }] },
+    });
     if (!inst) throw new ApiError(404, "Instrumen tidak ditemukan");
     return inst;
   }
   const symbol = input.symbol?.toUpperCase();
   if (!symbol) throw new ApiError(400, "instrumentId atau symbol wajib diisi");
-  const inst = await prisma.instrument.findUnique({ where: { symbol } });
+  const inst = await findInstrumentBySymbol(prisma, userId, symbol);
   if (!inst) throw new ApiError(404, `Instrumen ${symbol} belum terdaftar`);
   return inst;
+}
+
+export async function lockTradeWrites(tx: Prisma.TransactionClient, userId: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
 }
 
 export async function createTrade(userId: string, input: CreateTradeInput, req?: Request) {
@@ -47,74 +60,78 @@ export async function createTrade(userId: string, input: CreateTradeInput, req?:
     const strategy = await prisma.strategy.findFirst({ where: { id: input.strategyId, userId } });
     if (!strategy) throw new ApiError(404, "Strategi tidak ditemukan");
   }
-  const instrument = await resolveInstrument(input);
-
-  if (input.ticket) {
-    const dup = await prisma.trade.findFirst({
-      where: { accountId: account.id, ticket: input.ticket },
-    });
-    if (dup) throw new ApiError(409, `Trade dengan ticket ${input.ticket} sudah ada`);
-  }
-
-  const lot = D(input.lot);
-  const entry = D(input.entryPrice);
-  const sl = input.initialStopLoss !== undefined ? D(input.initialStopLoss) : null;
-  const tp = input.initialTakeProfit !== undefined ? D(input.initialTakeProfit) : null;
-  const spec = { contractSize: instrument.contractSize };
-
-  const risk = sl !== null ? initialRiskUsd(input.direction, entry, sl, spec, lot) : null;
-  const rr = plannedRR(input.direction, entry, sl, tp, spec, lot);
+  const instrument = await resolveInstrument(userId, input);
 
   const trade = await prisma.$transaction(async (tx) => {
-    const t = await tx.trade.create({
-      data: {
-        userId,
-        accountId: account.id,
-        instrumentId: instrument.id,
-        strategyId: input.strategyId || null,
-        ticket: input.ticket || null,
-        direction: input.direction,
-        status: "OPEN",
-        lot,
-        entryPrice: entry,
-        initialStopLoss: sl,
-        initialTakeProfit: tp,
-        initialRisk: risk,
-        plannedRR: rr,
-        session: input.session || null,
-        timeframe: input.timeframe || null,
-        commission: D(input.commission),
-        swap: D(input.swap),
-        fees: D(input.fees),
-        entryAt: new Date(input.entryAt),
-      },
-    });
-    await tx.tradeExecution.create({
-      data: {
-        userId,
-        tradeId: t.id,
-        kind: "ENTRY",
-        quantity: lot,
-        price: entry,
-        commission: D(input.commission),
-        swap: D(input.swap),
-        fees: D(input.fees),
-        executedAt: new Date(input.entryAt),
-      },
-    });
-    await tx.tradeJournal.create({
-      data: {
-        tradeId: t.id,
-        marketContext: input.marketContext || null,
-        entryReason: input.entryReason || null,
-        preChecklist: (input.preChecklist ?? undefined) as object | undefined,
-      },
-    });
-    return t;
+    await lockTradeWrites(tx, userId);
+    if (input.ticket) {
+      const dup = await tx.trade.findUnique({ where: { accountId_ticket: { accountId: account.id, ticket: input.ticket } } });
+      if (dup) throw new ApiError(409, `Trade dengan ticket ${input.ticket} sudah ada`);
+    }
+    return createTradeEntry(tx, userId, instrument, input);
   });
 
   await audit({ userId, action: "create", entity: "Trade", entityId: trade.id, after: { ticket: input.ticket, direction: input.direction }, req });
   return trade;
+}
+
+type EntryInput = Omit<CreateTradeInput, "lot" | "entryPrice" | "entryAt" | "initialStopLoss" | "initialTakeProfit" | "commission" | "swap"> & {
+  lot: Decimal.Value;
+  entryPrice: Decimal.Value;
+  entryAt: Date | string;
+  initialStopLoss?: Decimal.Value | null;
+  initialTakeProfit?: Decimal.Value | null;
+  commission: Decimal.Value;
+  swap: Decimal.Value;
+};
+
+export async function createTradeEntry(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  instrument: { id: string; contractSize: Decimal | null },
+  input: EntryInput,
+) {
+  const lot = D(input.lot);
+  const entry = D(input.entryPrice);
+  const sl = input.initialStopLoss != null ? D(input.initialStopLoss) : null;
+  const tp = input.initialTakeProfit != null ? D(input.initialTakeProfit) : null;
+  const spec = instrument.contractSize === null ? null : { contractSize: instrument.contractSize };
+  const commission = D(input.commission);
+  const swap = D(input.swap);
+  const fees = D(input.fees);
+  const entryAt = new Date(input.entryAt);
+
+  return tx.trade.create({
+    data: {
+      userId,
+      accountId: input.accountId,
+      instrumentId: instrument.id,
+      strategyId: input.strategyId || null,
+      ticket: input.ticket || null,
+      direction: input.direction,
+      status: "OPEN",
+      lot,
+      entryPrice: entry,
+      initialStopLoss: sl,
+      initialTakeProfit: tp,
+      initialRisk: spec ? initialRiskUsd(input.direction, entry, sl, spec, lot) : null,
+      plannedRR: spec ? plannedRR(input.direction, entry, sl, tp, spec, lot) : null,
+      session: input.session || null,
+      timeframe: input.timeframe || null,
+      commission,
+      swap,
+      fees,
+      entryAt,
+      executions: { create: { userId, kind: "ENTRY", quantity: lot, price: entry, commission, swap, fees, executedAt: entryAt } },
+      journal: {
+        create: {
+          marketContext: input.marketContext || null,
+          entryReason: input.entryReason || null,
+          preChecklist: input.preChecklist ?? undefined,
+        },
+      },
+    },
+  });
 }
 
 export async function getTrade(userId: string, id: string) {
@@ -141,11 +158,13 @@ export interface ListTradesFilter {
   from?: Date;
   to?: Date;
   q?: string;
+  sort?: "asc" | "desc";
   limit: number;
   offset: number;
 }
 
 export async function listTrades(userId: string, filter: ListTradesFilter) {
+  const sort = filter.sort ?? "desc";
   const where: Prisma.TradeWhereInput = {
     userId,
     ...(filter.accountId ? { accountId: filter.accountId } : {}),
@@ -181,7 +200,7 @@ export async function listTrades(userId: string, filter: ListTradesFilter) {
   const [items, total] = await Promise.all([
     prisma.trade.findMany({
       where,
-      orderBy: [{ entryAt: "desc" }, { createdAt: "desc" }],
+      orderBy: [{ entryAt: sort }, { createdAt: sort }, { id: sort }],
       take: filter.limit,
       skip: filter.offset,
       include: {
@@ -203,137 +222,138 @@ export async function addExecution(
   req?: Request,
 ) {
   const result = await prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
-    const trade = await tx.trade.findFirst({
-      where: { id: tradeId, userId },
-      include: { executions: true, instrument: true },
-    });
-    if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
-    if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
-    if (trade.status === "CLOSED") throw new ApiError(400, "Trade sudah ditutup");
-
-    if (input.externalId) {
-      const dup = await tx.tradeExecution.findFirst({
-        where: { userId, externalId: input.externalId },
-      });
-      if (dup) throw new ApiError(409, "Eksekusi dengan ID eksternal tersebut sudah ada (dedup)");
-    }
-
-    const spec = { contractSize: trade.instrument.contractSize };
-    const isClose = input.kind === "CLOSE" || input.kind === "PARTIAL_CLOSE";
-    const qty = D(input.quantity);
-
-    const rollupBefore = rollupExecutions(trade.direction, trade.executions, spec);
-    if (isClose) {
-      if (qty.gt(rollupBefore.openQty)) {
-        throw new ApiError(
-          400,
-          `Quantity close (${qty}) melebihi posisi terbuka (${rollupBefore.openQty})`,
-        );
-      }
-    } else {
-      const enteredTotal = rollupBefore.openQty.add(rollupBefore.closedQty).add(qty);
-      if (enteredTotal.gt(D(trade.lot))) {
-        throw new ApiError(400, `Total entry (${enteredTotal}) melebihi lot trade (${trade.lot})`);
-      }
-    }
-
-    const entryAvg = avgEntryPrice(
-      trade.executions.filter((e) => e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY"),
-    );
-
-    let closeNet: Decimal | null = null;
-    if (isClose) {
-      // Net P&L includes the proportional share of entry-leg costs
-      // (commission/swap/fees) plus this close's own costs — so the ledger
-      // REALIZED_PNL row always reflects the fully netted figure.
-      const enteredBefore = rollupBefore.openQty.add(rollupBefore.closedQty);
-      const entryCosts = trade.executions
-        .filter((e) => e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY")
-        .reduce((s, e) => s.add(D(e.commission)).add(D(e.swap)).add(D(e.fees)), new Decimal(0));
-      const entryCostShare = enteredBefore.isZero()
-        ? new Decimal(0)
-        : entryCosts.times(qty.div(enteredBefore));
-      closeNet = closePnl(trade.direction, entryAvg, input, spec).minus(entryCostShare);
-    }
-
-    const execution = await tx.tradeExecution.create({
-      data: {
-        userId,
-        tradeId,
-        kind: input.kind,
-        quantity: qty,
-        price: D(input.price),
-        commission: D(input.commission),
-        swap: D(input.swap),
-        fees: D(input.fees),
-        realizedPnl: closeNet,
-        executedAt: input.executedAt ? new Date(input.executedAt) : new Date(),
-        externalId: input.externalId || null,
-      },
-    });
-
-    if (closeNet !== null) {
-      await tx.accountTransaction.create({
-        data: {
-          userId,
-          accountId: trade.accountId,
-          type: "REALIZED_PNL",
-          amount: closeNet,
-          occurredAt: execution.executedAt,
-          note: `${trade.instrument.symbol} ${trade.direction} ${input.kind === "CLOSE" ? "close" : "partial close"} ${qty}`,
-          sourceTradeId: trade.id,
-        },
-      });
-    }
-
-    const executions = await tx.tradeExecution.findMany({
-      where: { tradeId },
-      orderBy: { executedAt: "asc" },
-    });
-    const rollup = rollupExecutions(trade.direction, executions, spec);
-    const entered = rollup.openQty.add(rollup.closedQty);
-    const status = deriveStatus(false, entered, rollup.closedQty);
-    const lastClose = [...executions].reverse().find((e) => e.kind === "CLOSE" || e.kind === "PARTIAL_CLOSE");
-    // Net realized P&L = Σ per-close net (each already carries its cost share)
-    const netRealized = executions.reduce(
-      (s, e) => (e.realizedPnl !== null ? s.add(D(e.realizedPnl)) : s),
-      new Decimal(0),
-    );
-
-    const updated = await tx.trade.update({
-      where: { id: tradeId },
-      data: {
-        status,
-        realizedPnl: rollup.closedQty.isZero() ? null : netRealized,
-        actualR:
-          rollup.closedQty.isZero() || !trade.initialRisk
-            ? null
-            : actualR(netRealized, D(trade.initialRisk)),
-        exitPrice: lastClose ? D(lastClose.price) : null,
-        exitAt: lastClose ? lastClose.executedAt : null,
-        commission: executions.reduce((s, e) => s.add(D(e.commission)), new Decimal(0)),
-        swap: executions.reduce((s, e) => s.add(D(e.swap)), new Decimal(0)),
-        fees: executions.reduce((s, e) => s.add(D(e.fees)), new Decimal(0)),
-      },
-    });
-    return { execution, trade: updated, rollup };
+    await lockTradeWrites(tx, userId);
+    return recordTradeExecution(tx, userId, tradeId, input);
   });
 
   await audit({ userId, action: "create", entity: "TradeExecution", entityId: result.execution.id, after: { ...input, realizedPnl: result.execution.realizedPnl?.toString() }, req });
   return result;
 }
 
-export async function cancelTrade(userId: string, tradeId: string, reason: string, req?: Request) {
-  const trade = await prisma.trade.findFirst({ where: { id: tradeId, userId } });
+type ExecutionInput = Omit<AddExecutionInput, "quantity" | "price" | "executedAt"> & {
+  quantity: Decimal.Value;
+  price: Decimal.Value;
+  executedAt?: Date | string;
+};
+
+export async function recordTradeExecution(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  tradeId: string,
+  input: ExecutionInput,
+  brokerNetPnl?: Decimal,
+) {
+  const trade = await tx.trade.findFirst({
+    where: { id: tradeId, userId },
+    include: { executions: true, instrument: true },
+  });
   if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
   if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
-  if (trade.status === "PARTIAL" || trade.status === "CLOSED" || trade.realizedPnl != null) {
-    throw new ApiError(400, "Trade terealisasi tidak dapat dibatalkan — gunakan koreksi ledger yang diaudit");
+  if (trade.status === "CLOSED") throw new ApiError(400, "Trade sudah ditutup");
+
+  if (input.externalId) {
+    const dup = await tx.tradeExecution.findUnique({ where: { userId_externalId: { userId, externalId: input.externalId } } });
+    if (dup) throw new ApiError(409, "Eksekusi dengan ID eksternal tersebut sudah ada");
   }
-  const updated = await prisma.trade.update({
+
+  const spec = trade.instrument.contractSize === null ? null : { contractSize: trade.instrument.contractSize };
+  const isClose = input.kind === "CLOSE" || input.kind === "PARTIAL_CLOSE";
+  const qty = D(input.quantity);
+  const price = D(input.price);
+  const rollupBefore = rollupExecutions(trade.direction, trade.executions, spec);
+  const enteredBefore = rollupBefore.openQty.add(rollupBefore.closedQty);
+
+  if (input.reportedNetPnl !== undefined && (spec || !isClose)) {
+    throw new ApiError(400, "P&L manual hanya untuk penutupan instrumen tanpa spesifikasi kontrak");
+  }
+
+  let closeNet: Decimal | null = null;
+  if (isClose) {
+    if (qty.gt(rollupBefore.openQty)) {
+      throw new ApiError(400, `Quantity close (${qty}) melebihi posisi terbuka (${rollupBefore.openQty})`);
+    }
+    if (brokerNetPnl !== undefined) {
+      closeNet = brokerNetPnl;
+    } else if (input.reportedNetPnl !== undefined) {
+      closeNet = D(input.reportedNetPnl);
+    } else if (spec) {
+      const entries = trade.executions.filter((e) => e.kind === "ENTRY" || e.kind === "PARTIAL_ENTRY");
+      const entryCosts = entries.reduce((s, e) => s.add(D(e.commission)).add(D(e.swap)).add(D(e.fees)), new Decimal(0));
+      const entryCostShare = enteredBefore.isZero() ? new Decimal(0) : entryCosts.times(qty.div(enteredBefore));
+      closeNet = closePnl(trade.direction, avgEntryPrice(entries), { ...input, quantity: qty, price }, spec).minus(entryCostShare);
+    } else {
+      throw new ApiError(400, "Masukkan P&L bersih dari broker untuk menutup posisi ini");
+    }
+  } else if (enteredBefore.add(qty).gt(D(trade.lot))) {
+    throw new ApiError(400, `Total entry (${enteredBefore.add(qty)}) melebihi lot trade (${trade.lot})`);
+  }
+
+  const execution = await tx.tradeExecution.create({
+    data: {
+      userId,
+      tradeId,
+      kind: input.kind,
+      quantity: qty,
+      price,
+      commission: D(input.commission),
+      swap: D(input.swap),
+      fees: D(input.fees),
+      realizedPnl: closeNet,
+      executedAt: input.executedAt ? new Date(input.executedAt) : new Date(),
+      externalId: input.externalId || null,
+    },
+  });
+
+  if (execution.realizedPnl !== null) {
+    await tx.accountTransaction.create({
+      data: {
+        userId,
+        accountId: trade.accountId,
+        type: "REALIZED_PNL",
+        amount: execution.realizedPnl,
+        occurredAt: execution.executedAt,
+        note: `${trade.instrument.symbol} ${trade.direction} ${input.kind === "CLOSE" ? "close" : "partial close"} ${qty}`,
+        sourceTradeId: trade.id,
+      },
+    });
+  }
+
+  const executions = [...trade.executions, execution].sort((a, b) => a.executedAt.getTime() - b.executedAt.getTime());
+  const rollup = rollupExecutions(trade.direction, executions, spec);
+  const entered = rollup.openQty.add(rollup.closedQty);
+  const status = deriveStatus(false, entered, rollup.closedQty);
+  const lastClose = executions.findLast((e) => e.kind === "CLOSE" || e.kind === "PARTIAL_CLOSE");
+
+  const updated = await tx.trade.update({
     where: { id: tradeId },
-    data: { status: "CANCELLED" },
+    data: {
+      status,
+      realizedPnl: rollup.closedQty.isZero() ? null : rollup.realizedPnl,
+      actualR: rollup.closedQty.isZero() || !trade.initialRisk ? null : actualR(rollup.realizedPnl, D(trade.initialRisk)),
+      exitPrice: lastClose ? D(lastClose.price) : null,
+      exitAt: lastClose?.executedAt ?? null,
+      commission: executions.reduce((s, e) => s.add(D(e.commission)), new Decimal(0)),
+      swap: executions.reduce((s, e) => s.add(D(e.swap)), new Decimal(0)),
+      fees: executions.reduce((s, e) => s.add(D(e.fees)), new Decimal(0)),
+    },
+  });
+  return { execution, trade: updated, rollup };
+}
+
+export async function cancelTrade(userId: string, tradeId: string, reason: string, req?: Request) {
+  const { trade, updated } = await prisma.$transaction(async (tx) => {
+    await lockTradeWrites(tx, userId);
+    const trade = await tx.trade.findFirst({ where: { id: tradeId, userId } });
+    if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
+    if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
+    if (trade.status === "PARTIAL" || trade.status === "CLOSED" || trade.realizedPnl != null) {
+      throw new ApiError(400, "Trade terealisasi tidak dapat dibatalkan — gunakan koreksi ledger yang diaudit");
+    }
+    const updated = await tx.trade.update({
+      where: { id: tradeId },
+      data: { status: "CANCELLED" },
+    });
+    return { trade, updated };
   });
   await audit({ userId, action: "cancel", entity: "Trade", entityId: tradeId, before: { status: trade.status }, after: { status: "CANCELLED", reason }, req });
   return updated;

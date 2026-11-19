@@ -29,11 +29,11 @@ export async function portfolioOverview(userId: string): Promise<AccountRow[]> {
     orderBy: { createdAt: "asc" },
     include: { trades: { where: { status: { in: ["CLOSED", "PARTIAL"] } }, select: { realizedPnl: true } } },
   });
-  const rows: AccountRow[] = [];
-  for (const a of accounts) {
-    const bal = await computeBalance(userId, a.id);
+  const balances = await Promise.all(accounts.map((account) => computeBalance(userId, account.id)));
+  return accounts.map((a, index) => {
+    const bal = balances[index]!;
     const trades = a.trades;
-    const wins = trades.filter((t) => t.realizedPnl !== null && D(t.realizedPnl).isPositive()).length;
+    const wins = trades.filter((t) => t.realizedPnl !== null && D(t.realizedPnl).gt(0)).length;
     const closed = trades.filter((t) => t.realizedPnl !== null);
     const initial = bal.deposits.isZero() ? bal.balance : bal.deposits;
 
@@ -47,7 +47,7 @@ export async function portfolioOverview(userId: string): Promise<AccountRow[]> {
         : null;
       const maxDailyUsd = dailyPct ? bal.balance.times(dailyPct).div(100) : null;
       const maxDdUsd = ddPct ? bal.balance.times(ddPct).div(100) : null;
-      rows.push({
+      return {
         id: a.id,
         name: a.name,
         broker: a.broker,
@@ -64,10 +64,9 @@ export async function portfolioOverview(userId: string): Promise<AccountRow[]> {
           breached: progressPct !== null && progressPct.lt(-100), // simplified guard
           passed: progressPct !== null && progressPct.gte(100),
         },
-      });
-      continue;
+      };
     }
-    rows.push({
+    return {
       id: a.id,
       name: a.name,
       broker: a.broker,
@@ -77,9 +76,8 @@ export async function portfolioOverview(userId: string): Promise<AccountRow[]> {
       winRate: closed.length > 0 ? (wins / closed.length) * 100 : null,
       trades: closed.length,
       prop: null,
-    });
-  }
-  return rows;
+    };
+  });
 }
 
 /** Monte Carlo over the user's historical R multiples. */
@@ -87,10 +85,14 @@ export async function runMonteCarlo(
   userId: string,
   opts?: { riskPctPerTrade?: number; tradesPerPath?: number; paths?: number; seed?: number },
 ) {
-  const trades = await prisma.trade.findMany({
-    where: { userId, status: "CLOSED", actualR: { not: null }, initialRisk: { not: null } },
-    select: { actualR: true, initialRisk: true, realizedPnl: true },
-  });
+  const [trades, balances, settings] = await Promise.all([
+    prisma.trade.findMany({
+      where: { userId, status: "CLOSED", OR: [{ actualR: { not: null } }, { initialRisk: { gt: 0 }, realizedPnl: { not: null } }] },
+      select: { actualR: true, initialRisk: true, realizedPnl: true },
+    }),
+    computeBalance(userId),
+    prisma.riskSettings.findUnique({ where: { userId } }),
+  ]);
   // prefer actual R; fall back to realized/risk when R missing but risk known
   const historicalR: number[] = [];
   for (const t of trades) {
@@ -99,8 +101,6 @@ export async function runMonteCarlo(
       historicalR.push(Number(t.realizedPnl) / Number(t.initialRisk));
     }
   }
-  const balances = await computeBalance(userId);
-  const settings = await prisma.riskSettings.findUnique({ where: { userId } });
   return monteCarlo({
     historicalR,
     startingBalance: Number(balances.balance.toFixed(2)),

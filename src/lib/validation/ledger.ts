@@ -22,11 +22,15 @@ export const createTransactionSchema = z
   .object({
     accountId: z.string().min(1),
     type: z.enum(["DEPOSIT", "WITHDRAWAL", "ADJUSTMENT"]),
-    amount: z.coerce.number().positive("Jumlah harus positif"),
+    amount: z.coerce.number(),
     occurredAt: isoDate.optional(),
     note: z.string().trim().max(300).optional().or(z.literal("")),
   })
-  .refine((v) => v.type !== "ADJUSTMENT" || v.note === undefined || v.note === "" || v.note.length > 0, {
+  .refine((v) => v.type === "ADJUSTMENT" ? v.amount !== 0 : v.amount > 0, {
+    message: "Deposit dan withdrawal harus positif. Adjustment tidak boleh nol.",
+    path: ["amount"],
+  })
+  .refine((v) => v.type !== "ADJUSTMENT" || Boolean(v.note), {
     message: "Adjustment wajib memiliki catatan",
     path: ["note"],
   });

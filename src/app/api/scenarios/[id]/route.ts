@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth";
-import { deleteScenario } from "@/server/services/scenarios";
+import { deleteScenario } from "@/server/services/roadmap";
 import { handleRouteError, ok } from "@/lib/api";
 
 export async function DELETE(_req: Request, { params }: { params: Promise<{ id: string }> }) {

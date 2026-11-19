@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { PrismaClient, type Prisma } from "@prisma/client";
 import { APP_NAME } from "@/lib/brand";
 import { zonedPeriod } from "@/lib/dates";
@@ -20,7 +21,9 @@ function daysAgo(now: Date, days: number) {
 }
 
 async function seedTrades(tx: Prisma.TransactionClient, userId: string, accountIds: string[], now: Date) {
-  const instrument = await tx.instrument.findUniqueOrThrow({ where: { symbol: "XAUUSD" } });
+  const instrument = await tx.instrument.findFirstOrThrow({ where: { symbol: "XAUUSD", ownerId: null } });
+  if (!instrument.contractSize) throw new Error("Spesifikasi XAUUSD diperlukan untuk data demo");
+  const spec = { contractSize: instrument.contractSize };
   const strategies = await Promise.all([
     tx.strategy.create({ data: { userId, name: "Pullback Demo", timeframe: "M15", description: "Strategi fiktif untuk uji filter jurnal." } }),
     tx.strategy.create({ data: { userId, name: "Breakout Demo", timeframe: "H1", description: "Strategi fiktif untuk uji perbandingan performa." } }),
@@ -28,7 +31,7 @@ async function seedTrades(tx: Prisma.TransactionClient, userId: string, accountI
   const lot = D(0.08);
   const commission = D(1.60);
 
-  for (const [index, move] of [...MOVES, null, 4].entries()) {
+  await Promise.all([...MOVES, null, 4].map(async (move, index) => {
     const direction = index % 2 === 0 ? "LONG" : "SHORT";
     const sign = direction === "LONG" ? 1 : -1;
     const accountId = accountIds[index % accountIds.length]!;
@@ -37,7 +40,7 @@ async function seedTrades(tx: Prisma.TransactionClient, userId: string, accountI
     const entryPrice = D(2_680 + index * 3);
     const sl = entryPrice.minus(sign * 3);
     const tp = entryPrice.plus(sign * 7);
-    const initialRisk = initialRiskUsd(direction, entryPrice, sl, instrument, lot);
+    const initialRisk = initialRiskUsd(direction, entryPrice, sl, spec, lot);
     const isPartial = index === MOVES.length + 1;
     const closeQuantity = move === null ? D(0) : isPartial ? lot.div(2) : lot;
     const close = move === null ? null : {
@@ -48,13 +51,13 @@ async function seedTrades(tx: Prisma.TransactionClient, userId: string, accountI
       commission: isPartial ? commission.div(2) : commission,
       executedAt: new Date(entryAt.getTime() + 3_600_000),
     };
-    const pnl = close ? closePnl(direction, entryPrice, close, instrument) : null;
+    const pnl = close ? closePnl(direction, entryPrice, close, spec) : null;
     const trade = await tx.trade.create({ data: {
       userId, accountId, instrumentId: instrument.id, strategyId: strategy.id,
       ticket: `DEMO-${String(index + 1).padStart(3, "0")}`, direction, lot, entryPrice, entryAt,
       status: deriveStatus(false, lot, closeQuantity),
       initialStopLoss: sl, initialTakeProfit: tp, initialRisk,
-      plannedRR: plannedRR(direction, entryPrice, sl, tp, instrument, lot),
+      plannedRR: plannedRR(direction, entryPrice, sl, tp, spec, lot),
       actualR: pnl === null ? null : actualR(pnl, initialRisk),
       realizedPnl: pnl, exitPrice: close?.price, exitAt: close?.executedAt,
       commission: close?.commission,
@@ -78,7 +81,7 @@ async function seedTrades(tx: Prisma.TransactionClient, userId: string, accountI
         occurredAt: close.executedAt, note: `Realisasi ${trade.ticket}`,
       } });
     }
-  }
+  }));
 }
 
 async function seedDemo(tx: Prisma.TransactionClient) {
@@ -136,32 +139,40 @@ async function seedDemo(tx: Prisma.TransactionClient) {
     description: "Penerimaan withdrawal demo", withdrawalId: withdrawal.id,
   } });
   const week = zonedPeriod("WEEKLY", completedAt, TIMEZONE);
-  for (const bucket of project.buckets.filter((row) => row.targetPercent?.gt(0))) {
-    const amount = D(bucket.targetPercent).times(50).div(100);
-    const cashEntry = await tx.financialTransaction.create({ data: {
-      userId, kind: "ALLOCATION", amount: amount.times(FX_RATE), fxRate: FX_RATE, bucketId: bucket.id,
+  const allocations = project.buckets.filter((row) => row.targetPercent?.gt(0)).map((bucket) => ({
+    userId,
+    bucketId: bucket.id,
+    amount: D(bucket.targetPercent).times(50).div(100),
+    financialTxId: randomUUID(),
+    sourcePeriodStart: week.start,
+    sourcePeriodEnd: week.end,
+  }));
+  await tx.financialTransaction.createMany({
+    data: allocations.map(({ bucketId, amount, financialTxId }) => ({
+      id: financialTxId, userId, kind: "ALLOCATION", amount: amount.times(FX_RATE), fxRate: FX_RATE, bucketId,
       occurredAt: completedAt, description: "Alokasi withdrawal demo",
-    } });
-    await tx.financialAllocation.create({ data: {
-      userId, bucketId: bucket.id, amount, financialTxId: cashEntry.id,
-      sourcePeriodStart: week.start, sourcePeriodEnd: week.end,
-    } });
-  }
+    })),
+  });
+  await tx.financialAllocation.createMany({ data: allocations });
 
   const month = zonedPeriod("MONTHLY", now, TIMEZONE);
   const budget = await tx.budget.create({ data: { userId, periodStart: month.start, periodEnd: month.end } });
-  for (const [order, category] of [
+  const categories = [
     { name: "Makan", plannedAmount: 1_200_000, expense: 350_000 },
     { name: "Transportasi", plannedAmount: 450_000, expense: 125_000 },
     { name: "Tagihan", plannedAmount: 450_000, expense: 210_000 },
-  ].entries()) {
-    const { id: categoryId } = await tx.expenseCategory.create({ data: {
+  ];
+  await Promise.all(categories.map((category, order) => tx.expenseCategory.create({
+    data: {
       userId, budgetId: budget.id, name: category.name, plannedAmount: category.plannedAmount, order,
-    } });
-    await tx.financialTransaction.create({ data: {
-      userId, categoryId, kind: "EXPENSE", amount: category.expense, occurredAt: now, description: `Pengeluaran demo · ${category.name}`,
-    } });
-  }
+      transactions: {
+        create: {
+          userId, kind: "EXPENSE", amount: category.expense, occurredAt: now,
+          description: `Pengeluaran demo · ${category.name}`,
+        },
+      },
+    },
+  })));
   const { id: debtId } = await tx.debt.create({ data: {
     userId, name: "Cicilan Demo", creditor: "Kreditur Fiktif", principalOriginal: 2_000_000,
     principalRemaining: 1_700_000, installmentAmount: 300_000, installmentFreq: "monthly", dueDay: 25, startDate: start,
@@ -190,11 +201,17 @@ async function seedDemo(tx: Prisma.TransactionClient) {
 }
 
 async function main() {
-  const database = new URL(process.env.DATABASE_URL ?? "postgresql://unset");
+  const message = "Set DATABASE_URL to the local horizon_journal_google_test PostgreSQL database.";
+  let database: URL;
+  try {
+    database = new URL(process.env.DATABASE_URL ?? "");
+  } catch {
+    throw new Error(message);
+  }
   if (!["postgresql:", "postgres:"].includes(database.protocol) ||
       !["localhost", "127.0.0.1", "[::1]"].includes(database.hostname) ||
       database.pathname !== "/horizon_journal_google_test") {
-    throw new Error("Set DATABASE_URL to the local horizon_journal_google_test PostgreSQL database.");
+    throw new Error(message);
   }
 
   const prisma = new PrismaClient();

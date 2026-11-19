@@ -1,14 +1,6 @@
 "use client";
 
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import dynamic from "next/dynamic";
 
 export interface BalancePointDTO {
   date: string;
@@ -26,9 +18,10 @@ function fmtDateLabel(iso: string): string {
   return `${Number(d)} ${months[Number(m) - 1] ?? ""}`;
 }
 
-export function BalanceChart({ data, showProjection }: { data: BalancePointDTO[]; showProjection?: boolean }) {
+const BalancePlot = dynamic(() => import("recharts").then(({
+  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
+}) => function BalancePlot({ data, showProjection }: { data: BalancePointDTO[]; showProjection?: boolean }) {
   return (
-    <div className="h-[260px] w-full" role="img" aria-label="Grafik pertumbuhan balance">
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
           <defs>
@@ -88,6 +81,13 @@ export function BalanceChart({ data, showProjection }: { data: BalancePointDTO[]
           ) : null}
         </AreaChart>
       </ResponsiveContainer>
+  );
+}), { ssr: false });
+
+export function BalanceChart({ data, showProjection }: { data: BalancePointDTO[]; showProjection?: boolean }) {
+  return (
+    <div className="h-[260px] w-full" role="img" aria-label="Grafik pertumbuhan balance">
+      <BalancePlot data={data} showProjection={showProjection} />
     </div>
   );
 }

@@ -53,6 +53,15 @@ export async function attributedLedger(userId: string) {
   });
 }
 
+export function canReverseLedgerEntry(entry: {
+  type: LedgerEntryType;
+  sourceTradeId: string | null;
+  withdrawalId: string | null;
+  mt5DealId: string | null;
+}) {
+  return entry.type !== "REVERSAL" && !entry.sourceTradeId && (!entry.withdrawalId || Boolean(entry.mt5DealId));
+}
+
 export async function listTransactions(userId: string, filter: TransactionFilter) {
   const where: Prisma.AccountTransactionWhereInput = {
     userId,
@@ -73,7 +82,10 @@ export async function listTransactions(userId: string, filter: TransactionFilter
       orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
       take: filter.limit ?? 100,
       skip: filter.offset ?? 0,
-      include: { account: { select: { id: true, name: true } } },
+      include: {
+        account: { select: { id: true, name: true } },
+        reversals: { select: { id: true }, take: 1 },
+      },
     }),
     prisma.accountTransaction.count({ where }),
   ]);
@@ -96,7 +108,7 @@ export async function createManualTransaction(
       userId,
       accountId: account.id,
       type: input.type,
-      amount: input.type === "WITHDRAWAL" ? amount.neg() : input.type === "ADJUSTMENT" ? amount : amount,
+      amount: signedAmount(input.type, amount),
       occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date(),
       note: input.note || null,
     },
@@ -107,22 +119,34 @@ export async function createManualTransaction(
 
 /** Corrections never mutate: append a REVERSAL row that negates the original. */
 export async function reverseTransaction(userId: string, id: string, reason: string, req?: Request) {
-  const original = await prisma.accountTransaction.findFirst({ where: { id, userId } });
-  if (!original) throw new ApiError(404, "Transaksi tidak ditemukan");
-  if (original.type === "REVERSAL") throw new ApiError(400, "Transaksi reversal tidak dapat dibatalkan lagi");
-  const already = await prisma.accountTransaction.findFirst({ where: { reversalOfId: id } });
-  if (already) throw new ApiError(400, "Transaksi ini sudah dibatalkan sebelumnya");
+  const { original, reversal } = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    const original = await tx.accountTransaction.findFirst({ where: { id, userId } });
+    if (!original) throw new ApiError(404, "Transaksi tidak ditemukan");
+    if (!canReverseLedgerEntry(original)) {
+      throw new ApiError(400, "Entri ini tidak dapat dibatalkan langsung melalui ledger");
+    }
+    const already = await tx.accountTransaction.findUnique({ where: { reversalOfId: id } });
+    if (already) throw new ApiError(400, "Transaksi ini sudah dibatalkan sebelumnya");
 
-  const reversal = await prisma.accountTransaction.create({
-    data: {
-      userId,
-      accountId: original.accountId,
-      type: "REVERSAL",
-      amount: original.amount.neg(),
-      occurredAt: new Date(),
-      note: `Pembatalan: ${reason}`,
-      reversalOfId: original.id,
-    },
+    const reversal = await tx.accountTransaction.create({
+      data: {
+        userId,
+        accountId: original.accountId,
+        type: "REVERSAL",
+        amount: original.amount.neg(),
+        occurredAt: new Date(),
+        note: `Pembatalan: ${reason}`,
+        reversalOfId: original.id,
+      },
+    });
+    if (original.type === "WITHDRAWAL" && original.mt5DealId && original.withdrawalId) {
+      await tx.withdrawal.update({
+        where: { id: original.withdrawalId, userId },
+        data: { status: "CANCELLED" },
+      });
+    }
+    return { original, reversal };
   });
   await audit({ userId, action: "reverse", entity: "AccountTransaction", entityId: id, before: original, after: reversal, req });
   return reversal;
@@ -259,11 +283,13 @@ export interface WeeklySummary {
 
 export async function weeklySummary(userId: string, at = new Date()): Promise<WeeklySummary> {
   const { start, end } = zonedPeriod("WEEKLY", at, await userTimezone(userId));
-  const opening = await computeBalance(userId, undefined, start);
-  const rows = await prisma.accountTransaction.findMany({
-    where: { userId, occurredAt: { gte: start, lt: end } },
-    select: { type: true, amount: true, sourceTradeId: true, reversalOfId: true },
-  });
+  const [opening, rows] = await Promise.all([
+    computeBalance(userId, undefined, start),
+    prisma.accountTransaction.findMany({
+      where: { userId, occurredAt: { gte: start, lt: end } },
+      select: { type: true, amount: true, sourceTradeId: true, reversalOfId: true },
+    }),
+  ]);
 
   // net attribution: a reversal inside the window cancels its original's bucket
   const reversalIds = rows
@@ -285,6 +311,7 @@ export async function weeklySummary(userId: string, at = new Date()): Promise<We
   const bucket = (type: LedgerEntryType, amt: Decimal) => {
     switch (type) {
       case "REALIZED_PNL":
+      case "FEE":
         realizedPnl = realizedPnl.add(amt);
         break;
       case "DEPOSIT":
@@ -322,22 +349,22 @@ export async function checkMilestones(userId: string) {
   const series = await balanceSeries(userId);
   const last = series.at(-1);
   if (!last) return;
-  for (const m of project.milestones) {
-    if (!m.achievedAt && last.balance >= Number(m.amount)) {
-      await prisma.milestone.update({
-        where: { id: m.id },
-        data: { achievedAt: new Date(), balanceAtHit: last.balance.toFixed(2) },
-      });
-      await prisma.notification.create({
-        data: {
-          userId,
-          kind: "milestone",
-          title: `Milestone tercapai: ${fmtUSD0(m.amount)}`,
-          body: `Balance telah mencapai ${fmtUSD0(m.amount)}.`,
-          severity: "INFO",
-          link: "/roadmap",
-        },
-      });
-    }
-  }
+  const reached = project.milestones.filter((milestone) => !milestone.achievedAt && last.balance >= Number(milestone.amount));
+  await Promise.all(reached.map((m) => prisma.$transaction(async (tx) => {
+    const { count } = await tx.milestone.updateMany({
+      where: { id: m.id, achievedAt: null },
+      data: { achievedAt: new Date(), balanceAtHit: last.balance.toFixed(2) },
+    });
+    if (count === 0) return;
+    await tx.notification.create({
+      data: {
+        userId,
+        kind: "milestone",
+        title: `Milestone tercapai: ${fmtUSD0(m.amount)}`,
+        body: `Balance telah mencapai ${fmtUSD0(m.amount)}.`,
+        severity: "INFO",
+        link: "/roadmap",
+      },
+    });
+  })));
 }

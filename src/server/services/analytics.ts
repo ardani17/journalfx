@@ -73,13 +73,13 @@ export async function coreMetrics(
 
   for (const t of closed) {
     const pnl = D(t.realizedPnl);
-    if (pnl.isPositive()) {
+    if (pnl.gt(0)) {
       wins++;
       grossWin = grossWin.add(pnl);
       curWin++;
       curLoss = 0;
       maxWin = Math.max(maxWin, curWin);
-    } else if (pnl.isNegative()) {
+    } else if (pnl.lt(0)) {
       losses++;
       grossLoss = grossLoss.add(pnl.abs());
       curLoss++;
@@ -159,7 +159,7 @@ export async function byStrategy(userId: string): Promise<StrategyBreakdown[]> {
   for (const r of rows) {
     // recompute win rate per strategy
     const subset = trades.filter((t) => (t.strategy?.id ?? "none") === (r.strategyId ?? "none"));
-    const wins = subset.filter((t) => D(t.realizedPnl).isPositive()).length;
+    const wins = subset.filter((t) => D(t.realizedPnl).gt(0)).length;
     r.winRate = r.trades > 0 ? (wins / r.trades) * 100 : null;
   }
   return rows.sort((a, b) => b.netPnl.minus(a.netPnl).toNumber());

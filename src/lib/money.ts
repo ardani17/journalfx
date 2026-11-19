@@ -88,4 +88,12 @@ export function fmtNum(v: Decimal.Value | null | undefined, decimals = 2): strin
   return f.format(toNum(d));
 }
 
+export function fmtDecimal(value: Decimal.Value, minimumFractionDigits = 2): string {
+  const number = D(value);
+  return new Intl.NumberFormat("id-ID", {
+    minimumFractionDigits,
+    maximumFractionDigits: Math.max(minimumFractionDigits, number.decimalPlaces()),
+  }).format(number.toFixed() as `${number}`);
+}
+
 export const ZERO = new Decimal(0);

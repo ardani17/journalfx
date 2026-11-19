@@ -6,16 +6,21 @@ import { prisma } from "@/server/db";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header, MobileBottomNav } from "@/components/layout/header";
 import { AppProviders, UnreadProvider } from "@/components/providers";
-import { D } from "@/lib/money";
-import { fmtNum } from "@/lib/money";
+import { D, fmtNum } from "@/lib/money";
+import { calendarDate } from "@/lib/dates";
+
+const headerDateFormatter = new Intl.DateTimeFormat("id-ID", { dateStyle: "long", timeZone: "UTC" });
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
 
-  const project = await getDefaultProject(user.id);
-  const balances = await computeBalance(user.id);
-  const unread = await prisma.notification.count({ where: { userId: user.id, readAt: null } });
+  const [project, balances, unread] = await Promise.all([
+    getDefaultProject(user.id),
+    computeBalance(user.id),
+    prisma.notification.count({ where: { userId: user.id, readAt: null } }),
+  ]);
+  const dateLabel = headerDateFormatter.format(calendarDate(new Date(), user.timezone));
 
   const target = D(project.targetAmount);
   const progressPct = target.isZero()
@@ -31,6 +36,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <div className="flex min-h-screen flex-col lg:pl-[clamp(220px,21vw,300px)]">
             <Header
               user={{ name: user.name, email: user.email }}
+              dateLabel={dateLabel}
               progressPct={progressPct}
               progressLabel={`${progressLabel}%`}
             />
