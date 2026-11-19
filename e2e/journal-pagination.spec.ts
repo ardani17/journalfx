@@ -42,6 +42,14 @@ async function createJournal() {
         { ...trade, accountId: otherAccount.id, status: "OPEN", realizedPnl: null, exitPrice: null, exitAt: null },
       ],
     });
+    const ledger = { userId, accountId: account.id, occurredAt: new Date("2026-11-05T10:00:00Z") };
+    const feeId = `${userId}-date-fee`;
+    await tx.accountTransaction.createMany({ data: [
+      { ...ledger, type: "REALIZED_PNL", amount: 10, sourceTradeId: `${userId}-200` },
+      { ...ledger, id: feeId, type: "FEE", amount: -2, sourceTradeId: `${userId}-200` },
+      { ...ledger, type: "REALIZED_PNL", amount: 20, sourceTradeId: `${userId}-201` },
+    ] });
+    await tx.accountTransaction.create({ data: { ...ledger, type: "REVERSAL", amount: 2, reversalOfId: feeId } });
     const session = await signSession({ sub: userId, email: user.email, name: user.name });
     return { userId, account, otherAccount, fifty, fiftyOne, session };
   });
@@ -78,6 +86,7 @@ test("applies entry dates to filtered rows, pagination, and KPIs", async ({ page
   await page.getByRole("button", { name: "Terapkan" }).click();
   await expectResults(page, "1–1 dari 1", 1);
   await expect(page.getByText("Sampel kecil (1 < 30 trade)", { exact: false })).toBeVisible();
+  await expect(page.getByText("+$10,00", { exact: true })).toBeVisible();
   await expect(page.getByRole("table").getByRole("link")).toHaveAttribute("href", `/journal/${journal.userId}-200`);
   expect(new URL(page.url()).searchParams.get("page")).toBe("1");
   await page.reload();
