@@ -26,6 +26,21 @@ export function THead({ className, ...props }: HTMLAttributes<HTMLTableSectionEl
   );
 }
 
+export function TransactionTableHeader({ second, third, note }: { second: string; third: string; note: string }) {
+  return (
+    <THead>
+      <TR>
+        <TH scope="col">Waktu</TH>
+        <TH scope="col">{second}</TH>
+        <TH scope="col">{third}</TH>
+        <TH scope="col" className="text-right">Jumlah</TH>
+        <TH scope="col">{note}</TH>
+        <TH scope="col" aria-label="Tindakan" />
+      </TR>
+    </THead>
+  );
+}
+
 export function TBody({ className, ...props }: HTMLAttributes<HTMLTableSectionElement>) {
   return <tbody className={cn("divide-y divide-line-soft", className)} {...props} />;
 }

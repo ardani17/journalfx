@@ -15,7 +15,7 @@ export function Mt5SyncSection({
   accounts,
   status,
 }: {
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; currency: string }[];
   status: { lastSyncAt: string | null; lastSyncResult: string | null; stale: boolean; staleHours: number | null };
 }) {
   const router = useRouter();
@@ -75,8 +75,9 @@ export function Mt5SyncSection({
         <form onSubmit={sync} className="flex flex-wrap items-end gap-3">
           <Field label="Akun" htmlFor="m5-account" className="min-w-40">
             <Select id="m5-account" name="accountId" defaultValue={accounts[0]?.id ?? ""} required>
+              {accounts.length === 0 && <option value="">Belum ada akun trading aktif</option>}
               {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
               ))}
             </Select>
           </Field>
@@ -90,7 +91,7 @@ export function Mt5SyncSection({
               className="w-full rounded-lg border border-line bg-panel-2 px-3 py-2 text-xs text-muted file:mr-3 file:rounded-md file:border-0 file:bg-indigo-soft/20 file:px-2.5 file:py-1 file:text-xs file:text-indigo-soft"
             />
           </Field>
-          <Button type="submit" disabled={loading}>
+          <Button type="submit" disabled={loading || accounts.length === 0}>
             <Upload className="h-4 w-4" aria-hidden /> {loading ? "Menyinkronkan…" : "Sinkronkan"}
           </Button>
         </form>

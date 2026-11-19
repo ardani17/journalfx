@@ -1,10 +1,17 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { getAppOrigin, isSameOriginMutation } from "@/lib/app-origin";
 import { SESSION_COOKIE, verifySession } from "@/lib/session";
 
-const PUBLIC_PAGES = new Set(["/", "/login", "/privacy", "/terms"]);
-const PUBLIC_API = new Set(["/api/health", "/api/auth/google/start", "/api/auth/google/callback", "/api/auth/logout"]);
+const PUBLIC_PAGES = new Set([
+  "/", "/login", "/privacy", "/terms", "/manifest.webmanifest",
+  "/pwa/icon-192.png", "/pwa/icon-512.png", "/pwa/icon-maskable-512.png", "/pwa/apple-touch-icon.png",
+]);
+const PUBLIC_API = new Set([
+  "/api/health", "/api/auth/google/start", "/api/auth/google/callback", "/api/auth/logout",
+  "/api/integrations/telegram/webhook",
+]);
 
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isApi = pathname.startsWith("/api");
@@ -22,6 +29,11 @@ export async function middleware(req: NextRequest) {
     url.pathname = "/login";
     url.search = "";
     return NextResponse.redirect(url);
+  }
+
+  if (isApi && !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+      !isSameOriginMutation(req, getAppOrigin()?.origin ?? req.nextUrl.origin)) {
+    return NextResponse.json({ ok: false, error: "Permintaan tidak diizinkan." }, { status: 403 });
   }
 
   return NextResponse.next();

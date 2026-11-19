@@ -21,7 +21,8 @@ const MAX_BYTES = 5 * 1024 * 1024;
 
 function uploadRoot(): string {
   const dir = process.env.UPLOAD_DIR ?? "./uploads";
-  return path.isAbsolute(dir) ? dir : path.join(process.cwd(), dir);
+  // Attachments are runtime data stored outside the build output.
+  return path.isAbsolute(dir) ? dir : path.join(/* turbopackIgnore: true */ process.cwd(), dir);
 }
 
 export async function uploadAttachment(

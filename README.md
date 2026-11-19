@@ -54,6 +54,18 @@ npm run dev                     # http://localhost:3000
 
 Configure the Google Web OAuth client as described in the [Google sign-in and deployment guide](docs/deployment/google-sign-in.md). First sign-in creates an empty private journal. The optional demo seed is for the local `horizon_journal_google_test` database.
 
+## Shared Telegram bot
+
+Set `TELEGRAM_BOT_TOKEN` in the server environment. The app derives the webhook secret from this token. After deployment, register the public HTTPS webhook using the derived secret. Register it again after switching from a separately configured secret or rotating the bot token.
+
+```text
+node --env-file=.env scripts/register-telegram-webhook.mjs
+```
+
+In **Pengaturan → Notifikasi Telegram**, open the bot with **Temukan Chat ID**, send `/id` in your private chat, and enter the returned number. Select **Hubungkan Telegram** and press **Start** in the same chat to verify it. In staging, pair two accounts in separate private chats and check that each chat receives one test message.
+
+For local testing with a loopback `APP_ORIGIN`, run `node --env-file=.env scripts/poll-telegram-local.mjs` alongside the app. Use one poller per bot and stop it before registering an HTTPS webhook.
+
 ## Quality gates (every release)
 
 ```bash

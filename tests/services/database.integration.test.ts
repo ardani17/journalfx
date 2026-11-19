@@ -2,8 +2,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { prisma } from "@/server/db";
-import { createTrade, addExecution, getTrade, listTrades } from "@/server/services/trades";
-import { computeBalance, reverseTransaction } from "@/server/services/ledger";
+import { createTrade, addExecution, cancelTrade, getTrade, listTrades } from "@/server/services/trades";
+import { balanceSeries, computeBalance, reverseTransaction, weeklySummary } from "@/server/services/ledger";
 import { dailyPnl, coreMetrics } from "@/server/services/analytics";
 import { allocateProfit, budgetOverview, payDebt } from "@/server/services/finance";
 import { completeWithdrawal, getRecommendation, listWithdrawals, requestWithdrawal } from "@/server/services/withdrawals";
@@ -12,7 +12,7 @@ import { importStatement } from "@/server/services/imports";
 import { mt5Sync, mt5SyncStatus } from "@/server/services/mt5-sync";
 import { findOrCreateGoogleUser } from "@/server/services/users";
 import { readAttachment } from "@/server/services/attachments";
-import { getAccount, updateAccount } from "@/server/services/accounts";
+import { createAccount, deleteAccount, getAccount, updateAccount } from "@/server/services/accounts";
 
 vi.mock("@/server/services/jisdor", () => ({
   getJisdorQuote: async () => ({ rate: "18252", at: new Date().toISOString(), source: "bi-jisdor", status: "latest" }),
@@ -77,6 +77,38 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     expect((await listTrades(second.id, { limit: 10, offset: 0 })).total).toBe(0);
   });
 
+  it("protects account ownership and history while allowing account edits, deletion and reactivation", async () => {
+    const f = await fixture();
+    const other = await fixture();
+    const empty = await createAccount(f.userId, { name: "Empty QA account" });
+    await updateAccount(f.userId, empty.id, { name: "Updated QA account", broker: "Broker", accountNumber: "123", notes: "Edited" });
+    expect(await getAccount(f.userId, empty.id)).toMatchObject({ name: "Updated QA account", broker: "Broker", accountNumber: "123", notes: "Edited" });
+    await expect(deleteAccount(other.userId, empty.id)).rejects.toMatchObject({ status: 404 });
+    await deleteAccount(f.userId, empty.id);
+    await expect(getAccount(f.userId, empty.id)).rejects.toMatchObject({ status: 404 });
+
+    const funded = await createAccount(f.userId, { name: "Funded QA account", initialDeposit: 10 });
+    await expect(deleteAccount(f.userId, funded.id)).rejects.toMatchObject({ status: 409 });
+    const snapshotOnly = await createAccount(f.userId, { name: "Snapshot QA account" });
+    await prisma.equitySnapshot.create({ data: { userId: f.userId, accountId: snapshotOnly.id, at: new Date(), balance: 1, equity: 1 } });
+    await expect(deleteAccount(f.userId, snapshotOnly.id)).rejects.toMatchObject({ status: 409 });
+
+    const input = {
+      accountId: f.accountId, instrumentId, direction: "LONG" as const, lot: 0.1,
+      entryPrice: 2000, entryAt: "2026-11-01T00:00:00Z", commission: 0, swap: 0, fees: 0,
+    };
+    const trade = await createTrade(f.userId, input);
+    await updateAccount(f.userId, f.accountId, { isActive: false });
+    const report = readFileSync(new URL("../fixtures/mt5-history.xlsx", import.meta.url));
+    await expect(createTrade(f.userId, input)).rejects.toMatchObject({ status: 409 });
+    await expect(importStatement(f.userId, f.accountId, report)).rejects.toMatchObject({ status: 409 });
+    await expect(mt5Sync(f.userId, f.accountId, report)).rejects.toMatchObject({ status: 409 });
+    expect((await listTrades(f.userId, { accountId: f.accountId, limit: 10, offset: 0 })).items[0]?.id).toBe(trade.id);
+    expect((await computeBalance(f.userId, f.accountId)).balance.toNumber()).toBe(200);
+    await updateAccount(f.userId, f.accountId, { isActive: true });
+    await expect(createTrade(f.userId, input)).resolves.toMatchObject({ accountId: f.accountId });
+  });
+
   it("recognizes each partial close in its own period, including net entry costs", async () => {
     const f = await fixture();
     const trade = await createTrade(f.userId, { accountId: f.accountId, instrumentId, direction: "LONG", lot: 0.1,
@@ -109,6 +141,43 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     const budget = await budgetOverview(f.userId);
     expect(budget.funded.toNumber()).toBe(400000);
     expect(bucket.kind).toBe("LIVING");
+  });
+
+  it("imports MT5 cent positions and deals in USC and aggregates them once in USD", async () => {
+    const f = await fixture();
+    const cent = await createAccount(f.userId, { name: "Cent QA", currency: "USC" });
+    const centReport = readFileSync(new URL("../fixtures/mt5-usc.xlsx", import.meta.url));
+    const usdReport = readFileSync(new URL("../fixtures/mt5-history.xlsx", import.meta.url));
+    await expect(importStatement(f.userId, f.accountId, centReport)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/USC.*USD/) });
+    await expect(mt5Sync(f.userId, cent.id, usdReport)).rejects.toMatchObject({ status: 400, message: expect.stringMatching(/USD.*USC/) });
+    expect(await prisma.trade.count({ where: { userId: f.userId } })).toBe(0);
+    expect(await prisma.accountTransaction.count({ where: { accountId: cent.id } })).toBe(0);
+    expect(await prisma.accountTransaction.count({ where: { accountId: f.accountId } })).toBe(1);
+    expect(await prisma.withdrawal.count({ where: { userId: f.userId } })).toBe(0);
+
+    await expect(importStatement(f.userId, cent.id, centReport)).resolves.toMatchObject({
+      imported: 1, feesImported: 1, depositsImported: 1, withdrawalsImported: 1, skipped: 0,
+    });
+    await expect(mt5Sync(f.userId, cent.id, centReport)).resolves.toMatchObject({
+      imported: 0, duplicates: 1, feeDuplicates: 1, cashflowDuplicates: 2,
+    });
+    expect(await prisma.trade.count({ where: { accountId: cent.id } })).toBe(1);
+    const trade = await prisma.trade.findFirstOrThrow({ where: { accountId: cent.id } });
+    expect([trade.lot, trade.entryPrice, trade.exitPrice, trade.realizedPnl].map(String)).toEqual(["0.37", "2650.125", "2652.875", "1251.25"]);
+    const entries = await prisma.accountTransaction.findMany({ where: { accountId: cent.id } });
+    expect(entries).toHaveLength(4);
+    expect(entries.every((row) => row.currency === "USC")).toBe(true);
+    const withdrawals = await prisma.withdrawal.findMany({ where: { accountId: cent.id } });
+    expect(withdrawals.map((row) => row.amountUSD.toString())).toEqual(["1.2555"]);
+    expect((await computeBalance(f.userId, cent.id)).balance.toString()).toBe("6124.45");
+    expect((await computeBalance(f.userId)).balance.toString()).toBe("261.2445");
+    expect((await balanceSeries(f.userId)).at(-1)?.balance).toBe(261.24);
+    expect((await coreMetrics(f.userId)).netPnl.toString()).toBe("12.5");
+    expect((await coreMetrics(f.userId, { accountId: cent.id })).netPnl.toString()).toBe("1250");
+    const journal = { accountId: cent.id, from: new Date("2026-11-01T00:00:00Z"), to: new Date("2026-11-06T00:00:00Z") };
+    expect((await coreMetrics(f.userId, { accountId: cent.id, journal })).netPnl.toString()).toBe("1250");
+    expect((await weeklySummary(f.userId, new Date("2026-11-05T00:00:00Z"))).realizedPnl.toString()).toBe("12.5");
+    await expect(importStatement(f.userId, f.accountId, usdReport)).resolves.toMatchObject({ imported: 2 });
   });
 
   it("deduplicates concurrent imports and overlapping syncs while preserving the broker ledger", async () => {
@@ -168,8 +237,44 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     const flat = await addExecution(owner.userId, trade.id, { ...close, kind: "CLOSE", reportedNetPnl: "0" });
     expect(flat.trade.status).toBe("CLOSED");
     expect(flat.trade.realizedPnl?.toString()).toBe("0");
-    expect((await prisma.accountTransaction.findMany({ where: { sourceTradeId: trade.id } }))
-      .map((post) => post.amount.toString()).sort()).toEqual(["-2.25", "0", "2.25"]);
+    expect(await coreMetrics(owner.userId, { accountId: owner.accountId })).toMatchObject({ wins: 2, losses: 0, breakEven: 1 });
+    const flatEntries = await prisma.accountTransaction.findMany({ where: { sourceTradeId: trade.id } });
+    await expect(reverseTransaction(owner.userId, flatEntries[0]!.id, "Cannot reverse trade booking in isolation"))
+      .rejects.toMatchObject({ status: 400 });
+    expect(flatEntries.map((post) => post.amount.toString()).sort()).toEqual(["-2.25", "0", "2.25"]);
+  });
+
+  it("reconciles a matching open ticket with broker P&L and prevents cancel/close races", async () => {
+    const f = await fixture();
+    const report = readFileSync(new URL("../fixtures/mt5-history.xlsx", import.meta.url));
+    const instrument = await prisma.instrument.create({
+      data: { ownerId: f.userId, symbol: "US100.DEMO", name: "Temporary index", category: "custom" },
+    });
+    const open = await createTrade(f.userId, {
+      accountId: f.accountId, instrumentId: instrument.id, ticket: "9012345678901234567", direction: "LONG",
+      lot: 0.001, entryPrice: 20250.123, entryAt: "2026-11-01T08:00:00Z", commission: 0, swap: 0, fees: 0,
+    });
+    const results = await Promise.allSettled([
+      importStatement(f.userId, f.accountId, report),
+      importStatement(f.userId, f.accountId, report),
+    ]);
+    const successful = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+    expect(successful).toHaveLength(2);
+    expect(successful.reduce((total, result) => total + result.reconciled, 0)).toBe(1);
+    const stored = await getTrade(f.userId, open.id);
+    expect(stored.status).toBe("CLOSED");
+    expect(stored.realizedPnl?.toString()).toBe("9.4");
+    expect(stored.executions).toHaveLength(2);
+
+    const manual = await createTrade(f.userId, { accountId: f.accountId, instrumentId, direction: "LONG", lot: 0.1,
+      entryPrice: 2000, entryAt: "2026-11-01T00:00:00Z", commission: 0, swap: 0, fees: 0 });
+    const writes = await Promise.allSettled([
+      addExecution(f.userId, manual.id, { kind: "CLOSE", quantity: 0.1, price: 2001, commission: 0, swap: 0, fees: 0 }),
+      cancelTrade(f.userId, manual.id, "Correcting mistaken entry"),
+    ]);
+    expect(writes.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const after = await getTrade(f.userId, manual.id);
+    expect(await prisma.accountTransaction.count({ where: { sourceTradeId: manual.id } })).toBe(after.status === "CLOSED" ? 1 : 0);
   });
 
   it("deduplicates cashflow-only uploads by account and keeps imported withdrawals and reversals in sync", async () => {
@@ -182,6 +287,8 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     expect(first.depositsImported + second.depositsImported).toBe(1);
     expect(first.withdrawalsImported + second.withdrawalsImported).toBe(1);
     expect(first.cashflowDuplicates + second.cashflowDuplicates).toBe(2);
+    expect(first.feesImported + second.feesImported).toBe(1);
+    expect(first.feeDuplicates + second.feeDuplicates).toBe(1);
     expect(first.skipped + second.skipped).toBe(6);
     expect((await mt5SyncStatus(f.userId)).lastSyncAt).not.toBeNull();
 
@@ -203,13 +310,14 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     const balance = await computeBalance(f.userId, f.accountId);
     expect(balance.deposits.toString()).toBe("300");
     expect(balance.withdrawals.toString()).toBe("15");
-    expect(balance.balance.toString()).toBe("285");
+    expect(balance.balance.toString()).toBe("283.75");
+    expect(balance.fees.toString()).toBe("1.25");
     expect(balance.realizedPnl.toString()).toBe("0");
 
     await reverseTransaction(f.userId, withdrawalTxn.id, "Imported broker debit correction");
     expect(await listWithdrawals(f.userId)).toMatchObject([{ status: "CANCELLED" }]);
     const correctedBalance = await computeBalance(f.userId, f.accountId);
-    expect(correctedBalance.balance.toString()).toBe("300");
+    expect(correctedBalance.balance.toString()).toBe("298.75");
     expect(correctedBalance.withdrawals.toString()).toBe("0");
     expect(await importStatement(f.userId, f.accountId, cashflowReport)).toMatchObject({
       depositsImported: 0, withdrawalsImported: 0, cashflowDuplicates: 2,

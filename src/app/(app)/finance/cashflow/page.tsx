@@ -4,7 +4,7 @@ import { financialTotals, listFinancialTransactions } from "@/server/services/fi
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { StatCard } from "@/components/ui/stat-card";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
+import { Table, TableWrap, TBody, TD, TransactionTableHeader, TR, EmptyRow } from "@/components/ui/table";
 import { fmtIDR } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
@@ -12,6 +12,13 @@ import { CashflowActions } from "./cashflow-actions";
 import { ReverseTxButton } from "./reverse-tx-button";
 
 export const metadata = { title: "Arus Kas" };
+
+const transactionKinds = {
+  INCOME: { tone: "success", label: "Pemasukan" },
+  EXPENSE: { tone: "danger", label: "Pengeluaran" },
+  ALLOCATION: { tone: "warn", label: "Alokasi" },
+  REVERSAL: { tone: "warn", label: "Pembatalan" },
+} as const;
 
 export default async function CashflowPage() {
   const user = await requireUser();
@@ -46,9 +53,7 @@ export default async function CashflowPage() {
 
       <TableWrap>
         <Table>
-          <THead>
-            <TR><TH>Waktu</TH><TH>Jenis</TH><TH>Kategori</TH><TH className="text-right">Jumlah</TH><TH>Keterangan</TH><TH /></TR>
-          </THead>
+          <TransactionTableHeader second="Jenis" third="Kategori" note="Keterangan" />
           <TBody>
             {txs.length === 0 ? (
               <EmptyRow colSpan={6}>Belum ada transaksi keuangan pribadi.</EmptyRow>
@@ -57,9 +62,7 @@ export default async function CashflowPage() {
                 <TR key={t.id}>
                   <TD className="tnum whitespace-nowrap text-xs">{fmtDateID(t.occurredAt, "d MMM yyyy, HH:mm")}</TD>
                   <TD>
-                    {t.kind === "INCOME" ? <Badge tone="success">Pemasukan</Badge>
-                      : t.kind === "EXPENSE" ? <Badge tone="danger">Pengeluaran</Badge>
-                      : <Badge tone="warn">{t.kind === "ALLOCATION" ? "Alokasi" : "Pembatalan"}</Badge>}
+                    <Badge tone={transactionKinds[t.kind].tone}>{transactionKinds[t.kind].label}</Badge>
                     {t.reversed ? <span className="ml-1 text-xs text-muted">Dibatalkan</span> : null}
                   </TD>
                   <TD className="text-xs text-muted">{t.category?.name ?? (t.debtId ? "Hutang" : t.withdrawalId ? "WD Trading" : "—")}</TD>

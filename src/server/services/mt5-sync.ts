@@ -39,9 +39,9 @@ export async function mt5Sync(
   req?: Request,
 ) {
   const report = await importStatement(userId, accountId, bytes, req);
-  const newEntries = report.imported + report.depositsImported + report.withdrawalsImported;
-  const summary = `${report.imported} posisi baru, ${report.duplicates} duplikat posisi. ${report.depositsImported} deposit, ${report.withdrawalsImported} withdrawal, ${report.cashflowDuplicates} duplikat arus kas. ${report.skipped} baris bermasalah.`;
-  if (newEntries + report.duplicates + report.cashflowDuplicates === 0) return { ...report, summary };
+  const newEntries = report.imported + report.reconciled + report.depositsImported + report.withdrawalsImported + report.feesImported;
+  const summary = `${report.imported} posisi baru, ${report.reconciled} posisi terbuka ditutup, ${report.duplicates} duplikat posisi. ${report.depositsImported} deposit, ${report.withdrawalsImported} withdrawal, ${report.cashflowDuplicates} duplikat arus kas. ${report.feesImported} fee, ${report.feeDuplicates} duplikat fee. ${report.skipped} baris bermasalah.`;
+  if (newEntries + report.duplicates + report.cashflowDuplicates + report.feeDuplicates === 0) return { ...report, summary };
   await prisma.auditLog.create({
     data: {
       userId,
@@ -59,7 +59,7 @@ export async function mt5Sync(
         title: "Sinkronisasi riwayat MT5 selesai",
         body: summary,
         severity: "INFO",
-        link: report.imported > 0 ? "/journal" : "/transactions",
+        link: report.imported + report.reconciled > 0 ? "/journal" : "/transactions",
       },
     });
   }

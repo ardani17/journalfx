@@ -24,6 +24,7 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  agentRules: false,
   reactStrictMode: true,
   poweredByHeader: false,
   async headers() {

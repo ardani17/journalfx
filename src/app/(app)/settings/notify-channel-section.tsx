@@ -1,116 +1,171 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Bell, Send } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Field, Input } from "@/components/ui/field";
+import type { ChannelConfig } from "@/server/services/notify-channels";
 
-interface Config {
-  telegramConfigured: boolean;
-  telegramBotTokenMasked: string | null;
-  telegramChatIdMasked: string | null;
-  quietStartHour: number;
-  quietEndHour: number;
-  isActive: boolean;
+const CHANNEL_ENDPOINT = "/api/notifications/channels";
+
+async function channelRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, init);
+  const result = await response.json().catch(() => null);
+  if (!response.ok || !result?.ok) throw new Error(result?.error ?? "Permintaan Telegram gagal.");
+  return result.data;
 }
 
-export function NotifyChannelSection({ initial }: { initial: Config }) {
-  const router = useRouter();
-  const [cfg, setCfg] = useState<Config>(initial);
-  const [token, setToken] = useState("");
-  const [chatId, setChatId] = useState("");
+const testMessages: Record<string, string> = {
+  "quiet-hours": "Pesan tes ditahan selama jam tenang.",
+  inactive: "Aktifkan dan simpan pengaturan sebelum mengirim tes.",
+  "not-configured": "Hubungkan Telegram sebelum mengirim tes.",
+};
+
+export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
+  const [cfg, setCfg] = useState(initial);
+  const [chatId, setChatId] = useState(initial.telegramChatId ?? "");
+  const [link, setLink] = useState<{ url: string; expiresAt: string; chatId: string } | null>(null);
+  const [botUrl, setBotUrl] = useState<string | null>(null);
+  const [linkExpired, setLinkExpired] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [pending, setPending] = useState<"link" | "bot" | "save" | "test" | null>(null);
 
-  async function save(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  useEffect(() => {
+    if (!link) return;
+    const timer = window.setTimeout(() => setLinkExpired(true), Math.max(0, Date.parse(link.expiresAt) - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [link]);
+
+  const connection = useQuery({
+    queryKey: ["telegram-connection", link?.expiresAt],
+    queryFn: ({ signal }) => channelRequest<ChannelConfig>(CHANNEL_ENDPOINT, { signal, cache: "no-store" }),
+    enabled: link !== null && !linkExpired,
+    gcTime: 0,
+    refetchOnWindowFocus: true,
+    refetchIntervalInBackground: true,
+    refetchInterval: (query) => {
+      if (linkExpired || query.state.data?.telegramChatId === link?.chatId) return false;
+      return 2000;
+    },
+  });
+  const verifiedChatId = connection.data?.telegramChatId ?? cfg.telegramChatId;
+  const enteredChatId = chatId.trim();
+  const connected = verifiedChatId !== null && verifiedChatId === enteredChatId;
+  const awaitingConfirmation = link && verifiedChatId !== link.chatId;
+
+  async function openTelegram(chatId?: string) {
+    setPending(chatId ? "link" : "bot");
     setError(null);
     setMsg(null);
-    setLoading(true);
+    const tab = window.open("about:blank", "_blank");
+    if (tab) tab.opener = null;
     try {
-      const res = await fetch("/api/notifications/channels", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...(token ? { telegramBotToken: token } : {}),
-          ...(chatId ? { telegramChatId: chatId } : {}),
-          quietStartHour: cfg.quietStartHour,
-          quietEndHour: cfg.quietEndHour,
-          isActive: cfg.isActive,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.ok) {
-        setError(json.error ?? "Gagal menyimpan");
+      const endpoint = `${CHANNEL_ENDPOINT}/telegram-link`;
+      if (!chatId) {
+        const bot = await channelRequest<{ url: string }>(endpoint, { cache: "no-store" });
+        setBotUrl(bot.url);
+        tab?.location.replace(bot.url);
         return;
       }
-      setCfg(json.data);
-      setToken("");
-      setChatId("");
-      setMsg("Konfigurasi channel tersimpan (token hanya tersimpan di server).");
-      router.refresh();
+      const next = await channelRequest<{ url: string; expiresAt: string }>(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chatId }),
+      });
+      setLinkExpired(false);
+      setLink({ ...next, chatId });
+      tab?.location.replace(next.url);
+    } catch (error) {
+      tab?.close();
+      setError(error instanceof Error ? error.message : "Tautan Telegram gagal dibuat.");
     } finally {
-      setLoading(false);
+      setPending(null);
+    }
+  }
+
+  async function save(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setPending("save");
+    setError(null);
+    setMsg(null);
+    try {
+      const { quietStartHour, quietEndHour, isActive } = cfg;
+      const updated = await channelRequest<ChannelConfig>(CHANNEL_ENDPOINT, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ quietStartHour, quietEndHour, isActive }),
+      });
+      setCfg(updated);
+      setMsg("Pengaturan notifikasi tersimpan.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Gagal menyimpan pengaturan.");
+    } finally {
+      setPending(null);
     }
   }
 
   async function test() {
+    setPending("test");
     setError(null);
     setMsg(null);
-    setLoading(true);
     try {
-      const res = await fetch("/api/notifications/channels", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok || !json.ok) {
-        setError(json.error ?? "Tes gagal");
-        return;
-      }
-      const { direct, dispatched } = json.data;
-      setMsg(
-        direct
-          ? "Tes terkirim ke Telegram ✅"
-          : dispatched.suppressed === "quiet-hours"
-            ? "Ditahan karena jam tenang — coba di luar jam tenang, atau sesuaikan jendela."
-            : dispatched.suppressed === "not-configured"
-              ? "Channel belum lengkap — isi token & chat ID dulu."
-              : "Pengiriman gagal — periksa token/chat ID (bot harus memulai chat dengan Anda dulu).",
-      );
+      const result = await channelRequest<{ delivered: boolean; suppressed: string | null }>(CHANNEL_ENDPOINT, { method: "POST" });
+      if (result.delivered) setMsg("Pesan tes terkirim ke Telegram.");
+      else setError((result.suppressed && testMessages[result.suppressed]) || "Pesan tes gagal dikirim. Coba lagi.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Pesan tes gagal dikirim.");
     } finally {
-      setLoading(false);
+      setPending(null);
     }
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
+        <CardTitle className="flex flex-wrap items-center gap-2">
           <Bell className="h-4 w-4 text-primary" aria-hidden /> Notifikasi Telegram
-          {cfg.telegramConfigured ? (
-            cfg.isActive ? <Badge tone="success">Aktif</Badge> : <Badge tone="neutral">Nonaktif</Badge>
-          ) : (
-            <Badge tone="warn">Belum dikonfigurasi</Badge>
-          )}
+          <span aria-live="polite">
+            {connected ? <Badge tone="success">Terhubung</Badge> : <Badge tone="neutral">Belum terhubung</Badge>}
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-xs leading-relaxed text-muted">
-          Opt-in. Token bot hanya disimpan di server Anda dan tidak pernah ditampilkan kembali
-          ({cfg.telegramBotTokenMasked ?? "—"}). Notifikasi tetap muncul di dalam aplikasi;
-          Telegram adalah saluran tambahan dengan jam tenang dan anti-duplikat.
-        </p>
+        <form aria-label="Hubungkan Chat ID Telegram" className="space-y-2" onSubmit={(event) => {
+          event.preventDefault();
+          if (enteredChatId) void openTelegram(enteredChatId);
+        }}>
+          <Field label="Chat ID Telegram" htmlFor="nc-chat-id">
+            <Input id="nc-chat-id" autoComplete="off" inputMode="numeric" required
+              aria-describedby="nc-chat-id-hint" value={chatId} onChange={(event) => setChatId(event.target.value)} />
+          </Field>
+          <p id="nc-chat-id-hint" className="text-xs text-muted">Di chat pribadi bot, kirim <strong>/id</strong>, lalu masukkan angka yang dikirim bot.</p>
+          {!cfg.telegramAvailable ? (
+            <p className="text-xs text-muted">Bot Telegram belum tersedia.</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="secondary" onClick={() => openTelegram()} disabled={pending !== null}>
+                {pending === "bot" ? "Membuka bot…" : "Temukan Chat ID"}
+              </Button>
+              <Button type="submit" variant="secondary" disabled={pending !== null || connected || !enteredChatId}>
+                {pending === "link" ? "Membuat tautan…" : linkExpired && awaitingConfirmation ? "Buat Tautan Baru" : "Hubungkan Telegram"}
+              </Button>
+              {botUrl ? <a className="text-xs text-primary underline" href={botUrl} target="_blank" rel="noreferrer">Buka chat bot</a> : null}
+            </div>
+          )}
+          {awaitingConfirmation && (linkExpired ? (
+              <p className="text-xs text-muted" role="status">Tautan kedaluwarsa. Buat tautan baru untuk melanjutkan.</p>
+            ) : (
+              <p className="text-xs text-muted" role="status">
+                Tekan <strong>Start</strong> di chat pribadi bot untuk memverifikasi ID {link.chatId}.{" "}
+                <a className="text-primary underline" href={link.url} target="_blank" rel="noreferrer">Buka Telegram</a>
+              </p>
+          ))}
+        </form>
         <form onSubmit={save} className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Bot Token" htmlFor="nc-token" hint={cfg.telegramBotTokenMasked ? `Tersimpan: ${cfg.telegramBotTokenMasked}` : "@BotFather"}>
-              <Input id="nc-token" value={token} onChange={(e) => setToken(e.target.value)} placeholder="123456:ABC-DEF..." autoComplete="off" />
-            </Field>
-            <Field label="Chat ID" htmlFor="nc-chat" hint={cfg.telegramChatIdMasked ? `Tersimpan: ${cfg.telegramChatIdMasked}` : "kirim /start ke bot Anda"}>
-              <Input id="nc-chat" value={chatId} onChange={(e) => setChatId(e.target.value)} placeholder="123456789" autoComplete="off" />
-            </Field>
-          </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Jam Tenang Mulai" htmlFor="nc-qs">
               <Input id="nc-qs" type="number" min="0" max="23" value={cfg.quietStartHour} onChange={(e) => setCfg({ ...cfg, quietStartHour: Number(e.target.value) })} />
@@ -121,14 +176,14 @@ export function NotifyChannelSection({ initial }: { initial: Config }) {
             <div className="flex items-end">
               <label className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-line-soft bg-panel-2/50 px-3 py-2.5 text-xs text-muted">
                 <input type="checkbox" checked={cfg.isActive} onChange={(e) => setCfg({ ...cfg, isActive: e.target.checked })} className="h-4 w-4 accent-[#22e69a]" />
-                Aktifkan channel
+                Aktifkan notifikasi Telegram
               </label>
             </div>
           </div>
-          <div className="flex gap-2">
-            <Button type="submit" disabled={loading}>{loading ? "Menyimpan…" : "Simpan Channel"}</Button>
-            <Button variant="secondary" type="button" onClick={test} disabled={loading || !cfg.telegramConfigured}>
-              <Send className="h-4 w-4" aria-hidden /> Kirim Tes
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" disabled={pending !== null}>{pending === "save" ? "Menyimpan…" : "Simpan Pengaturan"}</Button>
+            <Button variant="secondary" type="button" onClick={test} disabled={pending !== null || !connected || !cfg.telegramAvailable}>
+              <Send className="h-4 w-4" aria-hidden /> {pending === "test" ? "Mengirim…" : "Kirim Tes"}
             </Button>
           </div>
         </form>

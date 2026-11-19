@@ -1,9 +1,11 @@
+import type { CompoundingScenario } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
 import { getDefaultProject } from "./projects";
 import { simulate, type SimulateInput, type SimulateResult } from "@/lib/finance/compounding";
 import { D, Decimal } from "@/lib/money";
+import { scenarioSchema } from "@/lib/validation/planning";
 
 export interface ScenarioInput {
   name: string;
@@ -20,11 +22,56 @@ export interface ScenarioInput {
   notes?: string;
 }
 
+type ScenarioNumbers = "initialCapital" | "targetAmount" | "returnPerCycle" | "fixedWdAmount" | "wdRatio" | "costPerCycle";
+type SimulationParameters = Omit<ScenarioInput, ScenarioNumbers | "name"> & {
+  initialCapital: Decimal.Value;
+  targetAmount: Decimal.Value;
+  returnPerCycle: Decimal.Value;
+  fixedWdAmount?: Decimal.Value;
+  wdRatio?: Decimal.Value;
+  costPerCycle?: Decimal.Value;
+  name?: string;
+};
+
 export async function listScenarios(userId: string) {
   return prisma.compoundingScenario.findMany({
     where: { userId },
     orderBy: { updatedAt: "desc" },
   });
+}
+
+export function getScenario(userId: string, id: string) {
+  return prisma.compoundingScenario.findFirst({ where: { id, userId } });
+}
+
+export function savedScenarioParameters(scenario: CompoundingScenario) {
+  return {
+    initialCapital: scenario.initialCapital.toString(),
+    targetAmount: scenario.targetAmount.toString(),
+    returnPerCycle: scenario.returnPerCycle.toString(),
+    frequency: scenario.frequency,
+    wdMode: scenario.wdMode,
+    fixedWdAmount: scenario.fixedWdAmount?.toString(),
+    wdRatio: scenario.wdRatio?.toString(),
+    costPerCycle: scenario.costPerCycle.toString(),
+    deposits: scenarioSchema.shape.deposits.safeParse(scenario.deposits).data,
+    stressReturns: scenarioSchema.shape.stressReturns.safeParse(scenario.stressReturns).data,
+  };
+}
+
+function scenarioDecimals(input: SimulationParameters) {
+  return {
+    initialCapital: D(input.initialCapital).toDecimalPlaces(2),
+    targetAmount: D(input.targetAmount).toDecimalPlaces(2),
+    returnPerCycle: D(input.returnPerCycle).toDecimalPlaces(4),
+    fixedWdAmount: input.fixedWdAmount === undefined ? null : D(input.fixedWdAmount).toDecimalPlaces(2),
+    wdRatio: input.wdRatio === undefined ? null : D(input.wdRatio).toDecimalPlaces(4),
+    costPerCycle: D(input.costPerCycle).toDecimalPlaces(2),
+  };
+}
+
+function cycleSchedule(schedule?: Record<string, number>) {
+  if (schedule) return Object.fromEntries(Object.entries(schedule).map(([cycle, value]) => [Number(cycle), value]));
 }
 
 export async function createScenario(userId: string, input: ScenarioInput, req?: Request) {
@@ -34,16 +81,11 @@ export async function createScenario(userId: string, input: ScenarioInput, req?:
       userId,
       projectId: project.id,
       name: input.name,
-      initialCapital: new Decimal(input.initialCapital),
-      targetAmount: new Decimal(input.targetAmount),
-      returnPerCycle: new Decimal(input.returnPerCycle),
+      ...scenarioDecimals(input),
       frequency: input.frequency,
       wdMode: input.wdMode,
-      fixedWdAmount: input.fixedWdAmount !== undefined ? new Decimal(input.fixedWdAmount) : null,
-      wdRatio: input.wdRatio !== undefined ? new Decimal(input.wdRatio) : null,
-      costPerCycle: new Decimal(input.costPerCycle ?? 0),
-      deposits: (input.deposits ?? undefined) as object | undefined,
-      stressReturns: (input.stressReturns ?? undefined) as object | undefined,
+      deposits: input.deposits,
+      stressReturns: input.stressReturns,
       notes: input.notes ?? null,
     },
   });
@@ -51,59 +93,52 @@ export async function createScenario(userId: string, input: ScenarioInput, req?:
   return s;
 }
 
-export async function deleteScenario(userId: string, id: string, req?: Request) {
-  const s = await prisma.compoundingScenario.findFirst({ where: { id, userId } });
-  if (!s) throw new ApiError(404, "Skenario tidak ditemukan");
-  await prisma.compoundingScenario.delete({ where: { id } });
-  await audit({ userId, action: "delete", entity: "CompoundingScenario", entityId: id, req });
-}
-
 /** Run any scenario-shaped input through the deterministic engine. */
 export function runSimulation(
-  input: Omit<ScenarioInput, "name"> & { name?: string },
+  input: SimulationParameters,
 ): {
   input: SimulateInput;
   result: SimulateResult;
 } {
-  const sc = input;
+  const amounts = scenarioDecimals(input);
   const simInput: SimulateInput = {
-    initialCapital: sc.initialCapital,
-    target: sc.targetAmount,
-    returnPerCyclePct: sc.returnPerCycle,
-    wdMode: sc.wdMode,
-    ...(sc.wdRatio !== undefined ? { wdRatioPct: sc.wdRatio } : {}),
-    ...(sc.fixedWdAmount !== undefined ? { fixedWdAmount: sc.fixedWdAmount } : {}),
-    costPerCycle: sc.costPerCycle ?? 0,
-    ...(sc.deposits
-      ? { deposits: Object.fromEntries(Object.entries(sc.deposits).map(([k, v]) => [Number(k), v])) }
-      : {}),
-    ...(sc.stressReturns
-      ? {
-          stressReturns: Object.fromEntries(
-            Object.entries(sc.stressReturns).map(([k, v]) => [Number(k), v]),
-          ),
-        }
-      : {}),
+    initialCapital: amounts.initialCapital,
+    target: amounts.targetAmount,
+    returnPerCyclePct: amounts.returnPerCycle,
+    wdMode: input.wdMode,
+    wdRatioPct: amounts.wdRatio ?? undefined,
+    fixedWdAmount: amounts.fixedWdAmount ?? undefined,
+    costPerCycle: amounts.costPerCycle,
+    deposits: cycleSchedule(input.deposits),
+    stressReturns: cycleSchedule(input.stressReturns),
     maxCycles: 2000,
   };
   return { input: simInput, result: simulate(simInput) };
 }
 
-export async function getRoadmap(userId: string) {
-  const project = await getDefaultProject(userId);
+export async function runSavedSimulation(userId: string, id: string) {
+  const scenario = await getScenario(userId, id);
+  if (!scenario) throw new ApiError(404, "Skenario tidak ditemukan");
+  return runSimulation(savedScenarioParameters(scenario)).result;
+}
+
+export function simulationResponse(result: SimulateResult) {
   return {
-    project: {
-      name: project.name,
-      initialCapital: D(project.initialCapital),
-      targetAmount: D(project.targetAmount),
-    },
-    milestones: project.milestones.map((m) => ({
-      id: m.id,
-      order: m.order,
-      amount: D(m.amount),
-      label: m.label,
-      achievedAt: m.achievedAt,
-      balanceAtHit: m.balanceAtHit ? D(m.balanceAtHit) : null,
+    cyclesCount: result.cyclesCount,
+    reached: result.reached,
+    targetNotReached: result.targetNotReached,
+    finalBalance: result.finalBalance.toString(),
+    totalWd: result.totalWd.toString(),
+    totalProfit: result.totalProfit.toString(),
+    totalDeposits: result.totalDeposits.toString(),
+    series: result.cycles.slice(0, 400).map((c) => ({
+      cycle: c.cycle,
+      opening: Number(c.opening.toFixed(2)),
+      closing: Number(c.closing.toFixed(2)),
+      wd: Number(c.wd.toFixed(2)),
     })),
+    cycles: result.cycles,
+    firstCycles: result.cycles.slice(0, 12),
+    lastCycle: result.cycles.at(-1) ?? null,
   };
 }

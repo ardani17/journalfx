@@ -1,6 +1,7 @@
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
+import { tradingAmountToUsd } from "@/lib/money";
 
 /** Economic calendar (v1.3.0): manual + CSV entry; timestamps UTC. */
 export async function listEvents(userId: string, opts?: { from?: Date; to?: Date }) {
@@ -51,21 +52,30 @@ export async function eventsAround(userId: string, at: Date, windowMinutes = 120
 
 /** Explainable journal insights from the user's own trades. */
 export async function buildInsights(userId: string) {
-  const trades = await prisma.trade.findMany({
-    where: { userId },
-    orderBy: { entryAt: "asc" },
-    include: { journal: true },
-  });
-  const { journalInsights } = await import("@/lib/finance/insights");
+  const [trades, { journalInsights }] = await Promise.all([
+    prisma.trade.findMany({
+      where: { userId },
+      orderBy: { entryAt: "asc" },
+      include: { journal: true, account: { select: { currency: true } } },
+    }),
+    import("@/lib/finance/insights"),
+  ]);
   type InsightTrade = import("@/lib/finance/insights").InsightTrade;
   let prevLoss = false;
   const mapped: InsightTrade[] = trades.map((tr) => {
     const j = tr.journal;
+    const hasJournalContent = Boolean(j && (
+      [j.marketContext, j.entryReason, j.exitReason, j.emotionBefore, j.emotionDuring, j.emotionAfter, j.lessons, j.improvement]
+        .some((field) => field?.trim()) ||
+      j.confidence !== null || j.stressLevel !== null || j.compliant !== null ||
+      j.fomo || j.revenge || j.overtrading || j.mistakes.length || j.tags.length ||
+      [j.preChecklist, j.postChecklist].some((value) => value && Object.keys(value).length)
+    ));
     const item: InsightTrade = {
       session: tr.session,
       timeframe: tr.timeframe,
       direction: tr.direction,
-      realizedPnl: tr.realizedPnl ? Number(tr.realizedPnl) : null,
+      realizedPnl: tr.realizedPnl === null ? null : tradingAmountToUsd(tr.realizedPnl, tr.account.currency).toNumber(),
       actualR: tr.actualR ? Number(tr.actualR) : null,
       initialStopLoss: tr.initialStopLoss ? Number(tr.initialStopLoss) : null,
       entryAt: tr.entryAt.toISOString(),
@@ -74,6 +84,7 @@ export async function buildInsights(userId: string) {
       revenge: j?.revenge ?? false,
       overtrading: j?.overtrading ?? false,
       mistakes: j?.mistakes ?? [],
+      hasJournalContent,
       journalComplete: Boolean(j && j.marketContext && j.entryReason && (j.lessons || j.postChecklist)),
       prevTradeLoss: prevLoss,
     };

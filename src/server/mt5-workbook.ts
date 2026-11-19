@@ -86,6 +86,7 @@ export async function* readWorkbookSheets(bytes: Buffer) {
     for (const sheet of workbook.sheets.sheet) {
       const rel = relationships.find((item) => item["@_Id"] === sheet["@_r:id"] && item["@_Type"].endsWith("/worksheet"));
       if (!rel) continue;
+      // oxlint-disable-next-line react-doctor/async-await-in-loop -- Stream one sheet at a time under the shared XML budget.
       const { worksheet } = await readXml<XmlWorksheet>(targetPath(rel["@_Target"]));
       const rows = (worksheet?.sheetData?.row ?? []).map((row, index): WorkbookRow => {
         const cells = new Map<string, string>();

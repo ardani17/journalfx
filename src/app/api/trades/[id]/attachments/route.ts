@@ -1,6 +1,6 @@
 import { requireUser } from "@/server/auth";
 import { uploadAttachment } from "@/server/services/attachments";
-import { handleRouteError, ok, ApiError } from "@/lib/api";
+import { handleRouteError, ok, ApiError, parseUploadForm } from "@/lib/api";
 
 const KINDS = new Set(["BEFORE", "ENTRY", "DURING", "EXIT"]);
 
@@ -8,7 +8,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   try {
     const user = await requireUser();
     const { id } = await params;
-    const form = await req.formData();
+    const form = await parseUploadForm(req);
     const file = form.get("file");
     const kind = String(form.get("kind") ?? "ENTRY");
     if (!(file instanceof File)) throw new ApiError(400, "Field 'file' wajib berupa file");

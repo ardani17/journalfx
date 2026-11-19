@@ -13,11 +13,10 @@ import {
   TableWrap,
   TBody,
   TD,
-  THead,
-  TH,
+  TransactionTableHeader,
   TR,
 } from "@/components/ui/table";
-import { fmtUSD } from "@/lib/money";
+import { D, fmtTradingMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 interface Row {
@@ -25,11 +24,12 @@ interface Row {
   accountId: string;
   accountName: string;
   type: string;
-  amount: number;
+  amount: string;
+  currency: string;
   occurredAt: string;
   note: string | null;
   mt5DealId: string | null;
-  reversalOfId: string | null;
+  canReverse: boolean;
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -48,7 +48,7 @@ export function TransactionsClient({
   activeType,
   activeAccountId,
 }: {
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; currency: string }[];
   rows: Row[];
   total: number;
   activeType: string;
@@ -56,9 +56,12 @@ export function TransactionsClient({
 }) {
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
+  const [transactionType, setTransactionType] = useState("DEPOSIT");
   const [reverseId, setReverseId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [accountId, setAccountId] = useState("");
+  const selectedAccount = accounts.find((account) => account.id === accountId) ?? accounts[0];
 
   async function create(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -66,6 +69,7 @@ export function TransactionsClient({
     setLoading(true);
     const fd = new FormData(e.currentTarget);
     try {
+      const occurredAt = fd.get("occurredAt");
       const res = await fetch("/api/transactions", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -73,7 +77,7 @@ export function TransactionsClient({
           accountId: fd.get("accountId"),
           type: fd.get("type"),
           amount: fd.get("amount"),
-          occurredAt: fd.get("occurredAt") || undefined,
+          occurredAt: occurredAt ? new Date(String(occurredAt)).toISOString() : undefined,
           note: fd.get("note") || undefined,
         }),
       });
@@ -161,16 +165,7 @@ export function TransactionsClient({
 
       <TableWrap>
         <Table>
-          <THead>
-            <TR>
-              <TH>Waktu</TH>
-              <TH>Akun</TH>
-              <TH>Tipe</TH>
-              <TH className="text-right">Jumlah</TH>
-              <TH>Catatan</TH>
-              <TH />
-            </TR>
-          </THead>
+          <TransactionTableHeader second="Akun" third="Tipe" note="Catatan" />
           <TBody>
             {rows.length === 0 ? (
               <EmptyRow colSpan={6}>Belum ada transaksi. Catat deposit pertama Anda.</EmptyRow>
@@ -191,17 +186,17 @@ export function TransactionsClient({
                   <TD
                     className={cn(
                       "tnum text-right font-semibold",
-                      r.amount >= 0 ? "text-primary" : "text-loss",
+                      D(r.amount).gte(0) ? "text-primary" : "text-loss",
                     )}
                   >
-                    {r.amount >= 0 ? "+" : ""}
-                    {fmtUSD(r.amount)}
+                    {D(r.amount).gte(0) ? "+" : ""}
+                    {fmtTradingMoney(r.amount, r.currency)}
                   </TD>
                   <TD className="max-w-64 truncate text-xs text-muted">
                     {r.mt5DealId ? "MT5 · " + (r.note ?? r.mt5DealId) : r.note ?? "—"}
                   </TD>
                   <TD className="text-right">
-                    {r.type !== "REVERSAL" && !r.reversalOfId ? (
+                    {r.canReverse ? (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -223,29 +218,29 @@ export function TransactionsClient({
       <Dialog open={createOpen} onClose={() => setCreateOpen(false)} title="Catat Transaksi Manual">
         <form onSubmit={create} className="space-y-3">
           <Field label="Akun" htmlFor="tx-account">
-            <Select id="tx-account" name="accountId" required defaultValue={accounts[0]?.id ?? ""}>
+            <Select id="tx-account" name="accountId" required value={selectedAccount?.id ?? ""} onChange={(event) => setAccountId(event.target.value)}>
               {accounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
               ))}
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Tipe" htmlFor="tx-type">
-              <Select id="tx-type" name="type" required defaultValue="DEPOSIT">
+              <Select id="tx-type" name="type" required value={transactionType} onChange={(event) => setTransactionType(event.target.value)}>
                 <option value="DEPOSIT">Deposit</option>
                 <option value="WITHDRAWAL">Withdrawal</option>
                 <option value="ADJUSTMENT">Adjustment</option>
               </Select>
             </Field>
-            <Field label="Jumlah (USD)" htmlFor="tx-amount">
-              <Input id="tx-amount" name="amount" type="number" step="0.01" min="0.01" required />
+            <Field label={`Jumlah (${selectedAccount?.currency ?? "USD"})`} htmlFor="tx-amount">
+              <Input id="tx-amount" name="amount" type="number" step="0.01" min={transactionType === "ADJUSTMENT" ? undefined : "0.01"} required />
             </Field>
           </div>
           <Field label="Waktu" htmlFor="tx-date" hint="Kosongkan untuk waktu sekarang">
             <Input id="tx-date" name="occurredAt" type="datetime-local" />
           </Field>
           <Field label="Catatan" htmlFor="tx-note">
-            <Textarea id="tx-note" name="note" rows={2} placeholder="Wajib untuk adjustment" />
+            <Textarea id="tx-note" name="note" rows={2} placeholder="Wajib untuk adjustment" required={transactionType === "ADJUSTMENT"} />
           </Field>
           {error ? <p className="text-xs text-loss" role="alert">{error}</p> : null}
           <div className="flex justify-end gap-2 pt-1">

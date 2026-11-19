@@ -1,4 +1,4 @@
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, usdToTradingAmount } from "@/lib/money";
 
 /**
  * Trade pricing engine — pure functions, decimal arithmetic, no IO.
@@ -25,6 +25,7 @@ export interface ExecutionLike {
 
 export interface InstrumentSpec {
   contractSize: Decimal | number | string;
+  accountCurrency?: string;
 }
 
 export interface CloseResult {
@@ -73,7 +74,7 @@ export function closePnl(
     .times(D(spec.contractSize))
     .times(q)
     .times(dirSign(direction));
-  return gross.minus(executionCosts(close));
+  return usdToTradingAmount(gross, spec.accountCurrency ?? "USD").minus(executionCosts(close));
 }
 
 /**

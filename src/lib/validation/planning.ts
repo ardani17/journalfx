@@ -1,15 +1,17 @@
 import { z } from "zod";
 
+const numericInput = z.union([z.number(), z.string().trim().min(1)]).pipe(z.coerce.number<number | string>());
+
 export const scenarioSchema = z.object({
   name: z.string().trim().min(2, "Nama skenario minimal 2 karakter").max(80),
-  initialCapital: z.coerce.number().positive(),
-  targetAmount: z.coerce.number().positive(),
-  returnPerCycle: z.coerce.number().min(-100).max(100), // percent, negative allowed for stress
+  initialCapital: numericInput.pipe(z.number().min(0.01)),
+  targetAmount: numericInput.pipe(z.number().min(0.01)),
+  returnPerCycle: numericInput.pipe(z.number().min(-100).max(100)),
   frequency: z.enum(["DAILY", "WEEKLY", "MONTHLY"]).default("WEEKLY"),
   wdMode: z.enum(["NONE", "FIXED", "DYNAMIC"]).default("DYNAMIC"),
-  fixedWdAmount: z.coerce.number().min(0).optional(),
-  wdRatio: z.coerce.number().min(0).max(100).optional(),
-  costPerCycle: z.coerce.number().min(0).default(0),
+  fixedWdAmount: numericInput.pipe(z.number().min(0)).optional(),
+  wdRatio: numericInput.pipe(z.number().min(0).max(100)).optional(),
+  costPerCycle: numericInput.pipe(z.number().min(0)).default(0),
   deposits: z.record(z.string(), z.coerce.number()).optional(),
   stressReturns: z.record(z.string(), z.coerce.number()).optional(),
   notes: z.string().trim().max(500).optional(),

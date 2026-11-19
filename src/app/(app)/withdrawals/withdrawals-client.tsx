@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Field, Input, Textarea, Select } from "@/components/ui/field";
-import { Dialog } from "@/components/ui/misc";
+import { Dialog, MutationForm } from "@/components/ui/misc";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
 import { D, fmtIDR, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { fmtDateID } from "@/lib/dates";
@@ -104,10 +104,10 @@ export function WithdrawalsClient(props: Props) {
               <p key={w} className="rounded-lg border border-warn/30 bg-warn/10 px-2.5 py-1.5 text-[11px] text-warn">⚠ {w}</p>
             ))}
             <div className="flex gap-2">
-              <Button onClick={() => { setAmountUsd(rec.toFixed(2)); setWdOpen(true); }} disabled={loading || rec.lte(0)}>
+              <Button onClick={() => { setError(null); setAmountUsd(rec.toFixed(2)); setWdOpen(true); }} disabled={loading || rec.lte(0)}>
                 <Wallet className="h-4 w-4" aria-hidden /> Ajukan WD
               </Button>
-              <Button variant="purple" onClick={() => setRuleOpen(true)}>
+              <Button variant="purple" onClick={() => { setError(null); setRuleOpen(true); }}>
                 <Pencil className="h-4 w-4" aria-hidden /> Edit Aturan
               </Button>
             </div>
@@ -166,7 +166,7 @@ export function WithdrawalsClient(props: Props) {
                   <TD className="text-right">
                     {w.status === "REQUESTED" || w.status === "RECOMMENDED" ? (
                       <span className="flex justify-end gap-1">
-                        <Button variant="secondary" size="sm" onClick={() => setCompleteId(w.id)}>
+                        <Button variant="secondary" size="sm" onClick={() => { setError(null); setCompleteId(w.id); }}>
                           <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> Selesai
                         </Button>
                         <Button variant="danger" size="sm" onClick={() => call(`/api/withdrawals/${w.id}/cancel`, "POST")} aria-label="Batalkan">
@@ -189,10 +189,8 @@ export function WithdrawalsClient(props: Props) {
 
       {/* Rules dialog */}
       <Dialog open={ruleOpen} onClose={() => setRuleOpen(false)} title="Edit Aturan WD Dinamis">
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const fd = new FormData(e.currentTarget);
+        <MutationForm
+          action={async (fd) => {
             const okDone = await call("/api/withdrawals/rules", "PUT", {
               maxWdRatio: fd.get("maxWdRatio"),
               needsTargetIdr: fd.get("needsTargetIdr") || null,
@@ -214,19 +212,18 @@ export function WithdrawalsClient(props: Props) {
           <Field label="Reserve Kas (USD)" htmlFor="wr-reserve" hint="Balance minimum yang harus tersisa">
             <Input id="wr-reserve" name="reserveUsd" type="number" min="0" step="0.01" defaultValue={Number(props.rule.reserveUsd)} required />
           </Field>
+          <WithdrawalError error={error} />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" type="button" onClick={() => setRuleOpen(false)}>Batal</Button>
             <Button type="submit" disabled={loading}>Simpan Aturan</Button>
           </div>
-        </form>
+        </MutationForm>
       </Dialog>
 
       {/* Request dialog */}
       <Dialog open={wdOpen} onClose={() => setWdOpen(false)} title="Ajukan Withdrawal">
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
-            const fd = new FormData(e.currentTarget);
+        <MutationForm
+          action={async (fd) => {
             const done = await call("/api/withdrawals", "POST", {
               amountUsd: fd.get("amountUsd"),
               accountId: fd.get("accountId"),
@@ -253,20 +250,19 @@ export function WithdrawalsClient(props: Props) {
           <Field label="Catatan" htmlFor="wd-note">
             <Textarea id="wd-note" name="note" rows={2} />
           </Field>
+          <WithdrawalError error={error} />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" type="button" onClick={() => setWdOpen(false)}>Batal</Button>
             <Button type="submit" disabled={loading}>Ajukan</Button>
           </div>
-        </form>
+        </MutationForm>
       </Dialog>
 
       {/* Complete dialog */}
       <Dialog open={completeId !== null} onClose={() => setCompleteId(null)} title="Selesaikan WD — Rekonsiliasi">
-        <form
-          onSubmit={async (e) => {
-            e.preventDefault();
+        <MutationForm
+          action={async (fd) => {
             if (!completeId) return;
-            const fd = new FormData(e.currentTarget);
             const done = await call(`/api/withdrawals/${completeId}/complete`, "POST", {
               fxRate: fd.get("fxRate"),
               receivedAmount: fd.get("receivedAmount"),
@@ -296,14 +292,19 @@ export function WithdrawalsClient(props: Props) {
           <Field label="Catatan" htmlFor="wc-note">
             <Textarea id="wc-note" name="note" rows={2} placeholder="no. referensi broker/bank" />
           </Field>
+          <WithdrawalError error={error} />
           <div className="flex justify-end gap-2">
             <Button variant="secondary" type="button" onClick={() => setCompleteId(null)}>Batal</Button>
             <Button type="submit" disabled={loading}>Selesaikan</Button>
           </div>
-        </form>
+        </MutationForm>
       </Dialog>
     </>
   );
+}
+
+function WithdrawalError({ error }: { error: string | null }) {
+  return error ? <p className="text-xs text-loss" role="alert">{error}</p> : null;
 }
 
 function Row({ label, value, strong, tone }: { label: string; value: string; strong?: boolean; tone?: "pos" | "neg" }) {

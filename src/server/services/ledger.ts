@@ -3,7 +3,7 @@ import { Prisma, type LedgerEntryType } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
-import { D, Decimal, fmtUSD0 } from "@/lib/money";
+import { D, Decimal, fmtUSD0, tradingAmountToUsd } from "@/lib/money";
 import { startOfUTCDay, zonedPeriod } from "@/lib/dates";
 import type { CreateTransactionInput } from "@/lib/validation/ledger";
 
@@ -53,6 +53,15 @@ export async function attributedLedger(userId: string) {
   });
 }
 
+export function canReverseLedgerEntry(entry: {
+  type: LedgerEntryType;
+  sourceTradeId: string | null;
+  withdrawalId: string | null;
+  mt5DealId: string | null;
+}) {
+  return entry.type !== "REVERSAL" && !entry.sourceTradeId && (!entry.withdrawalId || Boolean(entry.mt5DealId));
+}
+
 export async function listTransactions(userId: string, filter: TransactionFilter) {
   const where: Prisma.AccountTransactionWhereInput = {
     userId,
@@ -73,7 +82,10 @@ export async function listTransactions(userId: string, filter: TransactionFilter
       orderBy: [{ occurredAt: "desc" }, { createdAt: "desc" }],
       take: filter.limit ?? 100,
       skip: filter.offset ?? 0,
-      include: { account: { select: { id: true, name: true } } },
+      include: {
+        account: { select: { id: true, name: true } },
+        reversals: { select: { id: true }, take: 1 },
+      },
     }),
     prisma.accountTransaction.count({ where }),
   ]);
@@ -96,7 +108,8 @@ export async function createManualTransaction(
       userId,
       accountId: account.id,
       type: input.type,
-      amount: input.type === "WITHDRAWAL" ? amount.neg() : input.type === "ADJUSTMENT" ? amount : amount,
+      amount: signedAmount(input.type, amount),
+      currency: account.currency,
       occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date(),
       note: input.note || null,
     },
@@ -111,7 +124,9 @@ export async function reverseTransaction(userId: string, id: string, reason: str
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
     const original = await tx.accountTransaction.findFirst({ where: { id, userId } });
     if (!original) throw new ApiError(404, "Transaksi tidak ditemukan");
-    if (original.type === "REVERSAL") throw new ApiError(400, "Transaksi reversal tidak dapat dibatalkan lagi");
+    if (!canReverseLedgerEntry(original)) {
+      throw new ApiError(400, "Entri ini tidak dapat dibatalkan langsung melalui ledger");
+    }
     const already = await tx.accountTransaction.findUnique({ where: { reversalOfId: id } });
     if (already) throw new ApiError(400, "Transaksi ini sudah dibatalkan sebelumnya");
 
@@ -121,6 +136,7 @@ export async function reverseTransaction(userId: string, id: string, reason: str
         accountId: original.accountId,
         type: "REVERSAL",
         amount: original.amount.neg(),
+        currency: original.currency,
         occurredAt: new Date(),
         note: `Pembatalan: ${reason}`,
         reversalOfId: original.id,
@@ -147,7 +163,7 @@ export interface AccountBalance {
   balance: Decimal;
 }
 
-/** Aggregate ledger for one account (or all user accounts when accountId omitted). */
+/** Aggregate in the account currency, or in USD across all accounts. */
 export async function computeBalance(userId: string, accountId?: string, upTo?: Date): Promise<AccountBalance> {
   const rows = await prisma.accountTransaction.findMany({
     where: {
@@ -155,7 +171,7 @@ export async function computeBalance(userId: string, accountId?: string, upTo?: 
       ...(accountId ? { accountId } : {}),
       ...(upTo ? { occurredAt: { lt: upTo } } : {}),
     },
-    select: { type: true, amount: true, reversalOfId: true },
+    select: { type: true, amount: true, currency: true, reversalOfId: true },
   });
 
   // Reversals cancel their original's bucket contribution (net, not gross):
@@ -203,7 +219,7 @@ export async function computeBalance(userId: string, accountId?: string, upTo?: 
   };
 
   for (const r of rows) {
-    const amt = D(r.amount);
+    const amt = accountId ? D(r.amount) : tradingAmountToUsd(r.amount, r.currency);
     acc.balance = acc.balance.add(amt);
     if (r.type === "REVERSAL") {
       const originalType = r.reversalOfId ? typeById.get(r.reversalOfId) : undefined;
@@ -240,14 +256,15 @@ export async function balanceSeries(
         : {}),
     },
     orderBy: { occurredAt: "asc" },
-    select: { occurredAt: true, amount: true },
+    select: { occurredAt: true, amount: true, currency: true },
   });
   if (rows.length === 0) return [];
 
   const byDay = new Map<string, Decimal>();
   for (const r of rows) {
     const key = startOfUTCDay(r.occurredAt).toISOString().slice(0, 10);
-    byDay.set(key, (byDay.get(key) ?? new Decimal(0)).add(D(r.amount)));
+    const amount = accountId ? D(r.amount) : tradingAmountToUsd(r.amount, r.currency);
+    byDay.set(key, (byDay.get(key) ?? new Decimal(0)).add(amount));
   }
   const days = [...byDay.keys()].sort();
   let running = new Decimal(0);
@@ -269,11 +286,13 @@ export interface WeeklySummary {
 
 export async function weeklySummary(userId: string, at = new Date()): Promise<WeeklySummary> {
   const { start, end } = zonedPeriod("WEEKLY", at, await userTimezone(userId));
-  const opening = await computeBalance(userId, undefined, start);
-  const rows = await prisma.accountTransaction.findMany({
-    where: { userId, occurredAt: { gte: start, lt: end } },
-    select: { type: true, amount: true, sourceTradeId: true, reversalOfId: true },
-  });
+  const [opening, rows] = await Promise.all([
+    computeBalance(userId, undefined, start),
+    prisma.accountTransaction.findMany({
+      where: { userId, occurredAt: { gte: start, lt: end } },
+      select: { type: true, amount: true, currency: true, sourceTradeId: true, reversalOfId: true },
+    }),
+  ]);
 
   // net attribution: a reversal inside the window cancels its original's bucket
   const reversalIds = rows
@@ -295,6 +314,7 @@ export async function weeklySummary(userId: string, at = new Date()): Promise<We
   const bucket = (type: LedgerEntryType, amt: Decimal) => {
     switch (type) {
       case "REALIZED_PNL":
+      case "FEE":
         realizedPnl = realizedPnl.add(amt);
         break;
       case "DEPOSIT":
@@ -309,13 +329,14 @@ export async function weeklySummary(userId: string, at = new Date()): Promise<We
   };
 
   for (const r of rows) {
+    const amount = tradingAmountToUsd(r.amount, r.currency);
     if (r.type === "REVERSAL") {
       const originalType = r.reversalOfId ? typeById.get(r.reversalOfId) : undefined;
-      if (originalType) bucket(originalType, D(r.amount)); // cancel original
+      if (originalType) bucket(originalType, amount); // cancel original
       continue;
     }
     if (r.type === "REALIZED_PNL" && r.sourceTradeId) tradeIds.add(r.sourceTradeId);
-    bucket(r.type, D(r.amount));
+    bucket(r.type, amount);
   }
   const base = opening.balance;
   const returnPct = base.isZero() ? null : realizedPnl.div(base).times(100);
@@ -332,22 +353,22 @@ export async function checkMilestones(userId: string) {
   const series = await balanceSeries(userId);
   const last = series.at(-1);
   if (!last) return;
-  for (const m of project.milestones) {
-    if (!m.achievedAt && last.balance >= Number(m.amount)) {
-      await prisma.milestone.update({
-        where: { id: m.id },
-        data: { achievedAt: new Date(), balanceAtHit: last.balance.toFixed(2) },
-      });
-      await prisma.notification.create({
-        data: {
-          userId,
-          kind: "milestone",
-          title: `Milestone tercapai: ${fmtUSD0(m.amount)}`,
-          body: `Balance telah mencapai ${fmtUSD0(m.amount)}.`,
-          severity: "INFO",
-          link: "/roadmap",
-        },
-      });
-    }
-  }
+  const reached = project.milestones.filter((milestone) => !milestone.achievedAt && last.balance >= Number(milestone.amount));
+  await Promise.all(reached.map((m) => prisma.$transaction(async (tx) => {
+    const { count } = await tx.milestone.updateMany({
+      where: { id: m.id, achievedAt: null },
+      data: { achievedAt: new Date(), balanceAtHit: last.balance.toFixed(2) },
+    });
+    if (count === 0) return;
+    await tx.notification.create({
+      data: {
+        userId,
+        kind: "milestone",
+        title: `Milestone tercapai: ${fmtUSD0(m.amount)}`,
+        body: `Balance telah mencapai ${fmtUSD0(m.amount)}.`,
+        severity: "INFO",
+        link: "/roadmap",
+      },
+    });
+  })));
 }

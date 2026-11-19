@@ -102,7 +102,7 @@ export default async function DashboardPage() {
           </p>
         </div>
         <Badge className="border-white/30 bg-white/15 !text-white" tone="success">
-          {weekly.realizedPnl.isPositive() ? "● Minggu Profit" : "● Berjalan"}
+          {weekly.realizedPnl.gt(0) ? "● Minggu Profit" : "● Berjalan"}
         </Badge>
       </section>
 
@@ -158,35 +158,7 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CalendarRange className="h-4 w-4 text-primary" aria-hidden /> Ringkasan Mingguan
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <SummaryRow icon={<BarChart3 className="h-3.5 w-3.5" />} label="Total Trade" value={fmtNum(weekly.tradesCount, 0)} />
-            <SummaryRow
-              icon={<Percent className="h-3.5 w-3.5" />}
-              label="Return Mingguan"
-              value={weekly.returnPct ? fmtPctDelta(weekly.returnPct) : "—"}
-              tone={weekly.returnPct ? (weekly.returnPct.isPositive() ? "pos" : "neg") : undefined}
-            />
-            <SummaryRow
-              icon={<TrendingUp className="h-3.5 w-3.5" />}
-              label="P&L Realisasi"
-              value={
-                <>
-                  {fmtUSDdelta(weekly.realizedPnl)}
-                  {pnlIdr ? <span className="block text-xs font-normal text-muted">{pnlIdr}</span> : null}
-                </>
-              }
-              tone={weekly.realizedPnl.isPositive() ? "pos" : weekly.realizedPnl.isNegative() ? "neg" : undefined}
-            />
-            <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Deposit" value={fmtUSD(weekly.deposits)} />
-            <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Withdrawal" value={fmtUSD(weekly.withdrawals)} />
-          </CardContent>
-        </Card>
+        <WeeklySummaryCard weekly={weekly} pnlIdr={pnlIdr} />
       </div>
 
       <CurrencyConverter quote={fx} />
@@ -201,6 +173,43 @@ export default async function DashboardPage() {
         }}
       />
     </PageShell>
+  );
+}
+
+function WeeklySummaryCard({ weekly, pnlIdr }: {
+  weekly: Awaited<ReturnType<typeof weeklySummary>>;
+  pnlIdr: ReturnType<typeof formatFxEstimate>;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <CalendarRange className="h-4 w-4 text-primary" aria-hidden /> Ringkasan Mingguan
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <SummaryRow icon={<BarChart3 className="h-3.5 w-3.5" />} label="Total Trade" value={fmtNum(weekly.tradesCount, 0)} />
+        <SummaryRow
+          icon={<Percent className="h-3.5 w-3.5" />}
+          label="Return Mingguan"
+          value={weekly.returnPct ? fmtPctDelta(weekly.returnPct) : "—"}
+          tone={weekly.returnPct ? (weekly.returnPct.gt(0) ? "pos" : "neg") : undefined}
+        />
+        <SummaryRow
+          icon={<TrendingUp className="h-3.5 w-3.5" />}
+          label="P&L Realisasi"
+          value={
+            <>
+              {fmtUSDdelta(weekly.realizedPnl)}
+              {pnlIdr ? <span className="block text-xs font-normal text-muted">{pnlIdr}</span> : null}
+            </>
+          }
+          tone={weekly.realizedPnl.gt(0) ? "pos" : weekly.realizedPnl.lt(0) ? "neg" : undefined}
+        />
+        <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Deposit" value={fmtUSD(weekly.deposits)} />
+        <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Withdrawal" value={fmtUSD(weekly.withdrawals)} />
+      </CardContent>
+    </Card>
   );
 }
 

@@ -12,7 +12,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       headers: {
         "content-type": mimeType,
         "content-disposition": `inline; filename="${encodeURIComponent(fileName)}"`,
-        "cache-control": "private, max-age=3600",
+        "cache-control": "private, no-store",
         "x-content-type-options": "nosniff",
       },
     });

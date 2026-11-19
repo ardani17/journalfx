@@ -1,5 +1,5 @@
 import { D, type Decimal } from "@/lib/money";
-import { ApiError } from "@/lib/api";
+import { ApiError, parseUploadForm } from "@/lib/api";
 import { readWorkbookSheets, type WorkbookRow } from "./mt5-workbook";
 
 const POSITION_HEADERS = ["time", "position", "symbol", "type", "volume", "price", "sl", "tp", "time", "price", "commission", "swap", "profit"];
@@ -126,6 +126,21 @@ function parseCashflow(row: WorkbookRow, date1904: boolean): Mt5Cashflow | null 
   return { rowNumber: row.number, dealId, type, amount, occurredAt, comment };
 }
 
+function parseDealFee(row: WorkbookRow, date1904: boolean): (Omit<Mt5Cashflow, "type"> & { type: "FEE"; symbol: string }) | null {
+  const side = normalize(row.cells.get("D"));
+  if (side !== "buy" && side !== "sell") return null;
+  const amount = decimal(row.cells.get("J") ?? "0", 2, 16);
+  if (!amount) throw new Error("Fee deal tidak valid");
+  if (amount.isZero()) return null;
+  const dealId = brokerTicket(row.cells.get("B"));
+  const occurredAt = reportTime(row.cells.get("A") ?? "", date1904);
+  if (!dealId || !occurredAt) throw new Error("Nomor deal atau waktu fee tidak valid");
+  return {
+    rowNumber: row.number, dealId, type: "FEE", amount, occurredAt,
+    symbol: row.cells.get("C")?.toUpperCase() ?? "", comment: "Fee deal " + dealId,
+  };
+}
+
 function reportSection(rows: WorkbookRow[], name: string, headers: string[]) {
   const marker = rows.findIndex((row) => row.cells.get("A")?.toLowerCase() === name);
   if (marker < 0) return null;
@@ -147,10 +162,13 @@ export async function parseMt5Report(bytes: Buffer) {
       const currency = [...account?.cells.values() ?? []]
         .map((value) => /\(([a-z]{3})\s*[,)]/i.exec(value)?.[1]?.toUpperCase())
         .find(Boolean);
-      if (currency !== "USD") throw new ApiError(400, "Laporan MT5 harus mencantumkan mata uang akun USD");
+      if (currency !== "USD" && currency !== "USC") {
+        throw new ApiError(400, `Mata uang laporan MT5 ${currency ?? "tidak tercantum"}. Mata uang yang didukung adalah USD dan USC.`);
+      }
 
       const positions: Mt5Position[] = [];
       const cashflows: Mt5Cashflow[] = [];
+      const fees: NonNullable<ReturnType<typeof parseDealFee>>[] = [];
       const errors: string[] = [];
       if (positionSection && !positionSection.rows) errors.push("Baris " + positionSection.headerRow + " · Header Positions tidak dikenali");
       if (dealSection && !dealSection.rows) errors.push("Baris " + dealSection.headerRow + " · Header Deals tidak dikenali");
@@ -165,11 +183,13 @@ export async function parseMt5Report(bytes: Buffer) {
         try {
           const cashflow = parseCashflow(row, date1904);
           if (cashflow) cashflows.push(cashflow);
+          const fee = parseDealFee(row, date1904);
+          if (fee) fees.push(fee);
         } catch (error) {
           errors.push("Baris " + row.number + " · " + (error instanceof Error ? error.message : "Arus kas tidak valid"));
         }
       }
-      return { positions, cashflows, errors };
+      return { currency, positions, cashflows, fees, errors };
     }
   } catch (error) {
     if (error instanceof ApiError) throw error;
@@ -179,7 +199,7 @@ export async function parseMt5Report(bytes: Buffer) {
 }
 
 export async function readMt5Upload(req: Request) {
-  const form = await req.formData().catch(() => { throw new ApiError(400, "Unggahan file tidak valid"); });
+  const form = await parseUploadForm(req);
   const file = form.get("file");
   const accountId = form.get("accountId");
   if (typeof accountId !== "string" || !accountId.trim()) throw new ApiError(400, "Pilih akun tujuan");

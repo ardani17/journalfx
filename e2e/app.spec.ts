@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
 
 const prisma = new PrismaClient();
@@ -34,6 +35,35 @@ test("public entry points offer only Google sign-in and expose policy pages", as
     expect([401, 404, 405]).toContain(response.status());
     expect(response.headers()["set-cookie"]).toBeUndefined();
   }
+});
+
+test("serves install metadata and icons publicly while keeping private routes protected", async ({ page, request }) => {
+  await page.goto("/");
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute("href", "/pwa/apple-touch-icon.png");
+  await page.getByText("Pasang Horizon Journal", { exact: true }).click();
+  await expect(page.getByText("Android Chrome", { exact: true })).toBeVisible();
+  await expect(page.getByText("iPhone Safari", { exact: true })).toBeVisible();
+
+  const response = await request.get("/manifest.webmanifest", { maxRedirects: 0 });
+  expect(response.status()).toBe(200);
+  expect(response.headers()["content-type"]).toContain("application/manifest+json");
+  const manifest = await response.json();
+  expect(manifest).toMatchObject({ name: "Horizon Journal", display: "standalone", start_url: "/", scope: "/" });
+  expect(manifest.icons).toEqual(expect.arrayContaining([
+    expect.objectContaining({ sizes: "192x192", purpose: "any" }),
+    expect.objectContaining({ sizes: "512x512", purpose: "any" }),
+    expect.objectContaining({ sizes: "512x512", purpose: "maskable" }),
+  ]));
+  for (const { src, sizes } of [...manifest.icons, { src: "/pwa/apple-touch-icon.png", sizes: "180x180" }]) {
+    const icon = await request.get(src, { maxRedirects: 0 });
+    expect(icon.status()).toBe(200);
+    expect(icon.headers()["content-type"]).toBe("image/png");
+    const content = await icon.body();
+    expect(`${content.readUInt32BE(16)}x${content.readUInt32BE(20)}`).toBe(sizes);
+  }
+  expect(await request.get("/journal", { maxRedirects: 0 }).then((result) => result.status())).toBe(307);
+  expect(await request.get("/api/trades").then((result) => result.status())).toBe(401);
 });
 
 test("security: unauthenticated routes redirect to /login", async ({ page }) => {
@@ -72,6 +102,63 @@ test("journal list + analytics + calendar + finance pages render", async ({ page
   }
 });
 
+test("trading accounts can be managed on desktop and mobile", async ({ page }) => {
+  await login(page);
+  await page.goto("/accounts");
+  const suffix = randomUUID().slice(0, 8);
+  const emptyName = `Akun kosong ${suffix}`;
+  const centName = `Akun cent ${suffix}`;
+  const editedName = `Akun cent baru ${suffix}`;
+  const card = (name: string) => page.getByRole("group", { name, exact: true });
+  try {
+    await page.getByRole("button", { name: "Tambah Akun", exact: true }).click();
+    const add = page.getByRole("dialog", { name: "Tambah Akun Trading" });
+    await expect(add.getByLabel("Mata Uang")).toHaveValue("USD");
+    await add.getByLabel("Nama Akun").fill(emptyName);
+    await add.getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card(emptyName)).toBeVisible();
+    await card(emptyName).getByRole("button", { name: "Hapus", exact: true }).click();
+    const remove = page.getByRole("dialog", { name: "Hapus Akun Trading" });
+    await expect(remove).toContainText(emptyName);
+    await remove.getByRole("button", { name: "Hapus Akun" }).click();
+    await expect(card(emptyName)).toHaveCount(0);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("button", { name: "Tambah Akun", exact: true }).click();
+    await add.getByLabel("Nama Akun").fill(centName);
+    await add.getByLabel("Mata Uang").selectOption("USC");
+    await add.getByLabel("Deposit Awal (USC)").fill("1250");
+    await add.getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card(centName).getByText("1.250,00 USC", { exact: true }).first()).toBeVisible();
+    await card(centName).getByRole("button", { name: "Edit", exact: true }).click();
+    const edit = page.getByRole("dialog", { name: "Edit Akun Trading" });
+    await expect(edit.getByLabel("Nama Akun")).toHaveValue(centName);
+    await edit.getByLabel("Nama Akun").fill(editedName);
+    await edit.getByLabel("Nomor Akun").fill("123456");
+    await edit.getByRole("button", { name: "Simpan", exact: true }).click();
+    await expect(card(editedName)).toBeVisible();
+    await page.reload();
+    await expect(card(editedName)).toContainText("123456");
+    await card(editedName).getByRole("button", { name: "Nonaktifkan", exact: true }).click();
+    await expect(card(editedName).getByText("Nonaktif", { exact: true })).toBeVisible();
+
+    await page.goto("/journal");
+    await expect(page.getByLabel("Filter akun").getByRole("option", { name: editedName })).toHaveCount(1);
+    await page.getByRole("button", { name: "Impor", exact: true }).click();
+    const destination = page.getByLabel("Akun Tujuan");
+    await expect(destination.getByRole("option", { name: `${editedName} (USC)` })).toHaveCount(0);
+    await page.goto("/accounts");
+    await card(editedName).getByRole("button", { name: "Aktifkan Kembali" }).click();
+    await expect(card(editedName).getByText("Aktif", { exact: true })).toBeVisible();
+    await page.goto("/journal");
+    await page.getByRole("button", { name: "Impor", exact: true }).click();
+    await expect(destination.getByRole("option", { name: `${editedName} (USC)` })).toHaveCount(1);
+  } finally {
+    const demo = await prisma.user.findUniqueOrThrow({ where: { googleSubject: "horizon-journal-demo" } });
+    await prisma.tradingAccount.deleteMany({ where: { userId: demo.id, name: { in: [emptyName, centName, editedName] } } });
+  }
+});
+
 test("a11y: key interactive elements have accessible names; no title overflow at mobile", async ({ page }) => {
   await login(page);
   const nav = page.getByRole("navigation", { name: "Navigasi utama" });
@@ -89,6 +176,56 @@ test("allocation percentages are configurable and invalid review kinds return 40
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: "test-results/allocation-mobile.png", fullPage: true });
+});
+
+test("mobile navigation opens as a named dialog and follows page changes", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  const trigger = page.getByRole("button", { name: "Buka menu navigasi" });
+  await trigger.click();
+  const drawer = page.getByRole("dialog", { name: "Menu navigasi" });
+  await expect(drawer).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(trigger).toBeFocused();
+  const bottom = page.getByRole("navigation", { name: "Navigasi bawah" });
+  await bottom.getByRole("link", { name: "Jurnal" }).click();
+  await expect(bottom.getByRole("link", { name: "Jurnal" })).toHaveAttribute("aria-current", "page");
+});
+
+test("keeps debt inputs available after a rejected submission", async ({ page }) => {
+  await login(page);
+  await page.goto("/debts");
+  await page.route("**/api/debts", (route) => route.fulfill({
+    status: 400, json: { ok: false, error: "Pembayaran belum dapat disimpan" },
+  }));
+  await page.getByRole("button", { name: "Tambah Hutang" }).click();
+  const dialog = page.getByRole("dialog", { name: "Tambah Hutang" });
+  await dialog.getByLabel("Nama", { exact: true }).fill("Hutang uji");
+  await dialog.getByLabel("Pokok (IDR)").fill("100.25");
+  await dialog.getByLabel("Jadwal Pembayaran").selectOption("flexible");
+  await dialog.getByRole("button", { name: "Simpan" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("Pembayaran belum dapat disimpan");
+  await expect(dialog.getByLabel("Nama", { exact: true })).toHaveValue("Hutang uji");
+  await expect(dialog.getByLabel("Pokok (IDR)")).toHaveValue("100.25");
+});
+
+test("saves a manual transaction entered with a local date and time", async ({ page }) => {
+  await login(page);
+  await page.goto("/transactions");
+  await page.getByRole("button", { name: "Catat Transaksi" }).click();
+  const dialog = page.getByRole("dialog", { name: "Catat Transaksi Manual" });
+  await dialog.getByLabel("Jumlah (USD)").fill("0.37");
+  await dialog.getByLabel("Waktu").fill("2026-11-03T11:30");
+  await dialog.getByLabel("Catatan").fill("Regresi waktu transaksi");
+  const result = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/transactions" && response.request().method() === "POST");
+  await dialog.getByRole("button", { name: "Simpan" }).click();
+  const response = await result;
+  expect(response.ok()).toBe(true);
+  expect(new Date(response.request().postDataJSON().occurredAt).toISOString()).toMatch(/^2026-11-0[234]T/);
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("Regresi waktu transaksi")).toBeVisible();
 });
 
 test.describe("visual QA evidence (1440/1280/390)", () => {

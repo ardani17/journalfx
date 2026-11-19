@@ -2,15 +2,20 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
+import { tradingAmountToUsd } from "@/lib/money";
 import { parseMt5Report } from "@/server/mt5-report";
+import { requireActiveAccount } from "./accounts";
 import { createTradeEntry, findInstrumentBySymbol, lockTradeWrites, recordTradeExecution } from "./trades";
 
 export interface ImportReport {
   imported: number;
   duplicates: number;
+  reconciled: number;
   depositsImported: number;
   withdrawalsImported: number;
   cashflowDuplicates: number;
+  feesImported: number;
+  feeDuplicates: number;
   skipped: number;
   errors: string[];
   registeredSymbols: string[];
@@ -22,25 +27,61 @@ export async function importStatement(
   bytes: Buffer,
   req?: Request,
 ): Promise<ImportReport> {
-  const account = await prisma.tradingAccount.findFirst({ where: { id: accountId, userId } });
-  if (!account) throw new ApiError(404, "Akun tidak ditemukan");
-  if (account.currency !== "USD") throw new ApiError(400, "Pilih akun tujuan dengan mata uang USD");
-
-  const { positions, cashflows, errors } = await parseMt5Report(bytes);
+  const account = await requireActiveAccount(userId, accountId);
+  const { currency, positions, cashflows, fees, errors } = await parseMt5Report(bytes);
+  if (currency !== account.currency) {
+    throw new ApiError(400, `Mata uang laporan MT5 (${currency}) berbeda dengan akun tujuan (${account.currency}).`);
+  }
   const report: ImportReport = {
-    imported: 0, duplicates: 0, depositsImported: 0, withdrawalsImported: 0, cashflowDuplicates: 0,
+    imported: 0, duplicates: 0, reconciled: 0, depositsImported: 0, withdrawalsImported: 0, cashflowDuplicates: 0,
+    feesImported: 0, feeDuplicates: 0,
     skipped: errors.length, errors, registeredSymbols: [],
   };
 
+  const legacyFeePositions: typeof positions = [];
   for (const row of positions) {
     try {
       const result = await prisma.$transaction(async (tx) => {
         await lockTradeWrites(tx, userId);
+        await requireActiveAccount(userId, accountId, tx);
         const existingTrade = await tx.trade.findUnique({
           where: { accountId_ticket: { accountId, ticket: row.ticket } },
-          select: { id: true },
+          include: {
+            instrument: { select: { symbol: true } },
+            executions: { select: { id: true, kind: true, quantity: true, externalId: true } },
+          },
         });
-        if (existingTrade) return null;
+        const executionId = `import:${accountId}:${row.ticket}`;
+        const close = {
+          kind: "CLOSE" as const,
+          quantity: row.lot,
+          price: row.closePrice,
+          executedAt: row.closeAt,
+          commission: 0,
+          swap: 0,
+          fees: 0,
+          externalId: executionId,
+        };
+
+        if (existingTrade) {
+          if (existingTrade.status === "CLOSED") {
+            return { kind: "duplicate" as const,
+              hasLegacyFees: !existingTrade.fees.isZero() && existingTrade.executions.some((entry) => entry.externalId === executionId) };
+          }
+          const [entry] = existingTrade.executions;
+          if (existingTrade.status !== "OPEN" || existingTrade.direction !== row.direction ||
+              existingTrade.instrument.symbol !== row.symbol || !existingTrade.lot.eq(row.lot.toString()) ||
+              !existingTrade.entryPrice.eq(row.openPrice.toString()) || existingTrade.entryAt.getTime() !== row.openAt.getTime() ||
+              existingTrade.executions.length !== 1 || entry?.kind !== "ENTRY" || !entry.quantity.eq(row.lot.toString())) {
+            return { kind: "conflict" as const };
+          }
+          await tx.tradeExecution.update({
+            where: { id: entry.id },
+            data: { commission: row.commission, swap: row.swap },
+          });
+          await recordTradeExecution(tx, userId, existingTrade.id, close, row.netPnl.minus(existingTrade.fees.toString()));
+          return { kind: "reconciled" as const, hasLegacyFees: !existingTrade.fees.isZero() };
+        }
 
         const pricePrecision = Math.max(2, row.openPrice.decimalPlaces(), row.closePrice.decimalPlaces(),
           row.stopLoss?.decimalPlaces() ?? 0, row.takeProfit?.decimalPlaces() ?? 0);
@@ -65,25 +106,28 @@ export async function importStatement(
           swap: row.swap,
           fees: 0,
         });
-        await recordTradeExecution(tx, userId, trade.id, {
-          kind: "CLOSE",
-          quantity: row.lot,
-          price: row.closePrice,
-          executedAt: row.closeAt,
-          commission: 0,
-          swap: 0,
-          fees: 0,
-          externalId: `import:${accountId}:${row.ticket}`,
-        }, row.netPnl);
-        return { registeredSymbol: existingInstrument ? null : row.symbol };
+        await recordTradeExecution(tx, userId, trade.id, close, row.netPnl);
+        return { kind: "imported" as const, registeredSymbol: existingInstrument ? null : row.symbol };
       });
 
-      if (!result) {
-        report.duplicates++;
-        continue;
+      switch (result.kind) {
+        case "duplicate":
+          report.duplicates++;
+          if (result.hasLegacyFees) legacyFeePositions.push(row);
+          break;
+        case "reconciled":
+          report.reconciled++;
+          if (result.hasLegacyFees) legacyFeePositions.push(row);
+          break;
+        case "conflict":
+          report.skipped++;
+          report.errors.push(`Baris ${row.rowNumber} · Posisi ${row.ticket} berbeda dengan trade yang ada`);
+          break;
+        case "imported":
+          report.imported++;
+          if (result.registeredSymbol) report.registeredSymbols.push(result.registeredSymbol);
+          break;
       }
-      report.imported++;
-      if (result.registeredSymbol) report.registeredSymbols.push(result.registeredSymbol);
     } catch (error) {
       if (!(error instanceof Prisma.PrismaClientKnownRequestError) || !["P2000", "P2020"].includes(error.code)) throw error;
       report.skipped++;
@@ -91,19 +135,25 @@ export async function importStatement(
     }
   }
 
-  for (const row of cashflows) {
-    const imported = await prisma.$transaction(async (tx) => {
+  for (const row of [...cashflows, ...fees]) {
+    const result = await prisma.$transaction(async (tx) => {
       await lockTradeWrites(tx, userId);
+      await requireActiveAccount(userId, accountId, tx);
       const existing = await tx.accountTransaction.findUnique({
         where: { accountId_mt5DealId: { accountId, mt5DealId: row.dealId } },
         select: { id: true },
       });
-      if (existing) return false;
+      if (existing) return "duplicate";
+      if (row.type === "FEE" && legacyFeePositions.some((position) =>
+        (!row.symbol || row.symbol === position.symbol) &&
+        position.openAt <= row.occurredAt && row.occurredAt <= position.closeAt)) {
+        return "ambiguous";
+      }
 
       const withdrawal = row.type === "WITHDRAWAL" ? await tx.withdrawal.create({
         data: {
           userId, projectId: account.projectId, accountId, status: "COMPLETED",
-          amountUSD: row.amount.abs(), completedAt: row.occurredAt, note: row.comment,
+          amountUSD: tradingAmountToUsd(row.amount.abs(), currency), completedAt: row.occurredAt, note: row.comment,
         },
         select: { id: true },
       }) : null;
@@ -113,9 +163,15 @@ export async function importStatement(
           occurredAt: row.occurredAt, note: row.comment, mt5DealId: row.dealId, withdrawalId: withdrawal?.id,
         },
       });
-      return true;
+      return "imported";
     });
-    if (!imported) report.cashflowDuplicates++;
+    if (result === "ambiguous") {
+      report.skipped++;
+      report.errors.push("Baris " + row.rowNumber + " · Fee deal belum diimpor karena mungkin sudah tercatat pada posisi lama.");
+    } else if (row.type === "FEE") {
+      if (result === "imported") report.feesImported++;
+      else report.feeDuplicates++;
+    } else if (result === "duplicate") report.cashflowDuplicates++;
     else if (row.type === "DEPOSIT") report.depositsImported++;
     else report.withdrawalsImported++;
   }

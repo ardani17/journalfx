@@ -80,7 +80,8 @@ export function CalculatorClient({
     }
   }
 
-  const inst = instruments.find((i) => i.symbol === form.symbol);
+  const pricePrecision = instruments.find((i) => i.symbol === form.symbol)?.pricePrecision ?? 2;
+  const priceStep = Math.pow(10, -pricePrecision);
 
   return (
     <div className="grid gap-3 lg:grid-cols-2">
@@ -107,11 +108,11 @@ export function CalculatorClient({
                   onChange={(e) => setForm({ ...form, riskPct: Number(e.target.value) })} required />
               </Field>
               <Field label="Harga Entry" htmlFor="c-entry">
-                <Input id="c-entry" type="number" step={inst ? Math.pow(10, -inst.pricePrecision) : "0.01"} min="0"
+                <Input id="c-entry" type="number" step={priceStep} min="0"
                   value={form.entry} onChange={(e) => setForm({ ...form, entry: e.target.value })} placeholder="2025.40" required />
               </Field>
               <Field label="Stop Loss" htmlFor="c-sl">
-                <Input id="c-sl" type="number" step="0.01" min="0" value={form.stopLoss}
+                <Input id="c-sl" type="number" step={priceStep} min="0" value={form.stopLoss}
                   onChange={(e) => setForm({ ...form, stopLoss: e.target.value })} placeholder="2020.40" required />
               </Field>
             </div>
@@ -126,54 +127,64 @@ export function CalculatorClient({
         </CardContent>
       </Card>
 
-      <Card className={cn(result && !result.valid && "border-loss/40", result && result.valid && "border-primary/40")}>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            Hasil
-            {result ? (
-              result.valid ? (
-                <Badge tone="success"><CheckCircle2 className="h-3 w-3" /> Valid</Badge>
-              ) : (
-                <Badge tone="danger"><XCircle className="h-3 w-3" /> Ditolak</Badge>
-              )
-            ) : null}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {!result ? (
-            <p className="py-8 text-center text-xs text-faint">Isi parameter lalu hitung.</p>
-          ) : (
-            <>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <Box label="Risiko Diizinkan" value={fmtUSD(result.riskAmount)} />
-                <Box label="Jarak SL" value={fmtNum(Number(result.slDistance), inst?.pricePrecision ?? 2)} />
-                <Box label="Lot (broker step)" value={fmtNum(Number(result.lots), 2)} strong />
-                <Box label="Risiko Aktual" value={fmtUSD(result.actualRisk)} />
-              </div>
-              {result.reasons.length > 0 ? (
-                <div className="rounded-lg border border-loss/30 bg-loss/10 p-2.5" role="alert">
-                  {result.reasons.map((r) => (
-                    <p key={r} className="text-xs font-medium text-loss">{r}</p>
-                  ))}
-                </div>
-              ) : null}
-              {result.warnings.length > 0 ? (
-                <div className="rounded-lg border border-warn/30 bg-warn/10 p-2.5">
-                  {result.warnings.map((w) => (
-                    <p key={w} className="text-xs text-warn">⚠ {w}</p>
-                  ))}
-                </div>
-              ) : null}
-              <p className="text-[10px] leading-relaxed text-faint">
-                Perhitungan hanya rekomendasi — tidak ada order yang dikirim ke broker. Validasi tick
-                value, margin, dan kesegaran equity bersifat peringatan.
-              </p>
-            </>
-          )}
-          {error ? <p className="text-xs text-loss" role="alert">{error}</p> : null}
-        </CardContent>
-      </Card>
+      <CalculationResult result={result} error={error} pricePrecision={pricePrecision} />
     </div>
+  );
+}
+
+function CalculationResult({ result, error, pricePrecision }: {
+  result: CalcResult | null;
+  error: string | null;
+  pricePrecision: number;
+}) {
+  return (
+    <Card className={cn(result && !result.valid && "border-loss/40", result && result.valid && "border-primary/40")}>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          Hasil
+          {result ? (
+            result.valid ? (
+              <Badge tone="success"><CheckCircle2 className="h-3 w-3" /> Valid</Badge>
+            ) : (
+              <Badge tone="danger"><XCircle className="h-3 w-3" /> Ditolak</Badge>
+            )
+          ) : null}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!result ? (
+          <p className="py-8 text-center text-xs text-faint">Isi parameter lalu hitung.</p>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <Box label="Risiko Diizinkan" value={fmtUSD(result.riskAmount)} />
+              <Box label="Jarak SL" value={fmtNum(Number(result.slDistance), pricePrecision)} />
+              <Box label="Lot (broker step)" value={fmtNum(Number(result.lots), 2)} strong />
+              <Box label="Risiko Aktual" value={fmtUSD(result.actualRisk)} />
+            </div>
+            {result.reasons.length > 0 ? (
+              <div className="rounded-lg border border-loss/30 bg-loss/10 p-2.5" role="alert">
+                {result.reasons.map((r) => (
+                  <p key={r} className="text-xs font-medium text-loss">{r}</p>
+                ))}
+              </div>
+            ) : null}
+            {result.warnings.length > 0 ? (
+              <div className="rounded-lg border border-warn/30 bg-warn/10 p-2.5">
+                {result.warnings.map((w) => (
+                  <p key={w} className="text-xs text-warn">⚠ {w}</p>
+                ))}
+              </div>
+            ) : null}
+            <p className="text-[10px] leading-relaxed text-faint">
+              Perhitungan hanya rekomendasi — tidak ada order yang dikirim ke broker. Validasi tick
+              value, margin, dan kesegaran equity bersifat peringatan.
+            </p>
+          </>
+        )}
+        {error ? <p className="text-xs text-loss" role="alert">{error}</p> : null}
+      </CardContent>
+    </Card>
   );
 }
 

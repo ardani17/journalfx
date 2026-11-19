@@ -1,15 +1,6 @@
 "use client";
 
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import dynamic from "next/dynamic";
 
 interface Point {
   date: string;
@@ -17,9 +8,10 @@ interface Point {
   trades: number;
 }
 
-export function DailyPnlChart({ data }: { data: Point[] }) {
+const DailyPnlPlot = dynamic(() => import("recharts").then(({
+  Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis,
+}) => function DailyPnlPlot({ data }: { data: Point[] }) {
   return (
-    <div className="h-[260px] w-full" role="img" aria-label="Grafik P dan L harian">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -49,6 +41,13 @@ export function DailyPnlChart({ data }: { data: Point[] }) {
           </Bar>
         </BarChart>
       </ResponsiveContainer>
+  );
+}), { ssr: false });
+
+export function DailyPnlChart({ data }: { data: Point[] }) {
+  return (
+    <div className="h-[260px] w-full" role="img" aria-label="Grafik P dan L harian">
+      <DailyPnlPlot data={data} />
     </div>
   );
 }

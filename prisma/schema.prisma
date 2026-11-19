@@ -61,6 +61,8 @@ model Project {
   description    String?
   initialCapital Decimal  @db.Decimal(18, 2)
   targetAmount   Decimal  @db.Decimal(18, 2) @default(1000000)
+  activeScenarioId String? @unique
+  activeScenario CompoundingScenario? @relation("ActiveScenario", fields: [activeScenarioId], references: [id], onDelete: SetNull)
   startDate      DateTime?
   targetDate     DateTime?
   isDefault      Boolean  @default(true)
@@ -71,6 +73,7 @@ model Project {
   accounts   TradingAccount[]
   scenarios  CompoundingScenario[]
   milestones Milestone[]
+  roadmapAchievements RoadmapMilestoneAchievement[]
   withdrawals Withdrawal[]
   withdrawalRules WithdrawalRule[]
   buckets    FinancialBucket[]
@@ -346,6 +349,7 @@ model CompoundingScenario {
   user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   projectId      String
   project        Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activeFor      Project?            @relation("ActiveScenario")
   name           String
   initialCapital Decimal             @db.Decimal(18, 2)
   targetAmount   Decimal             @db.Decimal(18, 2)
@@ -375,6 +379,16 @@ model Milestone {
   balanceAtHit  Decimal?  @db.Decimal(18, 2)
 
   @@unique([projectId, order])
+}
+
+model RoadmapMilestoneAchievement {
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  amount       Decimal  @db.Decimal(18, 2)
+  achievedAt   DateTime
+  balanceAtHit Decimal  @db.Decimal(18, 2)
+
+  @@id([projectId, amount])
 }
 
 model RiskSettings {
@@ -408,7 +422,7 @@ model Withdrawal {
   accountId     String?
   account       TradingAccount?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
   status        WithdrawalStatus @default(RECOMMENDED)
-  amountUSD     Decimal          @db.Decimal(18, 2)
+  amountUSD     Decimal          @db.Decimal(20, 4)
   fxRate        Decimal?         @db.Decimal(18, 4) // USDIDR at completion
   rateAt        DateTime?        // historical snapshot time
   receivedAmount Decimal?        @db.Decimal(18, 2) // actual received in IDR
@@ -467,7 +481,9 @@ model Debt {
   principalRemaining Decimal  @db.Decimal(18, 2)
   interestRate      Decimal?  @db.Decimal(9, 4) // annual percent, unknown → null
   installmentAmount Decimal?  @db.Decimal(18, 2) // required installment, unknown → null
-  installmentFreq   String?   // "monthly" | "weekly"
+  installmentFreq   String?   // "weekly" | "monthly" | "yearly"
+  repaymentMode     String?   // "recurring" | "one_time" | "flexible" | null for legacy debts
+  dueDate           DateTime? @db.Date // one-time due date or first yearly installment
   dueDay            Int? // day of month
   startDate         DateTime?
   targetDate        DateTime?
@@ -666,23 +682,22 @@ model Notification {
   severity  NotificationSeverity @default(INFO)
   link      String?
   readAt    DateTime?
+  telegramClaimedAt DateTime?
   createdAt DateTime             @default(now())
 
   @@index([userId, readAt])
 }
 
-// Outbound notification channels (v1.2.0): Telegram + in-app push.
-// Tokens are private; API responses always mask them.
 model NotificationChannel {
   id               String   @id @default(cuid())
   userId           String   @unique
   user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  telegramBotToken String?
-  telegramChatId   String?
+  telegramChatId          String?   @unique
+  telegramLinkCodeHash    String?   @unique
+  telegramLinkExpiresAt   DateTime?
   quietStartHour   Int      @default(22) // local user tz
   quietEndHour     Int      @default(7)
   isActive         Boolean  @default(true)
-  lastDedupeKey    String?
   updatedAt        DateTime @updatedAt
 }
 
@@ -716,4 +731,10 @@ model AuditLog {
 
   @@index([userId, createdAt])
   @@index([entity, entityId])
+}
+
+model AiJournalRateLimit {
+  key         String   @id
+  windowStart DateTime @db.Timestamptz(3)
+  requests    Int
 }

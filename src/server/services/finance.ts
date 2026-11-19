@@ -1,9 +1,11 @@
+import { randomUUID } from "node:crypto";
 import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
 import { D, Decimal } from "@/lib/money";
-import { splitDebtPayment, projectRepayment } from "@/lib/finance/debt";
+import { DEBT_PERIODS_PER_YEAR, debtDateKey, debtSchedule, isRecurringDebt, splitDebtPayment, projectRepayment } from "@/lib/finance/debt";
+import type { DebtCreateInput, DebtTermsInput } from "@/lib/validation/finance";
 import { zonedPeriod } from "@/lib/dates";
 
 /** Reversals cancel the original entry in reports, including across date windows. */
@@ -184,15 +186,21 @@ export async function listDebts(userId: string) {
   });
 }
 
-export async function createDebt(
-  userId: string,
-  input: {
-    name: string; creditor?: string; principalOriginal: number;
-    interestRate?: number; installmentAmount?: number; installmentFreq?: string;
-    dueDay?: number; startDate?: string; notes?: string;
-  },
-  req?: Request,
-) {
+export function serializeDebt<T extends { dueDate: Date | null }>(debt: T) {
+  return { ...debt, dueDate: debtDateKey(debt.dueDate) };
+}
+
+function debtTermsData(input: Partial<DebtTermsInput>) {
+  return {
+    repaymentMode: input.repaymentMode ?? null,
+    interestRate: input.interestRate == null ? null : D(input.interestRate),
+    installmentAmount: input.installmentAmount == null ? null : D(input.installmentAmount),
+    installmentFreq: input.installmentFreq ?? null,
+    dueDate: input.dueDate ? new Date(input.dueDate) : null,
+  };
+}
+
+export async function createDebt(userId: string, input: DebtCreateInput, req?: Request) {
   const d = await prisma.debt.create({
     data: {
       userId,
@@ -200,9 +208,7 @@ export async function createDebt(
       creditor: input.creditor ?? null,
       principalOriginal: new Decimal(input.principalOriginal),
       principalRemaining: new Decimal(input.principalOriginal),
-      interestRate: input.interestRate !== undefined ? new Decimal(input.interestRate) : null,
-      installmentAmount: input.installmentAmount !== undefined ? new Decimal(input.installmentAmount) : null,
-      installmentFreq: input.installmentFreq ?? null,
+      ...debtTermsData(input),
       dueDay: input.dueDay ?? null,
       startDate: input.startDate ? new Date(input.startDate) : null,
       notes: input.notes ?? null,
@@ -210,6 +216,25 @@ export async function createDebt(
   });
   await audit({ userId, action: "create", entity: "Debt", entityId: d.id, after: input, req });
   return d;
+}
+
+export async function updateDebtTerms(userId: string, debtId: string, input: DebtTermsInput, req?: Request) {
+  const updated = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    const debt = await tx.debt.findUnique({ where: { id: debtId, userId } });
+    if (!debt) throw new ApiError(404, "Hutang tidak ditemukan");
+
+    const keepsDueDay = input.repaymentMode === "recurring"
+      && (input.installmentFreq === "weekly" || input.installmentFreq === "monthly")
+      && input.installmentFreq === debtSchedule(debt);
+    return tx.debt.update({
+      where: { id: debtId, userId },
+      data: { ...debtTermsData(input), dueDay: keepsDueDay ? debt.dueDay : null },
+    });
+  });
+
+  await audit({ userId, action: "update", entity: "Debt", entityId: debtId, after: input, req });
+  return updated;
 }
 
 export async function payDebt(
@@ -223,6 +248,9 @@ export async function payDebt(
     const debt = await tx.debt.findFirst({ where: { id: debtId, userId } });
     if (!debt) throw new ApiError(404, "Hutang tidak ditemukan");
     if (debt.status === "PAID") throw new ApiError(400, "Hutang sudah lunas");
+    if (debt.interestRate !== null && D(debt.interestRate).isZero() && input.interestPortion > 0) {
+      throw new ApiError(400, "Hutang ini dicatat tanpa bunga");
+    }
 
     if (D(input.totalAmount).minus(input.interestPortion).minus(input.feePortion).gt(D(debt.principalRemaining))) {
       throw new ApiError(400, "Pembayaran pokok melebihi sisa hutang");
@@ -280,14 +308,21 @@ export function debtProjection(debt: {
   installmentAmount: Decimal | null;
   installmentFreq: string | null;
   interestRate: Decimal | null;
+  repaymentMode: string | null;
 }) {
-  const periodsPerYear = debt.installmentFreq === "weekly" ? 52 : 12;
-  return projectRepayment({
+  const schedule = debtSchedule(debt);
+  if (!isRecurringDebt(schedule)) return null;
+
+  const projection = projectRepayment({
     principalRemaining: debt.principalRemaining,
     installmentAmount: debt.installmentAmount,
-    periodsPerYear,
+    periodsPerYear: DEBT_PERIODS_PER_YEAR[schedule],
     annualInterestRatePct: debt.interestRate,
   });
+  if (!projection.complete || !projection.periods) return projection;
+
+  const unit = { weekly: "minggu", monthly: "bulan", yearly: "tahun" }[schedule];
+  return { ...projection, note: `Lunas dalam ${projection.periods} ${unit} (estimasi)` };
 }
 
 /* ───────────────────────── Buckets & allocation ───────────────────────── */
@@ -348,11 +383,9 @@ export async function allocateProfit(
       receivedUsd = receivedUsd.plus(D(receipt.amount).div(D(receipt.fxRate)));
       receivedIdr = receivedIdr.plus(D(receipt.amount));
     }
-    const prior = await tx.financialAllocation.aggregate({
-      where: { userId, bucket: { projectId: project.id }, reversedById: null }, _sum: { amount: true },
-    });
     const priorRows = await tx.financialAllocation.findMany({
-      where: { userId, bucket: { projectId: project.id }, reversedById: null }, select: { financialTxId: true },
+      where: { userId, bucket: { projectId: project.id }, reversedById: null },
+      select: { financialTxId: true, amount: true },
     });
     if (priorRows.some((r) => !r.financialTxId)) {
       throw new ApiError(400, "Alokasi lama belum memiliki rekonsiliasi penerimaan IDR — koreksi data lama terlebih dahulu");
@@ -360,7 +393,7 @@ export async function allocateProfit(
     const allocatedIdr = await tx.financialTransaction.aggregate({
       where: { userId, id: { in: priorRows.flatMap((r) => r.financialTxId ? [r.financialTxId] : []) } }, _sum: { amount: true },
     });
-    const available = receivedUsd.minus(D(prior._sum.amount));
+    const available = priorRows.reduce((balance, row) => balance.minus(row.amount), receivedUsd);
     if (amount.gt(available) || receivedUsd.lte(0)) {
       throw new ApiError(400, `Alokasi melebihi dana withdrawal yang sudah diterima dan belum dialokasikan (${Decimal.max(available, 0).toFixed(2)} USD)`);
     }
@@ -368,31 +401,30 @@ export async function allocateProfit(
     const rate = remainingIdr.div(available);
     const allocationIdr = amount.times(rate).toDecimalPlaces(2, Decimal.ROUND_DOWN);
     let remainingAllocationIdr = allocationIdr;
-    const rows: { bucketId: string; amount: Decimal }[] = [];
     let remaining = amount;
-    for (const [index, b] of withPercent.entries()) {
-      const share = index === withPercent.length - 1 ? remaining : amount.times(D(b.targetPercent)).div(100).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+    const occurredAt = new Date();
+    const sourcePeriodStart = new Date(input.periodStart);
+    const sourcePeriodEnd = new Date(input.periodEnd);
+    const shares = withPercent.map((bucket, index) => {
+      const last = index === withPercent.length - 1;
+      const share = last ? remaining : amount.times(D(bucket.targetPercent)).div(100).toDecimalPlaces(2, Decimal.ROUND_DOWN);
       remaining = remaining.minus(share);
-      const shareIdr = index === withPercent.length - 1 ? remainingAllocationIdr
-        : share.times(rate).toDecimalPlaces(2, Decimal.ROUND_DOWN);
+      const shareIdr = last ? remainingAllocationIdr : share.times(rate).toDecimalPlaces(2, Decimal.ROUND_DOWN);
       remainingAllocationIdr = remainingAllocationIdr.minus(shareIdr);
-      const cashEntry = await tx.financialTransaction.create({ data: {
-        userId, kind: "ALLOCATION", bucketId: b.id, amount: shareIdr,
-        currency: "IDR", fxRate: rate, occurredAt: new Date(), description: input.note ?? "Alokasi dana withdrawal diterima",
-      } });
-      await tx.financialAllocation.create({
-        data: {
-          userId,
-          bucketId: b.id,
-          amount: share,
-          financialTxId: cashEntry.id,
-          sourcePeriodStart: new Date(input.periodStart),
-          sourcePeriodEnd: new Date(input.periodEnd),
-        },
-      });
-      rows.push({ bucketId: b.id, amount: share });
-    }
-    return rows;
+      return { bucketId: bucket.id, amount: share, shareIdr, financialTxId: randomUUID() };
+    });
+    await tx.financialTransaction.createMany({
+      data: shares.map(({ bucketId, shareIdr, financialTxId }) => ({
+        id: financialTxId, userId, kind: "ALLOCATION", bucketId, amount: shareIdr,
+        currency: "IDR", fxRate: rate, occurredAt, description: input.note ?? "Alokasi dana withdrawal diterima",
+      })),
+    });
+    await tx.financialAllocation.createMany({
+      data: shares.map(({ bucketId, amount, financialTxId }) => ({
+        userId, bucketId, amount, financialTxId, sourcePeriodStart, sourcePeriodEnd,
+      })),
+    });
+    return shares.map(({ bucketId, amount }) => ({ bucketId, amount }));
   });
 
   await audit({ userId, action: "create", entity: "FinancialAllocation", after: { ...input, shares: results.map((r) => ({ ...r, amount: r.amount.toString() })) }, req });
@@ -419,7 +451,10 @@ export async function updateBucketPercentages(userId: string, entries: { id: str
   }
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
-    for (const entry of entries) await tx.financialBucket.update({ where: { id: entry.id }, data: { targetPercent: D(entry.targetPercent) } });
+    await Promise.all(entries.map(({ id, targetPercent }) => tx.financialBucket.update({
+      where: { id },
+      data: { targetPercent: D(targetPercent) },
+    })));
   });
   await audit({ userId, action: "update", entity: "FinancialBucket", after: entries });
 }

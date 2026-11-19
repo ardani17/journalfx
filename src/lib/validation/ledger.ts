@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRADING_CURRENCIES, type TradingCurrency } from "@/lib/money";
 
 export const createAccountSchema = z.object({
   name: z.string().trim().min(2, "Nama akun minimal 2 karakter").max(60),
@@ -6,6 +7,7 @@ export const createAccountSchema = z.object({
   accountNumber: z.string().trim().max(40).optional().or(z.literal("")),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
   initialDeposit: z.coerce.number().min(0, "Deposit awal tidak boleh negatif").optional(),
+  currency: z.enum(TRADING_CURRENCIES).default("USD"),
 });
 
 export const updateAccountSchema = z.object({
@@ -22,11 +24,15 @@ export const createTransactionSchema = z
   .object({
     accountId: z.string().min(1),
     type: z.enum(["DEPOSIT", "WITHDRAWAL", "ADJUSTMENT"]),
-    amount: z.coerce.number().positive("Jumlah harus positif"),
+    amount: z.coerce.number(),
     occurredAt: isoDate.optional(),
     note: z.string().trim().max(300).optional().or(z.literal("")),
   })
-  .refine((v) => v.type !== "ADJUSTMENT" || v.note === undefined || v.note === "" || v.note.length > 0, {
+  .refine((v) => v.type === "ADJUSTMENT" ? v.amount !== 0 : v.amount > 0, {
+    message: "Deposit dan withdrawal harus positif. Adjustment tidak boleh nol.",
+    path: ["amount"],
+  })
+  .refine((v) => v.type !== "ADJUSTMENT" || Boolean(v.note), {
     message: "Adjustment wajib memiliki catatan",
     path: ["note"],
   });
@@ -44,5 +50,7 @@ export const listTransactionsQuery = z.object({
   offset: z.coerce.number().int().min(0).default(0),
 });
 
-export type CreateAccountInput = z.infer<typeof createAccountSchema>;
+export type CreateAccountInput = Omit<z.infer<typeof createAccountSchema>, "currency"> & {
+  currency?: TradingCurrency;
+};
 export type CreateTransactionInput = z.infer<typeof createTransactionSchema>;

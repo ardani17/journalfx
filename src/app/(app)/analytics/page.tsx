@@ -7,10 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
 import { DailyPnlChart } from "./daily-pnl-chart";
 import { InsightsPanel } from "./insights-panel";
-import { MonteCarloPanel } from "@/components/analytics/montecarlo-panel";
 import { portfolioOverview } from "@/server/services/portfolio";
 import { buildInsights } from "@/server/services/economic-events";
-import { fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
+import { aiJournalConfig } from "@/server/services/ai-journal";
+import { fmtNum, fmtTradingDelta, fmtTradingMoney, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { zonedPeriod, addUTCDays } from "@/lib/dates";
 import { Activity, Percent, Scale, Target, TrendingUp } from "lucide-react";
 
@@ -112,7 +112,7 @@ export default async function AnalyticsPage() {
         </Card>
       </div>
 
-      <InsightsPanel insights={insights.insights} coverage={insights.dataCoverage} />
+      <InsightsPanel insights={insights.insights} coverage={insights.dataCoverage} aiAvailable={Boolean(aiJournalConfig())} />
 
       {/* Portfolio & prop firm */}
       <div>
@@ -127,8 +127,8 @@ export default async function AnalyticsPage() {
                 <TR key={p.id}>
                   <TD className="text-xs font-medium">{p.name}{p.broker ? <span className="ml-1 text-faint">· {p.broker}</span> : null}</TD>
                   <TD>{p.isProp ? <Badge tone="purple">Prop</Badge> : <Badge tone="neutral">Personal</Badge>}</TD>
-                  <TD className="tnum text-right text-xs">{fmtUSD(p.balance)}</TD>
-                  <TD className={`tnum text-right text-xs font-semibold ${p.realizedPnl.isPositive() ? "text-primary" : p.realizedPnl.isNegative() ? "text-loss" : ""}`}>{fmtUSDdelta(p.realizedPnl)}</TD>
+                  <TD className="tnum text-right text-xs">{fmtTradingMoney(p.balance, p.currency)}</TD>
+                  <TD className={`tnum text-right text-xs font-semibold ${p.realizedPnl.isPositive() ? "text-primary" : p.realizedPnl.isNegative() ? "text-loss" : ""}`}>{fmtTradingDelta(p.realizedPnl, p.currency)}</TD>
                   <TD className="tnum text-right text-xs">{p.winRate !== null ? `${fmtNum(p.winRate, 1)}%` : "—"}</TD>
                   <TD className="tnum text-right text-xs">{p.trades}</TD>
                   {portfolio.some((x) => x.isProp) ? (
@@ -149,7 +149,6 @@ export default async function AnalyticsPage() {
         </TableWrap>
       </div>
 
-      <MonteCarloPanel />
     </PageShell>
   );
 }

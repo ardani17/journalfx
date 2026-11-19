@@ -7,7 +7,8 @@ const cashflowReport = readFileSync(new URL("../fixtures/mt5-cashflows.xlsx", im
 
 describe("MT5 history workbook", () => {
   it("reads UTF-16 positions and preserves ticket, fractional lot, and broker P&L", async () => {
-    const { positions, cashflows, errors } = await parseMt5Report(report);
+    const { currency, positions, cashflows, errors } = await parseMt5Report(report);
+    expect(currency).toBe("USD");
     expect(positions).toHaveLength(2);
     expect(cashflows).toEqual([]);
     expect(errors).toEqual([
@@ -33,7 +34,11 @@ describe("MT5 history workbook", () => {
   });
 
   it("reads signed balance deals from a cashflow-only workbook and reports invalid deposit or withdrawal rows", async () => {
-    const { positions, cashflows, errors } = await parseMt5Report(cashflowReport);
+    const { positions, cashflows, fees, errors } = await parseMt5Report(cashflowReport);
+    expect(fees.map((fee) => ({ ...fee, amount: fee.amount.toString() }))).toEqual([expect.objectContaining({
+      rowNumber: 12, dealId: "9900000000000000005", type: "FEE", amount: "-1.25",
+      occurredAt: new Date("2026-11-02T22:48:58Z"), comment: "Fee deal 9900000000000000005",
+    })]);
     expect(positions).toEqual([]);
     expect(errors).toEqual([
       "Baris 10 · Nominal atau tanda arus kas tidak valid",
@@ -54,6 +59,21 @@ describe("MT5 history workbook", () => {
 
   it("returns a validation error for a damaged workbook", async () => {
     await expect(parseMt5Report(report.subarray(0, 256))).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("preserves USC position amounts, prices, lots, and signed deals", async () => {
+    const { currency, positions, cashflows, fees, errors } = await parseMt5Report(
+      readFileSync(new URL("../fixtures/mt5-usc.xlsx", import.meta.url)),
+    );
+    expect(currency).toBe("USC");
+    expect(errors).toEqual([]);
+    expect(positions).toHaveLength(1);
+    const [position] = positions;
+    expect(position!.symbol).toBe("XAUUSDC");
+    expect([position!.lot, position!.openPrice, position!.closePrice, position!.commission, position!.swap, position!.netPnl].map(String))
+      .toEqual(["0.37", "2650.125", "2652.875", "7.5", "1.25", "1251.25"]);
+    expect(cashflows.map((row) => [row.type, row.amount.toString()])).toEqual([["DEPOSIT", "5000"], ["WITHDRAWAL", "-125.55"]]);
+    expect(fees.map((row) => row.amount.toString())).toEqual(["-1.25"]);
   });
 
   it("requires an XLSX upload and enforces the file size limit", async () => {

@@ -2,17 +2,18 @@ import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 
 import { audit } from "@/server/audit";
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import { adjustedDrawdown } from "@/lib/finance/risk";
 import { attributedLedger, computeBalance } from "./ledger";
 import { zonedPeriod } from "@/lib/dates";
 
 export async function getRiskSettings(userId: string) {
-  let settings = await prisma.riskSettings.findUnique({ where: { userId } });
-  if (!settings) {
-    settings = await prisma.riskSettings.create({ data: { userId } });
-  }
-  return settings;
+  const settings = await prisma.riskSettings.findUnique({ where: { userId } });
+  return settings ?? prisma.riskSettings.upsert({
+    where: { userId },
+    create: { userId },
+    update: { userId },
+  });
 }
 
 export async function updateRiskSettings(
@@ -62,35 +63,36 @@ export interface RiskStatus {
 
 /** Live risk usage vs configured (illustrative) limits — warning only, never blocking. */
 export async function riskStatus(userId: string): Promise<RiskStatus> {
-  const settings = await getRiskSettings(userId);
-  const balances = await computeBalance(userId);
-  const balance = balances.balance;
-  const equity = balance; // unrealized arrives with open trades pricing (v0.5 market data)
-
   const now = new Date();
-  const timezone = await userTimezone(userId);
-  const { start: dayStart } = zonedPeriod("DAILY", now, timezone);
-  const { start: weekStart } = zonedPeriod("WEEKLY", now, timezone);
-
-  const [openTrades, ledger] = await Promise.all([
+  const [settings, balances, timezone, openTrades, ledger] = await Promise.all([
+    getRiskSettings(userId),
+    computeBalance(userId),
+    userTimezone(userId),
     prisma.trade.findMany({
       where: { userId, status: { in: ["OPEN", "PARTIAL"] } }, select: { initialRisk: true },
     }),
     attributedLedger(userId),
   ]);
+  const balance = balances.balance;
+  const equity = balance; // unrealized arrives with open trades pricing (v0.5 market data)
+  const { start: dayStart } = zonedPeriod("DAILY", now, timezone);
+  const { start: weekStart } = zonedPeriod("WEEKLY", now, timezone);
   const openRisk = openTrades.reduce((sum, t) => sum.plus(D(t.initialRisk)), D(0));
-  const realized = ledger.filter((r) => (r.type === "REALIZED_PNL" || r.type === "FEE") && r.occurredAt <= now);
-  const dayPnl = realized.filter((r) => r.occurredAt >= dayStart).reduce((sum, r) => sum.plus(D(r.amount)), D(0));
-  const weekPnl = realized.filter((r) => r.occurredAt >= weekStart).reduce((sum, r) => sum.plus(D(r.amount)), D(0));
+  const posted = ledger.filter((row) => row.occurredAt <= now).map((row) => ({
+    ...row, amountUsd: tradingAmountToUsd(row.amount, row.currency),
+  }));
+  const realized = posted.filter((r) => r.type === "REALIZED_PNL" || r.type === "FEE");
+  const dayPnl = realized.filter((r) => r.occurredAt >= dayStart).reduce((sum, r) => sum.plus(r.amountUsd), D(0));
+  const weekPnl = realized.filter((r) => r.occurredAt >= weekStart).reduce((sum, r) => sum.plus(r.amountUsd), D(0));
   let equityRun = D(0);
   let cashFlow = D(0);
   let initialFunding = D(0);
-  const points = ledger.filter((r) => r.occurredAt <= now).map((r) => {
-    equityRun = equityRun.plus(D(r.amount));
+  const points = posted.map((r) => {
+    equityRun = equityRun.plus(r.amountUsd);
     if (r.type === "DEPOSIT" || r.type === "WITHDRAWAL") {
       // Ledger amounts already carry their cash-flow sign.
-      cashFlow = cashFlow.plus(D(r.amount));
-      if (initialFunding.isZero() && r.type === "DEPOSIT" && D(r.amount).gt(0)) initialFunding = D(r.amount);
+      cashFlow = cashFlow.plus(r.amountUsd);
+      if (initialFunding.isZero() && r.type === "DEPOSIT" && r.amountUsd.gt(0)) initialFunding = r.amountUsd;
     }
     return { at: r.occurredAt, equity: equityRun, netCashFlow: cashFlow.minus(initialFunding) };
   });
