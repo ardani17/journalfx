@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
@@ -143,23 +144,22 @@ export function SimulatorClient({
 
   async function submit(action: "run" | "save") {
     setError(null);
-    const input = selected ? undefined : buildInput(action);
-    if (!selected && !input) return;
-    const endpoint = selected ? `/api/scenarios/${encodeURIComponent(selected.id)}/run`
-      : action === "save" ? "/api/scenarios" : "/api/simulator/run";
-    const frequency = selected?.frequency ?? form.frequency;
+    const input = buildInput(action);
+    if (!input) return;
+    const endpoint = action === "save" ? "/api/scenarios" : "/api/simulator/run";
     setPending(action);
     try {
       const res = await fetch(endpoint, {
         method: "POST",
-        ...(input && { headers: { "content-type": "application/json" }, body: JSON.stringify(input) }),
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(input),
       });
       const body = await res.json();
       if (!res.ok || !body.ok) {
         setError(body.error ?? (action === "run" ? "Simulasi gagal" : "Gagal menyimpan skenario"));
         return;
       }
-      if (action === "run") setResult({ data: body.data, frequency });
+      if (action === "run") setResult({ data: body.data, frequency: form.frequency });
       else router.refresh();
     } catch {
       setError("Tidak dapat menghubungi server");
@@ -214,12 +214,7 @@ export function SimulatorClient({
           <CardHeader><CardTitle>{selected.name}</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <ScenarioFacts scenario={selected} />
-            <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={() => submit("run")} disabled={pending !== null}>
-                <Play className="h-4 w-4" aria-hidden /> {pending === "run" ? "Menghitung…" : "Simulasikan Skenario"}
-              </Button>
-              <Link className="text-sm text-primary hover:underline" href="/simulator">Kembali ke Simulator</Link>
-            </div>
+            <Link className="inline-block text-sm text-primary hover:underline" href="/simulator">Kembali ke Simulator</Link>
           </CardContent>
         </Card>
       ) : <Card>
@@ -264,7 +259,8 @@ export function SimulatorClient({
 
       {error ? <p className="rounded-lg border border-loss/30 bg-loss/10 px-3 py-2 text-xs text-loss" role="alert">{error}</p> : null}
 
-      {result ? <SimulationResult result={result.data} frequency={result.frequency} /> : null}
+      {selected ? <SavedSimulationResult id={selected.id} frequency={selected.frequency} />
+        : result ? <SimulationResult result={result.data} frequency={result.frequency} /> : null}
 
       {/* Saved scenarios */}
       <div>
@@ -298,6 +294,33 @@ export function SimulatorClient({
       </div>
     </>
   );
+}
+
+function SavedSimulationResult({ id, frequency }: { id: string; frequency: CompoundingFrequency }) {
+  const simulation = useQuery({
+    queryKey: ["saved-simulation", id],
+    queryFn: async ({ signal }): Promise<RunResult> => {
+      const response = await fetch(`/api/scenarios/${encodeURIComponent(id)}/run`, { method: "POST", signal });
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.ok) throw new Error(body?.error ?? "Simulasi skenario gagal.");
+      return body.data;
+    },
+    gcTime: 0,
+    retry: false,
+  });
+
+  if (simulation.isPending || simulation.isFetching) {
+    return <p role="status" className="rounded-lg border border-line bg-panel p-3 text-sm text-muted">Menghitung simulasi…</p>;
+  }
+  if (simulation.isError) {
+    return (
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-loss/30 bg-loss/10 p-3">
+        <p role="alert" className="text-sm text-loss">{simulation.error.message}</p>
+        <Button variant="secondary" size="sm" onClick={() => simulation.refetch()}>Coba Lagi</Button>
+      </div>
+    );
+  }
+  return <SimulationResult result={simulation.data} frequency={frequency} />;
 }
 
 function SimulationResult({ result, frequency }: { result: RunResult; frequency: CompoundingFrequency }) {
