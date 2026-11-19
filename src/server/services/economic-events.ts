@@ -64,6 +64,13 @@ export async function buildInsights(userId: string) {
   let prevLoss = false;
   const mapped: InsightTrade[] = trades.map((tr) => {
     const j = tr.journal;
+    const hasJournalContent = Boolean(j && (
+      [j.marketContext, j.entryReason, j.exitReason, j.emotionBefore, j.emotionDuring, j.emotionAfter, j.lessons, j.improvement]
+        .some((field) => field?.trim()) ||
+      j.confidence !== null || j.stressLevel !== null || j.compliant !== null ||
+      j.fomo || j.revenge || j.overtrading || j.mistakes.length || j.tags.length ||
+      [j.preChecklist, j.postChecklist].some((value) => value && Object.keys(value).length)
+    ));
     const item: InsightTrade = {
       session: tr.session,
       timeframe: tr.timeframe,
@@ -77,6 +84,7 @@ export async function buildInsights(userId: string) {
       revenge: j?.revenge ?? false,
       overtrading: j?.overtrading ?? false,
       mistakes: j?.mistakes ?? [],
+      hasJournalContent,
       journalComplete: Boolean(j && j.marketContext && j.entryReason && (j.lessons || j.postChecklist)),
       prevTradeLoss: prevLoss,
     };

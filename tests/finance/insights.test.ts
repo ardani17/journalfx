@@ -15,6 +15,7 @@ function t(partial: Partial<InsightTrade>): InsightTrade {
     revenge: false,
     overtrading: false,
     mistakes: [],
+    hasJournalContent: true,
     journalComplete: true,
     prevTradeLoss: false,
     ...partial,

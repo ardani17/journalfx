@@ -198,13 +198,18 @@ export async function listWithdrawals(userId: string) {
 }
 
 export async function requestWithdrawal(userId: string, amountUsd: number, note?: string, req?: Request, accountId?: string) {
+  const amount = D(amountUsd);
+  if (!amount.isFinite() || !amount.gt(0) || amount.decimalPlaces() > 2 || amount.gte("1e16")) {
+    throw new ApiError(400, "Masukkan jumlah USD positif dengan maksimal dua angka desimal.");
+  }
+
   const fx = await getJisdorQuote();
   if (!fx) throw new ApiError(503, "Kurs acuan JISDOR belum tersedia. Coba lagi nanti.");
 
   const w = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
     const { recommendation } = await getRecommendation(userId, fx);
-    if (D(amountUsd).gt(recommendation.recommended)) {
+    if (amount.gt(recommendation.recommended)) {
       throw new ApiError(
         400,
         `Jumlah ${amountUsd} melebihi rekomendasi ${recommendation.recommended.toFixed(2)} — kurangi jumlah atau perbaiki data`,
@@ -216,14 +221,14 @@ export async function requestWithdrawal(userId: string, amountUsd: number, note?
     const account = accountId ? accounts.find((a) => a.id === accountId) : accounts.length === 1 ? accounts[0] : null;
     if (!account) throw new ApiError(400, "Pilih akun sumber withdrawal yang aktif");
     const cash = await tx.accountTransaction.aggregate({ where: { userId, accountId: account.id }, _sum: { amount: true } });
-    if (tradingAmountToUsd(cash._sum.amount, account.currency).lt(amountUsd)) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
+    if (tradingAmountToUsd(cash._sum.amount, account.currency).lt(amount)) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
     const w = await tx.withdrawal.create({
       data: {
         userId,
         projectId: project.id,
         accountId: account.id,
         status: "REQUESTED",
-        amountUSD: D(amountUsd).toDecimalPlaces(2),
+        amountUSD: amount,
         note: note ?? null,
         requestedAt: new Date(),
       },

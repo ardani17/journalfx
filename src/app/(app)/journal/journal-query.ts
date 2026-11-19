@@ -1,4 +1,4 @@
-import { addUTCDays, calendarInstant } from "@/lib/dates";
+import { addUTCDays, calendarDayStart } from "@/lib/dates";
 
 export const JOURNAL_PAGE_SIZES = [50, 100, 200] as const;
 export type JournalPageSize = (typeof JOURNAL_PAGE_SIZES)[number];
@@ -29,8 +29,8 @@ export function journalDateRange(dateFrom?: string, dateTo?: string, timezone = 
     return { error: "Tanggal akhir harus sama atau setelah tanggal mulai." };
   }
   return {
-    from: start ? calendarInstant(start, timezone) : undefined,
-    to: end ? calendarInstant(addUTCDays(end, 1), timezone) : undefined,
+    from: start ? calendarDayStart(start, timezone) : undefined,
+    to: end ? calendarDayStart(addUTCDays(end, 1), timezone) : undefined,
   };
 }
 

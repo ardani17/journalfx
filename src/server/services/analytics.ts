@@ -106,11 +106,18 @@ export async function coreMetrics(
 
   const n = closed.length;
   const journalTradeIds = journal ? new Set(trades.map((trade) => trade.id)) : null;
-  const periodLedger = (await attributedLedger(userId)).filter((r) =>
-    (r.type === "REALIZED_PNL" || r.type === "FEE") &&
-    (!filter?.accountId || r.accountId === filter.accountId) &&
-    (!journalTradeIds || (r.sourceTradeId !== null && journalTradeIds.has(r.sourceTradeId))) &&
-    (!filter?.from || r.occurredAt >= filter.from) && (!filter?.to || r.occurredAt < filter.to));
+  const hasTradeSpecificFilter = journal?.status || journal?.result || journal?.strategyId;
+  const periodLedger = (await attributedLedger(userId)).filter((r) => {
+    if (r.type !== "REALIZED_PNL" && r.type !== "FEE") return false;
+    if (filter?.accountId && r.accountId !== filter.accountId) return false;
+    if ((filter?.from && r.occurredAt < filter.from) || (filter?.to && r.occurredAt >= filter.to)) return false;
+    if (!journalTradeIds) return true;
+    if (r.sourceTradeId) return journalTradeIds.has(r.sourceTradeId);
+
+    // A broker fee without a trade ID is attributable to the account and transaction date.
+    return r.type === "FEE" && !hasTradeSpecificFilter &&
+      (!journal?.from || r.occurredAt >= journal.from) && (!journal?.to || r.occurredAt < journal.to);
+  });
   const netPnl = periodLedger.reduce((sum, r) => sum.plus(filter?.accountId ? D(r.amount) : tradingAmountToUsd(r.amount, r.currency)), D(0));
   return {
     totalTrades: journal ? trades.length : n,

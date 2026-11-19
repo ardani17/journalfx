@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/analytics/journal-insights/route";
 import { requireUser } from "@/server/auth";
+import { reserveAiJournalRequest } from "@/server/services/ai-journal";
+import { ApiError } from "@/lib/api";
 import { buildInsights } from "@/server/services/economic-events";
+
+vi.mock("@/server/services/ai-journal", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/server/services/ai-journal")>(),
+  reserveAiJournalRequest: vi.fn(),
+}));
 
 vi.mock("@/server/auth", () => ({ requireUser: vi.fn() }));
 vi.mock("@/server/services/economic-events", () => ({ buildInsights: vi.fn() }));
@@ -57,6 +64,14 @@ describe("AI Journal Insights endpoint", () => {
     vi.stubGlobal("fetch", fetchMock);
     expect((await request(false)).status).toBe(503);
     expect((await request(true, false)).status).toBe(422);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("skips the provider when the request quota is exhausted", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.mocked(reserveAiJournalRequest).mockRejectedValueOnce(new ApiError(429, "Batas permintaan tercapai."));
+    expect((await request()).status).toBe(429);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -51,3 +51,37 @@ export function handleRouteError(e: unknown) {
   console.error("[api] unexpected error:", e);
   return fail(500, "Terjadi kesalahan internal");
 }
+
+const MAX_MULTIPART_BYTES = 8 * 1024 * 1024;
+
+/** Limit the entire upload, including multipart metadata, before parsing it. */
+export async function parseUploadForm(req: Request): Promise<FormData> {
+  if (Number(req.headers.get("content-length")) > MAX_MULTIPART_BYTES) {
+    throw new ApiError(413, "Ukuran permintaan unggah maksimal 8 MB.");
+  }
+  const contentType = req.headers.get("content-type");
+  if (!req.body || !contentType?.toLowerCase().startsWith("multipart/form-data;")) {
+    throw new ApiError(400, "Unggahan file tidak valid.");
+  }
+
+  let received = 0;
+  let tooLarge = false;
+  const body = req.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      received += chunk.byteLength;
+      if (received > MAX_MULTIPART_BYTES) {
+        tooLarge = true;
+        controller.error(new Error("Multipart body exceeds size limit"));
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  }));
+
+  try {
+    return await new Response(body, { headers: { "content-type": contentType } }).formData();
+  } catch {
+    if (tooLarge) throw new ApiError(413, "Ukuran permintaan unggah maksimal 8 MB.");
+    throw new ApiError(400, "Unggahan file tidak valid.");
+  }
+}

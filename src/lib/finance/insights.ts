@@ -20,6 +20,7 @@ export interface InsightTrade {
   revenge: boolean;
   overtrading: boolean;
   mistakes: string[];
+  hasJournalContent: boolean;
   journalComplete: boolean;
   prevTradeLoss: boolean;
 }
@@ -49,7 +50,7 @@ export function journalInsights(trades: InsightTrade[]): {
 } {
   const insights: Insight[] = [];
   const closed = trades.filter((t) => t.realizedPnl !== null);
-  const withJournal = trades.filter((t) => t.journalComplete || t.fomo || t.mistakes.length > 0 || t.emotionBefore);
+  const withJournal = trades.filter((t) => t.hasJournalContent);
   const complete = trades.filter((t) => t.journalComplete);
 
   // 1. session performance comparison

@@ -732,3 +732,9 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([entity, entityId])
 }
+
+model AiJournalRateLimit {
+  key         String   @id
+  windowStart DateTime @db.Timestamptz(3)
+  requests    Int
+}

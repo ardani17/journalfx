@@ -80,27 +80,28 @@ export function monteCarlo(input: MonteCarloInput): MonteCarloResult {
     paths.push(series);
   }
 
-  const percentileAt = (step: number, pctile: number): number => {
-    const values = paths.map((s) => s[step]!).sort((a, b) => a - b);
-    const idx = Math.min(values.length - 1, Math.max(0, Math.floor((pctile / 100) * values.length)));
-    return values[idx]!;
-  };
-
-  const len = tradesPerPath + 1;
-  const band = (pctile: number) => Array.from({ length: len }, (_, s) => percentileAt(s, pctile));
+  const percentiles = [10, 25, 50, 75, 90];
+  const indices = percentiles.map((pctile) =>
+    Math.min(paths.length - 1, Math.max(0, Math.floor((pctile / 100) * paths.length))));
+  const bands = percentiles.map((): number[] => []);
+  for (let step = 0; step <= tradesPerPath; step++) {
+    const values = paths.map((series) => series[step]!).sort((a, b) => a - b);
+    bands.forEach((band, index) => band.push(values[indices[index]!]!));
+  }
+  const [p10, p25, p50, p75, p90] = bands as [number[], number[], number[], number[], number[]];
 
   maxDds.sort((a, b) => a - b);
   const medianMaxDd = maxDds[Math.floor(maxDds.length / 2)] ?? 0;
 
   return {
-    p10: band(10),
-    p25: band(25),
-    p50: band(50),
-    p75: band(75),
-    p90: band(90),
-    medianFinal: band(50).at(-1)!,
-    p10Final: band(10).at(-1)!,
-    p90Final: band(90).at(-1)!,
+    p10,
+    p25,
+    p50,
+    p75,
+    p90,
+    medianFinal: p50.at(-1)!,
+    p10Final: p10.at(-1)!,
+    p90Final: p90.at(-1)!,
     riskOfRuinPct: (ruinCount / input.paths) * 100,
     medianMaxDdPct: Number(medianMaxDd.toFixed(2)),
     sampleTrades: n,

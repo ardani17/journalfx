@@ -35,10 +35,10 @@ describe("MT5 history workbook", () => {
 
   it("reads signed balance deals from a cashflow-only workbook and reports invalid deposit or withdrawal rows", async () => {
     const { positions, cashflows, fees, errors } = await parseMt5Report(cashflowReport);
-    expect(fees.map((fee) => ({ ...fee, amount: fee.amount.toString() }))).toEqual([{
+    expect(fees.map((fee) => ({ ...fee, amount: fee.amount.toString() }))).toEqual([expect.objectContaining({
       rowNumber: 12, dealId: "9900000000000000005", type: "FEE", amount: "-1.25",
       occurredAt: new Date("2026-11-02T22:48:58Z"), comment: "Fee deal 9900000000000000005",
-    }]);
+    })]);
     expect(positions).toEqual([]);
     expect(errors).toEqual([
       "Baris 10 · Nominal atau tanda arus kas tidak valid",

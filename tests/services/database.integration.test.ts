@@ -174,6 +174,8 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     expect((await balanceSeries(f.userId)).at(-1)?.balance).toBe(261.24);
     expect((await coreMetrics(f.userId)).netPnl.toString()).toBe("12.5");
     expect((await coreMetrics(f.userId, { accountId: cent.id })).netPnl.toString()).toBe("1250");
+    const journal = { accountId: cent.id, from: new Date("2026-11-01T00:00:00Z"), to: new Date("2026-11-06T00:00:00Z") };
+    expect((await coreMetrics(f.userId, { accountId: cent.id, journal })).netPnl.toString()).toBe("1250");
     expect((await weeklySummary(f.userId, new Date("2026-11-05T00:00:00Z"))).realizedPnl.toString()).toBe("12.5");
     await expect(importStatement(f.userId, f.accountId, usdReport)).resolves.toMatchObject({ imported: 2 });
   });

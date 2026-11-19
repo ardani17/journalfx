@@ -16,6 +16,20 @@ describe("Journal entry date ranges", () => {
     });
   });
 
+  it("includes the first midnight when local midnight repeats", () => {
+    expect(journalDateRange("2021-10-29", "2021-10-29", "Asia/Amman")).toEqual({
+      from: new Date("2021-10-28T21:00:00Z"),
+      to: new Date("2021-10-29T22:00:00Z"),
+    });
+  });
+
+  it("starts at the first valid time when local midnight is skipped", () => {
+    expect(journalDateRange("2021-03-26", "2021-03-26", "Asia/Amman")).toEqual({
+      from: new Date("2021-03-25T22:00:00Z"),
+      to: new Date("2021-03-26T21:00:00Z"),
+    });
+  });
+
   it("rejects impossible or inverted ranges and accepts one bound", () => {
     expect(journalDateRange("2026-02-30").error).toBeTruthy();
     expect(journalDateRange("2026-03-09", "2026-03-08").error).toBeTruthy();

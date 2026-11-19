@@ -38,7 +38,7 @@ export async function importStatement(
     skipped: errors.length, errors, registeredSymbols: [],
   };
 
-  let hasLegacyFees = false;
+  const legacyFeePositions: typeof positions = [];
   for (const row of positions) {
     try {
       const result = await prisma.$transaction(async (tx) => {
@@ -113,11 +113,11 @@ export async function importStatement(
       switch (result.kind) {
         case "duplicate":
           report.duplicates++;
-          hasLegacyFees ||= result.hasLegacyFees;
+          if (result.hasLegacyFees) legacyFeePositions.push(row);
           break;
         case "reconciled":
           report.reconciled++;
-          hasLegacyFees ||= result.hasLegacyFees;
+          if (result.hasLegacyFees) legacyFeePositions.push(row);
           break;
         case "conflict":
           report.skipped++;
@@ -136,19 +136,19 @@ export async function importStatement(
   }
 
   for (const row of [...cashflows, ...fees]) {
-    if (row.type === "FEE" && hasLegacyFees) {
-      report.skipped++;
-      report.errors.push(`Baris ${row.rowNumber} · Fee deal belum diimpor karena laporan mencakup trade lama dengan fee tercatat`);
-      continue;
-    }
-    const imported = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await lockTradeWrites(tx, userId);
       await requireActiveAccount(userId, accountId, tx);
       const existing = await tx.accountTransaction.findUnique({
         where: { accountId_mt5DealId: { accountId, mt5DealId: row.dealId } },
         select: { id: true },
       });
-      if (existing) return false;
+      if (existing) return "duplicate";
+      if (row.type === "FEE" && legacyFeePositions.some((position) =>
+        (!row.symbol || row.symbol === position.symbol) &&
+        position.openAt <= row.occurredAt && row.occurredAt <= position.closeAt)) {
+        return "ambiguous";
+      }
 
       const withdrawal = row.type === "WITHDRAWAL" ? await tx.withdrawal.create({
         data: {
@@ -163,12 +163,15 @@ export async function importStatement(
           occurredAt: row.occurredAt, note: row.comment, mt5DealId: row.dealId, withdrawalId: withdrawal?.id,
         },
       });
-      return true;
+      return "imported";
     });
-    if (row.type === "FEE") {
-      if (imported) report.feesImported++;
+    if (result === "ambiguous") {
+      report.skipped++;
+      report.errors.push("Baris " + row.rowNumber + " · Fee deal belum diimpor karena mungkin sudah tercatat pada posisi lama.");
+    } else if (row.type === "FEE") {
+      if (result === "imported") report.feesImported++;
       else report.feeDuplicates++;
-    } else if (!imported) report.cashflowDuplicates++;
+    } else if (result === "duplicate") report.cashflowDuplicates++;
     else if (row.type === "DEPOSIT") report.depositsImported++;
     else report.withdrawalsImported++;
   }

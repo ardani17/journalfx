@@ -1,8 +1,36 @@
 import { z } from "zod";
+import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import type { Insight } from "@/lib/finance/insights";
 
 export const MIN_JOURNAL_SAMPLE = 3;
+const REQUESTS_PER_USER_PER_MINUTE = 1;
+const TOTAL_REQUESTS_PER_MINUTE = 30;
+
+export async function reserveAiJournalRequest(userId: string) {
+  await prisma.$transaction(async (tx) => {
+    for (const [key, limit] of [
+      ["user:" + userId, REQUESTS_PER_USER_PER_MINUTE],
+      ["global", TOTAL_REQUESTS_PER_MINUTE],
+    ] as const) {
+      const reserved = await tx.$queryRaw<{ key: string }[]>`
+        INSERT INTO "AiJournalRateLimit" ("key", "windowStart", "requests")
+        VALUES (${key}, date_trunc('minute', CURRENT_TIMESTAMP), 1)
+        ON CONFLICT ("key") DO UPDATE SET
+          "requests" = CASE WHEN "AiJournalRateLimit"."windowStart" = EXCLUDED."windowStart"
+            THEN "AiJournalRateLimit"."requests" + 1 ELSE 1 END,
+          "windowStart" = EXCLUDED."windowStart"
+        WHERE "AiJournalRateLimit"."windowStart" < EXCLUDED."windowStart"
+          OR ("AiJournalRateLimit"."windowStart" = EXCLUDED."windowStart"
+            AND "AiJournalRateLimit"."requests" < ${limit})
+        RETURNING "key"
+      `;
+      if (reserved.length === 0) {
+        throw new ApiError(429, "Batas permintaan insight AI tercapai. Coba lagi dalam satu menit.");
+      }
+    }
+  });
+}
 
 export function aiJournalConfig(env = process.env) {
   const base = env.AI_BASE_URL?.trim();

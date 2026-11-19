@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Bell, ChevronDown, LogOut, Menu, Settings, User } from "lucide-react";
 import { MOBILE_NAV } from "./nav";
@@ -22,7 +22,7 @@ export function Header({
   progressPct: number;
   progressLabel: string;
 }) {
-  const router = useRouter();
+  const [logoutError, setLogoutError] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const drawerRef = useRef<HTMLDialogElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -37,9 +37,17 @@ export function Header({
   }, []);
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-    router.refresh();
+    setLogoutError(false);
+    try {
+      const response = await fetch("/api/auth/logout", { method: "POST" });
+      if (response.ok) {
+        window.location.replace("/login");
+        return;
+      }
+    } catch {
+      // Keep the account menu available to retry.
+    }
+    setLogoutError(true);
   }
 
   const initials = (user.name || "A").trim().charAt(0).toUpperCase();
@@ -122,6 +130,7 @@ export function Header({
                 >
                   <LogOut className="h-4 w-4" /> Keluar
                 </button>
+                {logoutError && <p role="alert" className="px-3 py-2 text-xs text-loss">Gagal keluar. Coba lagi.</p>}
               </div>
             ) : null}
           </div>

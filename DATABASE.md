@@ -25,6 +25,13 @@ Migration policy:
 - Destructive changes require a two-step expand/contract path documented in the migration notes.
 - Backup before applying migrations in production (see Backup/restore).
 
+The shared Telegram bot migration (20261119030000) clears prior chat destinations
+and removes per-user bot tokens. For this cutover, back up the database, stop app
+instances using the per-user-token schema, apply the committed migrations, then
+start the new app and register the shared bot. Users reconnect through Settings.
+An older app requires a compatible database restore if rolled back after this
+migration. Leave the shared bot disconnected until the restore is complete.
+
 ## Schema overview (v0.1.0 target)
 
 Core domains and their tables (full definition in `prisma/schema.prisma`):

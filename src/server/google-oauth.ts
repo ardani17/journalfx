@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { EncryptJWT, jwtDecrypt } from "jose";
 import * as oidc from "openid-client";
 import { z } from "zod";
+import { configuredAuthSecret } from "@/lib/session";
+import { getAppOrigin } from "@/lib/app-origin";
 
 export const GOOGLE_FLOW_COOKIE = "horizon_google_flow";
 export const GOOGLE_FLOW_MAX_AGE = 600;
@@ -29,25 +31,12 @@ interface GoogleConfig {
   flowKey: Uint8Array;
 }
 
-export function getAppOrigin() {
-  try {
-    const url = new URL(process.env.APP_ORIGIN ?? "");
-    if (url.username || url.password || url.pathname !== "/" || url.search || url.hash) return null;
-    if (url.protocol === "https:") return url;
-    if (process.env.NODE_ENV !== "production" && url.protocol === "http:" &&
-        ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return url;
-  } catch {
-    // Malformed or missing APP_ORIGIN disables sign-in until it is configured.
-  }
-  return null;
-}
-
 export function getGoogleConfig(): GoogleConfig | null {
   const origin = getAppOrigin();
   const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
-  const secret = process.env.AUTH_SECRET;
-  if (!origin || !clientId || !clientSecret || !secret || secret.length < 32 || secret.startsWith("change-me")) return null;
+  const secret = configuredAuthSecret();
+  if (!origin || !clientId || !clientSecret || !secret) return null;
   return {
     origin, clientId, clientSecret,
     callback: new URL(CALLBACK_PATH, origin),

@@ -11,12 +11,17 @@ export interface SessionPayload {
   name: string;
 }
 
+export function configuredAuthSecret() {
+  const value = process.env.AUTH_SECRET;
+  if (!value) return null;
+  const normalized = value.trim();
+  return normalized.length >= 32 && !normalized.startsWith("change-me") ? value : null;
+}
+
 function secret(): Uint8Array {
-  const s = process.env.AUTH_SECRET;
-  if (!s || s.length < 16) {
-    throw new Error("AUTH_SECRET is missing or too short (min 16 chars)");
-  }
-  return new TextEncoder().encode(s);
+  const value = configuredAuthSecret();
+  if (!value) throw new Error("AUTH_SECRET is missing or invalid");
+  return new TextEncoder().encode(value);
 }
 
 export async function signSession(payload: SessionPayload): Promise<string> {

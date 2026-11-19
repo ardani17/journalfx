@@ -1,5 +1,5 @@
 import { D, type Decimal } from "@/lib/money";
-import { ApiError } from "@/lib/api";
+import { ApiError, parseUploadForm } from "@/lib/api";
 import { readWorkbookSheets, type WorkbookRow } from "./mt5-workbook";
 
 const POSITION_HEADERS = ["time", "position", "symbol", "type", "volume", "price", "sl", "tp", "time", "price", "commission", "swap", "profit"];
@@ -126,7 +126,7 @@ function parseCashflow(row: WorkbookRow, date1904: boolean): Mt5Cashflow | null 
   return { rowNumber: row.number, dealId, type, amount, occurredAt, comment };
 }
 
-function parseDealFee(row: WorkbookRow, date1904: boolean): (Omit<Mt5Cashflow, "type"> & { type: "FEE" }) | null {
+function parseDealFee(row: WorkbookRow, date1904: boolean): (Omit<Mt5Cashflow, "type"> & { type: "FEE"; symbol: string }) | null {
   const side = normalize(row.cells.get("D"));
   if (side !== "buy" && side !== "sell") return null;
   const amount = decimal(row.cells.get("J") ?? "0", 2, 16);
@@ -135,7 +135,10 @@ function parseDealFee(row: WorkbookRow, date1904: boolean): (Omit<Mt5Cashflow, "
   const dealId = brokerTicket(row.cells.get("B"));
   const occurredAt = reportTime(row.cells.get("A") ?? "", date1904);
   if (!dealId || !occurredAt) throw new Error("Nomor deal atau waktu fee tidak valid");
-  return { rowNumber: row.number, dealId, type: "FEE", amount, occurredAt, comment: "Fee deal " + dealId };
+  return {
+    rowNumber: row.number, dealId, type: "FEE", amount, occurredAt,
+    symbol: row.cells.get("C")?.toUpperCase() ?? "", comment: "Fee deal " + dealId,
+  };
 }
 
 function reportSection(rows: WorkbookRow[], name: string, headers: string[]) {
@@ -196,7 +199,7 @@ export async function parseMt5Report(bytes: Buffer) {
 }
 
 export async function readMt5Upload(req: Request) {
-  const form = await req.formData().catch(() => { throw new ApiError(400, "Unggahan file tidak valid"); });
+  const form = await parseUploadForm(req);
   const file = form.get("file");
   const accountId = form.get("accountId");
   if (typeof accountId !== "string" || !accountId.trim()) throw new ApiError(400, "Pilih akun tujuan");

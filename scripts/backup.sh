@@ -2,11 +2,13 @@
 # MDTP backup: database dump + uploads tarball → backups/<stamp>/
 # Usage: bash scripts/backup.sh [compose-file]
 set -euo pipefail
+umask 077
 cd "$(dirname "$0")/.."
 COMPOSE_FILE="${1:-docker-compose.prod.yml}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 DEST="backups/$STAMP"
-mkdir -p "$DEST"
+mkdir -p backups
+mkdir -- "$DEST"
 
 echo "[backup] dumping database..."
 docker compose -f "$COMPOSE_FILE" exec -T postgres \
