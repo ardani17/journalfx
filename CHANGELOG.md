@@ -8,6 +8,32 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+### Added
+
+- Install Horizon Journal on Android and iPhone as a standalone web app.
+- Filter the Trading Journal by entry date and navigate paginated results.
+- Run a saved Compounding Plan on open and compare its projection with per-trade Monte Carlo simulations. The full cycle history is available in the planner.
+- Generate AI Journal Insights on demand from journal statistics when a provider is configured. Each finding links back to its evidence, and rule-based insights remain available.
+- Edit, deactivate, and reactivate trading accounts. Delete empty accounts, import MT5 reports for USD and US cent accounts, and choose flexible debt repayment terms.
+
+### Changed
+
+- Horizon Journal uses a shared Telegram bot. Enter the private chat ID in Settings and confirm the connection through Start. Existing Telegram destinations must reconnect after the migration. See the [database cutover instructions](https://github.com/ardani17/journalfx/blob/125c1688d9908c676a8c30b7b04771f604ee227e/DATABASE.md#migration-policy).
+- Upgrade to Next.js 16.
+
+### Fixed
+
+- Include complete calendar dates across daylight-saving transitions and account-level MT5 fees in applicable Journal periods.
+- Reconcile matching open MT5 positions, preserve deduplicated broker movements, and convert combined balances from US cent to USD once.
+- Count partially filled journals in AI Insights and use the same cent-precision USD amount for withdrawal validation and storage.
+- Restore backups transactionally into a fresh target and preserve Bash line endings across checkouts.
+
+### Security
+
+- Apply the same secret validation to Google sign-in and session verification, and prevent caching of private attachments.
+- Check the origin of authenticated mutations and enforce upload and AI request limits.
+- Bind the development database to loopback, protect backup permissions, exclude runtime files from Docker builds, and restrict CI credentials.
+
 ## [1.4.1] — 2026-11-19
 
 ### Added
