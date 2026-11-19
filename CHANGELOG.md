@@ -8,9 +8,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+### Added
+
+- Register an instrument symbol from the New Trade form without losing the trade details already entered. Existing symbols are reused.
+- See why a withdrawal recommendation is zero and follow a guide from the request through manual broker withdrawal and receipt reconciliation.
+
+### Fixed
+
+- Reserve funds for pending withdrawals against both the overall cash limit and the selected source account. A pending withdrawal can still be reconciled if its source account has since been deactivated.
+- Preserve the price precision of custom instruments as new trade executions are recorded.
+- Load the sign-in page with the browser policy required by Turnstile and let users retry after returning from Google.
+
 ### Security
 
-- Verify Cloudflare Turnstile before starting Google sign-in. Deployments that offer Google sign-in require both Turnstile keys.
+- Verify Cloudflare Turnstile before starting Google sign-in and limit the size of sign-in requests. Deployments that offer Google sign-in require both Turnstile keys. See the [Turnstile setup guide](https://github.com/ardani17/journalfx/blob/7bd8a93d30e6c2711a29ea4cca5a262dc839afb8/docs/deployment/google-sign-in.md#cloudflare-turnstile).
 
 ## [1.4.2] — 2026-11-19
 
