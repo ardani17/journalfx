@@ -1,11 +1,12 @@
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
-import type { Insight } from "@/lib/finance/insights";
+import type { AiJournalAnalysis } from "@/lib/ai-journal";
+import { renderAiJournalFinding, REVIEW_ACTIONS, type AiJournalEvidence } from "./ai-journal-evidence";
 
-export const MIN_JOURNAL_SAMPLE = 3;
 const REQUESTS_PER_USER_PER_MINUTE = 1;
 const TOTAL_REQUESTS_PER_MINUTE = 30;
+const PROVIDER_TIMEOUT_MS = 15_000;
 
 export async function reserveAiJournalRequest(userId: string) {
   await prisma.$transaction(async (tx) => {
@@ -41,58 +42,86 @@ export function aiJournalConfig(env = process.env) {
     const url = new URL(base);
     if (url.username || url.password || url.search || url.hash) return null;
     if (url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1", "[::1]", "localhost"].includes(url.hostname))) return null;
-    url.pathname = url.pathname.replace(/\/+$/, "") + "/chat/completions";
+    const path = url.pathname.replace(/\/+$/, "");
+    url.pathname = path.endsWith("/chat/completions") ? path : path + "/chat/completions";
     return { url, key, model };
   } catch {
     return null;
   }
 }
 
-type Coverage = { total: number; withJournal: number; complete: number };
-const knownEvidence = /^(?:session-(?:asian|london|newyork|tanpa-sesi)|fomo-impact|missing-sl|revenge-pattern|completeness)$/;
-const resultSchema = z.array(z.object({
-  finding: z.string().trim().min(1).max(650),
-  evidenceId: z.string(),
+const resultSchema = z.array(z.strictObject({
+  evidenceId: z.string().min(1).max(60),
+  actionId: z.string().min(1).max(60),
 })).min(1).max(5);
 
-export async function generateAiJournal(
-  insights: Insight[],
-  coverage: Coverage,
-  config: NonNullable<ReturnType<typeof aiJournalConfig>>,
-) {
-  if (coverage.withJournal < MIN_JOURNAL_SAMPLE) throw new ApiError(422, "Belum cukup data jurnal untuk insight AI.");
-  // Only built-in rules with fixed labels are eligible; mistake tags can contain free text.
-  const evidence = new Map(insights.filter((item) => knownEvidence.test(item.id)).map((item) => [item.id, {
-    id: item.id,
-    statistic: item.title,
-    sample: item.evidence,
-  }]));
+type ProviderStage = "provider_network" | "provider_http" | "provider_response" | "provider_timeout";
 
+function providerFailure(stage: ProviderStage, status?: number) {
+  console.warn("[ai-journal]", status === undefined ? { stage } : { stage, status });
+  return stage === "provider_timeout"
+    ? new ApiError(504, "Penyedia AI terlalu lama merespons. Silakan coba lagi.")
+    : new ApiError(502, "Insight AI gagal dibuat. Silakan coba lagi.");
+}
+
+export async function generateAiJournal(
+  { coverage, evidence }: AiJournalEvidence,
+  config: NonNullable<ReturnType<typeof aiJournalConfig>>,
+): Promise<AiJournalAnalysis> {
+  const actionIds = new Set(evidence.flatMap((item) => item.actionIds));
+  const payload = {
+    coverage,
+    evidence: evidence.map(({ id, groups, actionIds }) => ({
+      id,
+      groups: groups.map(({ alias, metrics }) => ({ label: alias, ...metrics })),
+      actionIds,
+    })),
+    actions: Object.fromEntries([...actionIds].map((id) => [id, REVIEW_ACTIONS[id]])),
+  };
+
+  const signal = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
+  let stage: ProviderStage = "provider_network";
   try {
     const response = await fetch(config.url, {
       method: "POST",
       headers: { Authorization: `Bearer ${config.key}`, "Content-Type": "application/json" },
       redirect: "error",
       cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
+      signal,
       body: JSON.stringify({
         model: config.model,
+        stream: false,
         messages: [
-          { role: "system", content: "Analisis pola dan disiplin trading secara retrospektif dalam bahasa Indonesia. Gunakan hanya fakta yang diberikan, nyatakan keterbatasan sampel, dan hindari prediksi atau sinyal. Balas hanya dengan array JSON berisi 1–5 objek dengan kunci finding dan evidenceId. evidenceId harus persis salah satu ID bukti yang diberikan." },
-          { role: "user", content: JSON.stringify({ coverage, evidence: [...evidence.values()] }) },
+          {
+            role: "system",
+            content: "Pilih 1–5 temuan retrospektif yang paling relevan untuk meninjau performa dan disiplin trading. Utamakan perbandingan yang memiliki selisih dan ukuran sampel bermakna saat tersedia. Untuk setiap ID bukti yang dipilih, pilih satu ID tindakan yang paling sesuai dari actionIds bukti itu. Gunakan setiap ID bukti satu kali. Balas hanya dengan array JSON, misalnya [{\"evidenceId\":\"overview\",\"actionId\":\"review-exits\"}].",
+          },
+          { role: "user", content: JSON.stringify(payload) },
         ],
       }),
     });
-    if (!response.ok) throw new Error("Provider request failed");
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      throw providerFailure("provider_http", response.status);
+    }
+    stage = "provider_response";
     const body = await response.json();
     const content = body?.choices?.[0]?.message?.content;
     if (typeof content !== "string" || content.length > 12_000) throw new Error("Invalid provider response");
-    return resultSchema.parse(JSON.parse(content)).map((item) => {
-      const source = evidence.get(item.evidenceId);
-      if (!source || item.finding.includes(config.key)) throw new Error("Invalid finding");
-      return { finding: item.finding, evidence: source.sample };
+    const trimmed = content.trim();
+    const json = /^```(?:json)?\s*([\s\S]+?)\s*```$/i.exec(trimmed)?.[1] ?? trimmed;
+    const selected = new Set<string>();
+    const findings = resultSchema.parse(JSON.parse(json)).map((item) => {
+      const source = evidence.find(({ id }) => id === item.evidenceId);
+      const action = source?.actionIds.find((id) => id === item.actionId);
+      if (!source || !action || selected.has(source.id)) throw new Error("Invalid selection");
+      selected.add(source.id);
+      return renderAiJournalFinding(source, action);
     });
-  } catch {
-    throw new ApiError(502, "Insight AI gagal dibuat. Silakan coba lagi.");
+    return { coverage, findings };
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    const timedOut = signal.aborted || (error instanceof DOMException && error.name === "TimeoutError");
+    throw providerFailure(timedOut ? "provider_timeout" : stage);
   }
 }
