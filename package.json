@@ -1,6 +1,6 @@
 {
   "name": "horizon-journal",
-  "version": "1.4.5",
+  "version": "1.4.6",
   "private": true,
   "description": "Horizon Journal: personal XAUUSD trading journal, compounding simulator, dynamic withdrawal and finance tracker",
   "scripts": {

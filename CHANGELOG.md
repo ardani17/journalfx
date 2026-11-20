@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+## [1.4.6] — 2026-11-20
+
 ### Added
 
 - View daily realized P&L from the trading calendar and open historical daily, weekly, and monthly reviews. Closing a review saves a snapshot, and corrections preserve the original.
