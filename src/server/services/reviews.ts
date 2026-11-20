@@ -1,12 +1,12 @@
 import { userTimezone } from "./time";
-import { Prisma } from "@prisma/client";
+import { Prisma, type PeriodReview } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import { disciplineScore, type DisciplineResult } from "@/lib/finance/discipline";
 import { debtDateKey, debtSchedule, scheduledDebtDate } from "@/lib/finance/debt";
-import { coreMetrics } from "./analytics";
+import { coreMetrics, realizedTradingRows } from "./analytics";
 import { computeBalance } from "./ledger";
 import { getRecommendation } from "./withdrawals";
 import { budgetOverview } from "./finance";
@@ -98,6 +98,16 @@ export async function collectFacts(userId: string, window: ReviewWindow): Promis
 
 const reviewProject = { project: { select: { name: true } } } satisfies Prisma.PeriodReviewInclude;
 
+async function reviewWindowForRevision(review: PeriodReview): Promise<ReviewWindow> {
+  let original = review;
+  while (original.correctionOfId) {
+    original = await prisma.periodReview.findUniqueOrThrow({
+      where: { id: original.correctionOfId, userId: review.userId, kind: review.kind },
+    });
+  }
+  return { start: original.periodStart, end: original.periodEnd };
+}
+
 export async function resolveReview(userId: string, kind: ReviewKind, selection: ReviewSelection = {}) {
   const validated = reviewSelectorSchema.parse({ kind, ...selection });
   const timezone = await userTimezone(userId);
@@ -106,13 +116,7 @@ export async function resolveReview(userId: string, kind: ReviewKind, selection:
       where: { id: validated.reviewId, userId, kind }, include: reviewProject,
     });
     if (!review) throw new ApiError(404, "Review tidak ditemukan.");
-    let original = review;
-    while (original.correctionOfId) {
-      original = await prisma.periodReview.findUniqueOrThrow({
-        where: { id: original.correctionOfId, userId, kind }, include: reviewProject,
-      });
-    }
-    return { review, timezone, window: { start: original.periodStart, end: original.periodEnd } };
+    return { review, timezone, window: await reviewWindowForRevision(review) };
   }
 
   const today = localDateKey(new Date(), timezone);
@@ -231,6 +235,33 @@ export async function listReviews(userId: string, kind?: ReviewKind) {
     orderBy: { periodStart: "desc" },
     take: 60,
   });
+}
+
+export async function listReviewsWithPnl(userId: string) {
+  const reviews = await listReviews(userId);
+  if (!reviews.length) return [];
+  const [rows, periods] = await Promise.all([
+    realizedTradingRows(userId),
+    Promise.all(reviews.map(reviewWindowForRevision)),
+  ]);
+  return reviews.map((review, index) => {
+    const window = periods[index]!;
+    const livePnl = rows.reduce((sum, row) => row.occurredAt >= window.start && row.occurredAt < window.end
+      ? sum.plus(tradingAmountToUsd(row.amount, row.currency)) : sum, D(0));
+    const snapshot = review.snapshot;
+    const snapshotPnl = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) &&
+      typeof snapshot.netPnl === "string" ? snapshot.netPnl : null;
+    return { ...review, window, livePnl, snapshotPnl };
+  });
+}
+
+export async function dailyReviewStatuses(userId: string, window: ReviewWindow, timezone: string) {
+  const reviews = await prisma.periodReview.findMany({
+    where: { userId, kind: "DAILY", periodStart: { gte: window.start, lt: window.end } },
+    orderBy: { periodStart: "asc" },
+    select: { periodStart: true, status: true },
+  });
+  return new Map(reviews.map((review) => [localDateKey(review.periodStart, timezone), review.status]));
 }
 
 /* ───────────────── Notifications ───────────────── */

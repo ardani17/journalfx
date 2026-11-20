@@ -32,3 +32,13 @@ export function reviewHref(kind: ReviewKind, params: { date?: string; reviewId?:
   if (params.calendar) query.set("calendar", params.calendar);
   return `/reviews/${kind.toLowerCase()}${query.size ? `?${query}` : ""}`;
 }
+
+export function calendarHref(date?: string) {
+  return date ? `/calendar?m=${date.slice(0, 7)}&date=${date}#day-${date}` : "/calendar";
+}
+
+export function dailyPnlLabel(amount: number, hasActivity: boolean) {
+  if (!hasActivity) return "Tanpa transaksi";
+  if (amount === 0) return "Impas";
+  return amount > 0 ? "Untung" : "Rugi";
+}

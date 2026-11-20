@@ -19,6 +19,7 @@ async function withJournal(page: Page, baseURL: string, run: (userId: string) =>
     await prisma.accountTransaction.createMany({ data: [
       { userId: user.id, accountId: account.id, type: "REALIZED_PNL", occurredAt: new Date("2026-11-02T03:00:00Z"), amount: -10 },
       { userId: user.id, accountId: account.id, type: "REALIZED_PNL", occurredAt: new Date("2026-11-03T03:00:00Z"), amount: 25 },
+      { userId: user.id, accountId: account.id, type: "REALIZED_PNL", occurredAt: new Date("2026-11-04T03:00:00Z"), amount: 0 },
       { userId: user.id, accountId: account.id, type: "REALIZED_PNL", occurredAt: new Date("2026-11-11T03:00:00Z"), amount: 20 },
     ] });
     const value = await signSession({ sub: user.id, email: user.email, name: user.name });
@@ -65,5 +66,46 @@ test("selects historical days, weeks, and months and keeps each review separate"
     await page.getByRole("link", { name: "2 Nov 2026 – 8 Nov 2026", exact: true }).click();
     await expect(page.getByLabel("Refleksi")).toHaveValue("Catatan minggu pertama");
     await expect(page.getByLabel("Refleksi")).toBeDisabled();
+  });
+});
+
+test("connects calendar status, live P&L, and review snapshots", async ({ page, baseURL }, testInfo) => {
+  await withJournal(page, baseURL!, async (userId) => {
+    const { id: projectId } = await prisma.project.findFirstOrThrow({ where: { userId }, select: { id: true } });
+    await prisma.periodReview.createMany({ data: [
+      { userId, projectId, kind: "DAILY", status: "OPEN", periodStart: new Date("2026-11-02T17:00:00Z"), periodEnd: new Date("2026-11-03T17:00:00Z") },
+      { userId, projectId, kind: "DAILY", status: "CLOSED", periodStart: new Date("2026-11-03T17:00:00Z"), periodEnd: new Date("2026-11-04T17:00:00Z") },
+    ] });
+    await page.goto("/calendar?m=2026-11");
+    const cell = (day: string) => page.locator(`#day-2026-11-${day}`);
+    await expect(cell("02")).toContainText("Belum direview");
+    await expect(cell("03")).toContainText("Draf");
+    await expect(cell("04")).toContainText("Impas");
+    await expect(cell("04")).toContainText("Selesai");
+    await expect(cell("05")).toContainText("Tanpa transaksi");
+    await page.screenshot({ path: testInfo.outputPath("calendar-review-desktop.png") });
+    await cell("02").click();
+    await expect(page.getByText("−$10,00", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Tutup Periode" }).click();
+    await expect(page.getByText("Transaksi / P&L saat ditutup", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Kembali ke Kalender" }).click();
+    await expect(page).toHaveURL(/m=2026-11&date=2026-11-02#day-2026-11-02$/);
+    await expect(cell("02")).toContainText("Selesai");
+    await page.reload();
+    await expect(cell("02")).toContainText("Selesai");
+
+    await page.getByRole("navigation", { name: "Kalender dan review" }).getByRole("link", { name: "Review Periodik" }).click();
+    await expect(page.getByRole("row").filter({ hasText: "2 Nov 2026" })).toContainText("−$10,00");
+    await expect(page.getByLabel("Tanggal", { exact: true })).toHaveValue("2026-11-02");
+    await page.getByLabel("Jenis review").selectOption("WEEKLY");
+    await page.getByRole("button", { name: "Buka Review" }).click();
+    await expect(page.getByRole("heading", { name: "P&L Neto Harian" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "2 Nov 2026", exact: true }).locator("..")).toContainText("Rugi · −$10,00");
+    await page.getByRole("link", { name: "2 Nov 2026", exact: true }).click();
+    await expect(page.getByText("Transaksi / P&L saat ditutup", { exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "Kembali ke Kalender" }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(cell("02")).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("calendar-review-mobile.png") });
   });
 });

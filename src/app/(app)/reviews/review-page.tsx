@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/server/auth";
 import { ApiError } from "@/lib/api";
@@ -7,9 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/misc";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { D, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
-import { reviewPeriodLabel, type ReviewKind } from "@/lib/review-period";
+import { calendarHref, dailyPnlLabel, localDateKey, reviewHref, reviewPeriodLabel, type ReviewKind } from "@/lib/review-period";
 import { reviewSelectorSchema } from "@/lib/validation/reviews";
 import type { DisciplineResult } from "@/lib/finance/discipline";
+import { dailyPnl } from "@/server/services/analytics";
+import { fmtCalendarDateID } from "@/lib/dates";
 import { ReviewClient } from "./review-client";
 
 export type ReviewSearchParams = Promise<{
@@ -37,9 +40,12 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
     throw error;
   });
   const closed = review.status === "CLOSED";
-  const facts = closed && review.snapshot
-    ? review.snapshot as unknown as StoredFacts
-    : await collectFacts(user.id, window);
+  const calendarDate = reviewSelectorSchema.shape.date.safeParse(calendar).data;
+  const today = localDateKey(new Date(), timezone);
+  const [facts, days] = await Promise.all([
+    closed && review.snapshot ? review.snapshot as unknown as StoredFacts : collectFacts(user.id, window),
+    kind !== "DAILY" ? dailyPnl(user.id, window.start, window.end) : [],
+  ]);
   const titles: Record<string, { t: string; s: string }> = {
     DAILY: { t: "Review Harian", s: "Tutup hari dengan evaluasi disiplin dan rencana besok" },
     WEEKLY: { t: "Review Mingguan", s: "Evaluasi minggu: WD, compounding, dan disiplin eksekusi" },
@@ -55,6 +61,14 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
           <Badge tone={closed ? "success" : "warn"}>{closed ? "Selesai" : "Draf"}</Badge>
         }
       />
+      <nav aria-label="Kembali dari review" className="flex flex-wrap gap-4 text-sm">
+        <Link href={calendarHref(calendarDate ?? localDateKey(window.start, timezone))} className="text-primary hover:underline">
+          Kembali ke Kalender
+        </Link>
+        <Link href={calendarDate ? `/reports?calendar=${calendarDate}` : "/reports"} className="text-primary hover:underline">
+          Review Periodik
+        </Link>
+      </nav>
 
       {/* Facts strip */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -65,6 +79,31 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
           {facts.discipline.missing.length > 0 ? <p className="mt-0.5 text-[10px] text-faint">Data kurang: {facts.discipline.missing.join(", ")}</p> : null}
         </CardContent></Card>
       </div>
+
+      {days.length ? (
+        <Card>
+          <CardHeader><CardTitle>P&L Neto Harian</CardTitle></CardHeader>
+          <CardContent>
+            {closed ? <p className="mb-3 text-xs text-muted">Rincian ini memakai data ledger terkini.</p> : null}
+            <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {days.map((day) => {
+                const label = fmtCalendarDateID(day.date);
+                return (
+                  <li key={day.date} className="flex items-center justify-between gap-2 rounded-lg border border-line px-3 py-2 text-xs">
+                    {day.date <= today ? (
+                      <Link href={reviewHref("DAILY", { date: day.date, calendar: day.date })} prefetch={false} className="font-medium text-primary hover:underline">{label}</Link>
+                    ) : <span>{label}</span>}
+                    <span className="tnum text-right">
+                      {dailyPnlLabel(day.pnl, day.hasActivity)}
+                      {day.hasActivity ? ` · ${fmtUSDdelta(day.pnl)}` : null}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Discipline breakdown */}
       <Card>
@@ -98,7 +137,7 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
         key={review.id}
         kind={kind}
         reviewId={review.id}
-        calendar={typeof calendar === "string" ? calendar : undefined}
+        calendar={calendarDate}
         closed={closed}
         initial={{
           performance: review.performance ?? "",
