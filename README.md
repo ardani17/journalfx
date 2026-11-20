@@ -66,6 +66,14 @@ In **Pengaturan → Notifikasi Telegram**, open the bot with **Temukan Chat ID**
 
 For local testing with a loopback `APP_ORIGIN`, run `node --env-file=.env scripts/poll-telegram-local.mjs` alongside the app. Use one poller per bot and stop it before registering an HTTPS webhook.
 
+## AI Journal Insights
+
+Set server-side `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` for a Chat Completions provider that supports non-streaming responses. Use the provider's API base including its version path (for example, `https://provider.example/v1`), or its full `/chat/completions` endpoint. Run `npm run db:deploy` before enabling the feature so the existing AI rate-limit table is available. Recreate the app process with the updated runtime environment.
+
+In staging, use synthetic accounts to verify **Laporan & Analisis → Buat insight AI** and compare the resulting evidence against the closed trades. Check `[ai-journal]` server log entries for the failure stage if generation fails.
+
+Run `npm run e2e -- e2e/ai-journal.spec.ts` against a local migrated database whose name ends in `_test`. Use `127.0.0.1:5433` with the repository's local Compose service on Windows. The suite uses a mock provider by default. Set `AI_JOURNAL_E2E_MODE=disabled` to exercise missing configuration or `AI_JOURNAL_E2E_MODE=live` to run the synthetic browser checks against the configured provider.
+
 ## Quality gates (every release)
 
 ```bash
@@ -92,4 +100,4 @@ A release is tagged only when all gates pass. See `RELEASES.md` and `CHANGELOG.m
 - Actual vs projected figures are visually and logically separated.
 - Withdrawal engine is a recommendation only; broker actions stay manual with receipt reconciliation.
 - No automated trading, signals, broker credentials, or promised returns.
-- Private financial figures live only in the user's private app, never in the repository.
+- Keep private financial figures out of the repository. When a user requests AI Journal Insights, the app shares only aggregate trade statistics with the configured AI provider.

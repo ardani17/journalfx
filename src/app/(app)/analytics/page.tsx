@@ -112,7 +112,12 @@ export default async function AnalyticsPage() {
         </Card>
       </div>
 
-      <InsightsPanel insights={insights.insights} coverage={insights.dataCoverage} aiAvailable={Boolean(aiJournalConfig())} />
+      <InsightsPanel
+        insights={insights.insights}
+        coverage={insights.dataCoverage}
+        closedTrades={core.closedTrades}
+        aiAvailable={Boolean(aiJournalConfig())}
+      />
 
       {/* Portfolio & prop firm */}
       <div>
