@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/field";
 import { Table, TableWrap, TBody, TD, THead, TH, TR } from "@/components/ui/table";
-import { fmtNum, fmtUSD } from "@/lib/money";
+import { D, fmtNum, fmtUSD } from "@/lib/money";
 import { simulateTradeMonteCarlo, tradeSimulationFields, tradeSimulationSchema, type TradeMonteCarloResult, type TradeSimulationField, type TradeStep } from "@/lib/finance/trade-monte-carlo";
 import { CyclePagination } from "./cycle-pagination";
 import { formatTarget, parseSimulationNumber } from "./simulator-input";
@@ -15,6 +15,11 @@ const Chart = dynamic(() => import("./trade-monte-carlo-chart"), { ssr: false })
 const pct = (value: number) => `${fmtNum(value, 2)}%`;
 const failureMessage = "Simulasi Monte Carlo gagal. Periksa parameter dan coba lagi.";
 const numericFields = Object.keys(tradeSimulationFields) as TradeSimulationField[];
+const examples = [
+  { name: "Konservatif", risk: 0.5, description: "Porsi risiko paling kecil pada setiap transaksi." },
+  { name: "Santai", risk: 1, description: "Porsi risiko menengah untuk pembanding." },
+  { name: "Agresif", risk: 2, description: "Porsi risiko paling tinggi sehingga saldo bisa bergerak lebih besar." },
+] as const;
 
 function initialNumericFields(initialEquity: number): Record<TradeSimulationField, string> {
   const { min, max } = tradeSimulationFields.initialEquity;
@@ -26,6 +31,9 @@ function initialNumericFields(initialEquity: number): Record<TradeSimulationFiel
 
 export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number }) {
   const [form, setForm] = useState(() => initialNumericFields(initialEquity));
+  const [example, setExample] = useState<(typeof examples)[number]["name"]>();
+  const [throttle, setThrottle] = useState(true);
+  const [withdrawal, setWithdrawal] = useState(false);
   const [result, setResult] = useState<TradeMonteCarloResult | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -33,15 +41,29 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
   const worker = useRef<Worker | null>(null);
   useEffect(() => () => worker.current?.terminate(), []);
 
+  const equity = parseSimulationNumber(form.initialEquity, true);
+  const riskPercent = parseSimulationNumber(form.baseRiskPercent, true);
+  const risk = equity !== undefined && equity > 0 && riskPercent !== undefined && riskPercent > 0
+    ? { equity, percent: riskPercent, amount: D(equity).times(riskPercent).div(100) } : null;
+
+  function applyExample(selected: (typeof examples)[number]) {
+    setForm({ ...initialNumericFields(200), baseRiskPercent: formatTarget(selected.risk), pipValue: "5" });
+    setExample(selected.name);
+    setThrottle(true);
+    setWithdrawal(false);
+    setError("");
+    setInvalidField(undefined);
+    setResult(null);
+  }
+
   function run(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
-    const data = new FormData(event.currentTarget);
     const numbers = Object.fromEntries(numericFields.map((key) => [key, parseSimulationNumber(form[key], true)]));
     const input = tradeSimulationSchema.safeParse({
       ...numbers,
-      enableDrawdownThrottle: data.has("enableDrawdownThrottle"),
-      enableWithdrawal: data.has("enableWithdrawal"),
+      enableDrawdownThrottle: throttle,
+      enableWithdrawal: withdrawal,
     });
     if (!input.success) {
       const key = input.error.issues[0]?.path[0] as TradeSimulationField | undefined;
@@ -84,6 +106,21 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
     <Card>
       <CardHeader><CardTitle>Monte Carlo</CardTitle></CardHeader>
       <CardContent className="space-y-4">
+        <section aria-label="Contoh Monte Carlo" className="space-y-3 rounded-xl border border-line bg-panel-2/50 p-3">
+          <Button variant="secondary" disabled={pending} onClick={() => applyExample(examples[1])}>Coba contoh US$200</Button>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {examples.map((preset) => (
+              <div key={preset.name} className="rounded-lg border border-line p-2">
+                <Button variant={example === preset.name ? "primary" : "outline"} size="sm" aria-pressed={example === preset.name}
+                  disabled={pending} onClick={() => applyExample(preset)}>
+                  {preset.name}
+                </Button>
+                <p className="mt-2 text-xs text-muted">{formatTarget(preset.risk)}% · {preset.description}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted">Asumsi contoh: tingkat kemenangan 50%, rasio imbal hasil terhadap risiko 2:1, komisi US$7 per lot, dan spread serta selisih harga 1 pip. Setelah memilih contoh, Anda bisa mengubah semua parameter.</p>
+        </section>
         <form aria-label="Parameter Monte Carlo" noValidate onSubmit={run} className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {numericFields.map((name) => {
@@ -94,7 +131,11 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
                     value={form[name]}
                     aria-invalid={invalidField === name || undefined}
                     aria-describedby={invalidField === name ? "monte-carlo-error" : undefined}
-                    onChange={(event) => setForm({ ...form, [name]: event.target.value })}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setForm((current) => ({ ...current, [name]: value }));
+                      setExample(undefined);
+                    }}
                     onBlur={() => {
                       const number = parseSimulationNumber(form[name], true);
                       if (number !== undefined) setForm((current) => ({ ...current, [name]: formatTarget(number) }));
@@ -103,12 +144,21 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
               );
             })}
           </div>
+          {risk ? <p className="text-xs text-muted" aria-live="polite">
+            Risiko berdasarkan modal awal {formatTarget(risk.percent)}% × {fmtUSD(risk.equity)} = <strong>{fmtUSD(risk.amount)}</strong> per transaksi.
+          </p> : null}
           <div className="flex flex-wrap items-center gap-3 text-sm">
-            <label className="flex items-center gap-2"><input type="checkbox" name="enableDrawdownThrottle" defaultChecked /> Kurangi risiko saat drawdown</label>
-            <label className="flex items-center gap-2"><input type="checkbox" name="enableWithdrawal" /> Withdrawal berkala</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={throttle} onChange={(event) => {
+              setThrottle(event.target.checked);
+              setExample(undefined);
+            }} /> Kurangi risiko saat saldo turun</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={withdrawal} onChange={(event) => {
+              setWithdrawal(event.target.checked);
+              setExample(undefined);
+            }} /> Penarikan berkala</label>
             <Button type="submit" disabled={pending}>{pending ? "Menghitung…" : "Simulasikan Monte Carlo"}</Button>
           </div>
-          <p className="text-xs text-muted">Withdrawal dihitung dari laba bersih di atas saldo setelah withdrawal terakhir, atau modal awal untuk withdrawal pertama.</p>
+          <p className="text-xs text-muted">Penarikan dihitung dari laba bersih di atas saldo setelah penarikan terakhir, atau modal awal untuk penarikan pertama.</p>
         </form>
         {pending ? <p role="status" className="text-xs text-muted">Menghitung jalur Monte Carlo…</p> : null}
         {error ? <p id="monte-carlo-error" role="alert" className="text-xs text-loss">{error}</p> : null}
@@ -131,6 +181,9 @@ function MonteCarloResults({ result }: { result: TradeMonteCarloResult }) {
   ];
   return (
     <div className="space-y-4">
+      <p className="text-xs text-muted">
+        Ilustrasi berdasarkan asumsi simulasi. Median adalah nilai tengah saldo akhir. Penurunan saldo dari puncak (drawdown) mengukur seberapa jauh saldo turun dari titik tertingginya. Peluang mencapai ambang kerugian menunjukkan bagian jalur simulasi yang melewati batas kerugian yang Anda isi.
+      </p>
       <dl className="grid grid-cols-2 gap-2 lg:grid-cols-4">
         {metrics.map(([label, value]) => (
           <div key={label} className="rounded-lg border border-line p-2">
