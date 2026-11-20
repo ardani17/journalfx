@@ -12,6 +12,7 @@ import {
   simulateExploration, type ExplorationField, type ExplorationInput, type ExplorationTrade,
 } from "@/lib/finance/exploration-monte-carlo";
 import { monteCarloEquityStorageKey, parseMonteCarloEquity } from "@/lib/finance/trading-capital";
+import { normalizeNumericInput } from "@/lib/number-input";
 import ExplorationChart, { formatExplorationBalance, type ExplorationAxis } from "./exploration-chart";
 import { formatTarget, parseSimulationNumber } from "./simulator-input";
 
@@ -21,6 +22,10 @@ const axes = [["cycle", "Siklus"], ["day", "Hari"], ["date", "Tanggal"]] as cons
 const primaryFields = ["capital", "target", "trades", "winRate", "winReturn", "lossReturn"] as const;
 const groupedAmounts = new Set<ExplorationField>(["capital", "target", "withdrawalAmount", "fee"]);
 
+function parseField(name: ExplorationField, value: string) {
+  return groupedAmounts.has(name) ? normalizeNumericInput(value, true) : parseSimulationNumber(value);
+}
+
 function toForm(input: ExplorationInput): ExplorationForm {
   return {
     ...Object.fromEntries(explorationFieldNames.map((key) => [key, formatTarget(input[key])])) as Record<ExplorationField, string>,
@@ -29,7 +34,7 @@ function toForm(input: ExplorationInput): ExplorationForm {
 }
 
 function readForm(form: ExplorationForm) {
-  const numbers = Object.fromEntries(explorationFieldNames.map((key) => [key, parseSimulationNumber(form[key], groupedAmounts.has(key))]));
+  const numbers = Object.fromEntries(explorationFieldNames.map((key) => [key, parseField(key, form[key])]));
   return explorationSchema.safeParse({
     ...numbers,
     withdrawal: form.withdrawal,
@@ -74,7 +79,8 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId }: 
   const chance = formatTarget(result.reachedCount * 100 / explorationPaths) + "%";
   const last = result.chart.at(-1)!;
   const chartPeak = Math.max(...result.chart.map(({ bounds, sample }) => Math.max(bounds[1], sample)));
-  const targetOnScale = displayed.target <= chartPeak * 1.5;
+  const chartTarget = Number(displayed.target);
+  const targetOnScale = chartTarget <= chartPeak * 1.5;
   const winRate = parseSimulationNumber(form.winRate);
   const cycleHint = axis === "cycle" ? "1 siklus = " + explorationTradesPerCycle + " trade." : "1 trade per hari kalender.";
 
@@ -142,15 +148,17 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId }: 
     const { label, min, max } = explorationFields[name];
     const id = "exploration-" + name;
     const invalid = !current.success && current.error.issues.some((issue) => issue.path[0] === name);
+    const unit = name === "trades" ? "bilangan bulat" : "angka";
+    const precision = groupedAmounts.has(name) ? " dengan maksimal dua desimal" : "";
     return (
       <Field key={name} label={label} htmlFor={id}
-        error={invalid ? "Masukkan " + (name === "trades" ? "bilangan bulat" : "angka") + " " + formatTarget(min) + "–" + formatTarget(max) + "." : undefined}>
+        error={invalid ? `Masukkan ${unit} ${formatTarget(min)}–${formatTarget(max)}${precision}.` : undefined}>
         <Input id={id} name={name} type="text" inputMode={name === "trades" ? "numeric" : "decimal"}
           aria-invalid={invalid || undefined}
           aria-describedby={name === "trades" ? "exploration-trade-scale" : undefined}
           value={form[name]} onChange={(event) => update({ ...form, [name]: event.target.value })}
           onBlur={() => {
-            const number = parseSimulationNumber(form[name], groupedAmounts.has(name));
+            const number = parseField(name, form[name]);
             if (number !== undefined) setForm((previous) => ({ ...previous, [name]: formatTarget(number) }));
           }} />
       </Field>
@@ -169,7 +177,7 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId }: 
             </div>
             <div className="rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
               <p className="text-[11px] text-muted">Target saldo</p>
-              <p className="tnum text-sm font-semibold">{formatExplorationBalance(displayed.target)}</p>
+              <p className="tnum text-sm font-semibold">{formatExplorationBalance(chartTarget)}</p>
             </div>
           </div>
           <figure className="min-w-0">
@@ -183,7 +191,7 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId }: 
                 ))}
               </div>
             </div>
-            <ExplorationChart chart={result.chart} target={targetOnScale ? displayed.target : undefined} axis={axis} startDate={startDate || initialDate} />
+            <ExplorationChart chart={result.chart} target={targetOnScale ? chartTarget : undefined} axis={axis} startDate={startDate || initialDate} />
             <figcaption className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-[11px] text-muted">
               <span className="inline-flex items-center gap-1.5"><i aria-hidden className="h-2 w-3 rounded-sm bg-primary/30" />Rentang P10–P90</span>
               <span className="inline-flex items-center gap-1.5"><i aria-hidden className="w-3 border-t-2 border-primary" />Jalur contoh</span>
@@ -194,7 +202,7 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId }: 
           </figure>
         </div>
         <dl className="grid grid-cols-3 divide-x divide-line border-t border-line-soft px-2 py-3 sm:px-3">
-          {[["Saldo akhir P10", last.bounds[0]], ["Saldo akhir median", result.median], ["Saldo akhir P90", last.bounds[1]]].map(([label, value]) => (
+          {[["Proyeksi saldo akhir P10", last.bounds[0]], ["Proyeksi saldo akhir median", result.median], ["Proyeksi saldo akhir P90", last.bounds[1]]].map(([label, value]) => (
             <div key={label} className="min-w-0 px-2 sm:px-3">
               <dt className="text-[11px] text-muted sm:text-xs">{label}</dt>
               <dd className="tnum mt-1 break-all text-sm font-semibold sm:text-xl">{formatExplorationBalance(Number(value))}</dd>

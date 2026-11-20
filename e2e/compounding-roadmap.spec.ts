@@ -127,11 +127,19 @@ for (const viewport of [
         await expect(page.getByRole("navigation", { name: navigation }).getByRole("link", { name: navLabel, exact: true }))
           .toHaveAttribute("href", "/simulator");
 
-        for (const query of ["?mode=pemajemukan", "?mode=lanjutan", "?scenarioId=" + saved.id]) {
+        for (const query of ["?mode=pemajemukan", "?mode=lanjutan"]) {
           await page.goto("/simulator" + query);
           await expect(page).toHaveURL(/\/simulator$/);
           await expect(heading).toBeVisible();
         }
+        await page.getByText("Rencana tersimpan dan Monte Carlo lanjutan", { exact: true }).click();
+        await expect(page.getByRole("button", { name: "Coba contoh US$200", exact: true })).toBeVisible();
+        await page.getByRole("link", { name: "Buka Skenario lama" }).click();
+        await expect(page).toHaveURL(new RegExp(`/simulator\\?scenarioId=${saved.id}#rencana-tersimpan$`));
+        await expect(page.getByText("Estimasi Pencapaian", { exact: true })).toBeVisible();
+        await page.reload();
+        await expect(page.getByText("Estimasi Pencapaian", { exact: true })).toBeVisible();
+        await page.goto("/simulator");
         const trades = page.getByLabel("Jumlah trade", { exact: true });
         await expect(trades).toHaveCount(1);
         await trades.fill("1,5");
@@ -214,7 +222,7 @@ for (const viewport of [
         await select.selectOption(saved.id);
         await apply.click();
         await expect(page.getByText("Skenario lama", { exact: true }).filter({ visible: true })).toBeVisible();
-        await expect(simulator).toHaveAttribute("href", "/simulator");
+        await expect(simulator).toHaveAttribute("href", `/simulator?scenarioId=${saved.id}#rencana-tersimpan`);
         await page.reload();
         await expect(select).toHaveValue(saved.id);
         await expect(page.getByText(estimate, { exact: true })).toBeVisible();

@@ -254,6 +254,28 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     expect(messages).toHaveLength(4);
   });
 
+  it("responds with retry guidance when Telegram rejects a welcome or Chat ID message", async () => {
+    const chat = randomInt(100_000_000, 2_147_483_646);
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ ok: false }, { status: 503 }));
+    expect((await update(chat, "/start")).ok).toBe(true);
+    expect(messages.at(-1)?.text).toBe("Permintaan gagal diproses. Coba lagi sebentar.");
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ ok: true, result: true }))
+      .mockResolvedValueOnce(Response.json({ ok: false }, { status: 503 }));
+    expect((await click(chat, "chat-id", "horizon:id")).ok).toBe(true);
+    expect(messages.filter(({ text }) => text.startsWith("Permintaan gagal diproses"))).toHaveLength(2);
+  });
+
+  it("acknowledges an update when its recipient has blocked the bot", async () => {
+    const chat = randomInt(100_000_000, 2_147_483_646);
+    const blocked = () => Response.json({ ok: false }, { status: 403 });
+    vi.mocked(fetch).mockResolvedValueOnce(blocked()).mockResolvedValueOnce(blocked());
+    expect((await update(chat, "/start")).ok).toBe(true);
+    expect((await update(chat + 1, "/start")).ok).toBe(true);
+    expect(messages.at(-1)).toMatchObject({ chat_id: String(chat + 1), text: expect.stringContaining("Selamat datang") });
+  });
+
   it("uses the linked owner's local summary and makes task callbacks private, expiring, and idempotent", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     try {

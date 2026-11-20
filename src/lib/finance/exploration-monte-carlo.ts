@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { D, Decimal } from "@/lib/money";
 import { mulberry32 } from "./montecarlo";
 
 export const explorationPaths = 500;
@@ -24,21 +25,35 @@ const numericFields = Object.fromEntries(explorationFieldNames.map((key) => {
   return [key, key === "trades" ? value.int() : value];
 })) as Record<ExplorationField, z.ZodNumber>;
 
+function amountField(name: "capital" | "target" | "withdrawalAmount" | "fee") {
+  const { min, max } = explorationFields[name];
+  return z.union([
+    z.string().max(32).regex(/^(?:\d+(?:\.\d*)?|\.\d+)$/).transform(D),
+    z.number().transform((value) => D(value).toDecimalPlaces(2)),
+  ])
+    .refine((value) => value.decimalPlaces() <= 2 && value.gte(min) && value.lte(max))
+    .transform((value) => value.toFixed());
+}
+
 export const explorationSchema = z.object({
   ...numericFields,
+  capital: amountField("capital"),
+  target: amountField("target"),
+  withdrawalAmount: amountField("withdrawalAmount"),
+  fee: amountField("fee"),
   withdrawal: z.enum(["NONE", "DYNAMIC", "FIXED"]),
 });
 
 export type ExplorationInput = z.infer<typeof explorationSchema>;
 
-export function defaultExplorationInput(capital: number, target: number): ExplorationInput {
+export function defaultExplorationInput(capital: string | number, target: string | number): ExplorationInput {
   const defaults = Object.fromEntries(explorationFieldNames.map((key) => [key, explorationFields[key].initial])) as Record<ExplorationField, number>;
-  return {
+  return explorationSchema.parse({
     ...defaults,
-    capital: numericFields.capital.safeParse(capital).data ?? defaults.capital,
-    target: numericFields.target.safeParse(target).data ?? defaults.target,
+    capital: explorationSchema.shape.capital.safeParse(capital).data ?? defaults.capital,
+    target: explorationSchema.shape.target.safeParse(target).data ?? defaults.target,
     withdrawal: "NONE",
-  };
+  });
 }
 
 function percentile(sorted: Float64Array, fraction: number) {
@@ -57,38 +72,53 @@ export interface ExplorationTrade {
 }
 
 export function simulateExploration(input: ExplorationInput, seed: number) {
-  const { capital, target, trades, fee, withdrawal, withdrawalRate, withdrawalAmount } = input;
+  const { trades, withdrawal } = input;
+  const capital = D(input.capital);
+  const target = D(input.target);
+  const fee = D(input.fee);
+  const withdrawalRate = D(input.withdrawalRate).div(100);
+  const withdrawalAmount = D(input.withdrawalAmount);
+  const zero = D(0);
   const steps = Array.from({ length: trades + 1 }, () => new Float64Array(explorationPaths));
   const sample: ExplorationTrade[] = [];
-  const sampleBalances = [capital];
-  const rates = { win: input.winReturn / 100, loss: -input.lossReturn / 100 };
+  const sampleBalances = [capital.toNumber()];
+  const rates = { win: D(input.winReturn).div(100), loss: D(input.lossReturn).div(-100) };
   const winChance = input.winRate / 100;
   let reachedCount = 0;
-  steps[0]!.fill(capital);
+  steps[0]!.fill(capital.toNumber());
 
   for (let path = 0; path < explorationPaths; path++) {
     const random = mulberry32(seed + path);
     let closing = capital;
-    let cumulativeProfit = 0;
-    let profitPeak = 0;
-    let reached = closing >= target;
+    let cumulativeProfit = zero;
+    let profitPeak = zero;
+    let reached = closing.gte(target);
     for (let trade = 1; trade <= trades; trade++) {
-      if (closing > 0) {
+      if (closing.gt(0)) {
         const opening = closing;
         const win = random() < winChance;
-        const profit = Math.max(-opening, opening * (win ? rates.win : rates.loss) - fee);
-        cumulativeProfit += profit;
-        const desired = withdrawal === "DYNAMIC" ? (cumulativeProfit - profitPeak) * withdrawalRate / 100
-          : withdrawal === "FIXED" ? withdrawalAmount : 0;
-        const taken = Math.max(0, Math.min(profit, desired));
-        profitPeak = Math.max(profitPeak, cumulativeProfit);
-        closing = opening + profit - taken;
-        // Preserve exact target hits when a decimal return falls within double precision noise.
-        reached ||= closing >= target || target - closing <= 8 * Number.EPSILON * target;
-        if (path === 0) sample.push({ trade, win, opening, profit, taken, closing });
+        const profit = Decimal.max(opening.neg(), opening.times(win ? rates.win : rates.loss).minus(fee));
+        let taken = zero;
+        if (withdrawal === "DYNAMIC") {
+          cumulativeProfit = cumulativeProfit.plus(profit);
+          const desired = cumulativeProfit.minus(profitPeak).times(withdrawalRate);
+          taken = Decimal.max(0, Decimal.min(profit, desired));
+          profitPeak = Decimal.max(profitPeak, cumulativeProfit);
+        } else if (withdrawal === "FIXED") {
+          taken = Decimal.max(0, Decimal.min(profit, withdrawalAmount));
+        }
+        closing = opening.plus(profit).minus(taken);
+        reached ||= closing.gte(target);
+        if (path === 0) {
+          sample.push({
+            trade, win, opening: opening.toNumber(), profit: profit.toNumber(),
+            taken: taken.toNumber(), closing: closing.toNumber(),
+          });
+        }
       }
-      steps[trade]![path] = closing;
-      if (path === 0) sampleBalances.push(closing);
+      const chartBalance = closing.toNumber();
+      steps[trade]![path] = chartBalance;
+      if (path === 0) sampleBalances.push(chartBalance);
     }
     reachedCount += Number(reached);
   }

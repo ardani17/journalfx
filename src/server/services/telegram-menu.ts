@@ -68,6 +68,10 @@ function appLink(text: string, path: string): TelegramButton[] {
   return origin?.protocol === "https:" ? [{ text, url: new URL(path, origin).href }] : [];
 }
 
+function requireDelivery(delivered: boolean) {
+  if (!delivered) throw new Error("Pengiriman balasan Telegram gagal.");
+}
+
 async function reply(destination: Destination, text: string, buttons: TelegramButton[][] = []) {
   let delivery: Promise<boolean> | undefined;
   await prisma.$transaction(async (tx) => {
@@ -75,7 +79,7 @@ async function reply(destination: Destination, text: string, buttons: TelegramBu
     // Start sending under the ownership lock. Wait for Telegram after releasing it.
     delivery = sendTelegramText(destination.chatId, text, buttons);
   });
-  if (delivery && !await delivery) throw new Error("Pengiriman balasan Telegram gagal.");
+  if (delivery) requireDelivery(await delivery);
 }
 
 async function showMenu(destination: Destination) {
@@ -93,7 +97,7 @@ async function showWelcome(chatId: string, pairingAttempt: boolean) {
     [{ text: "Lihat Chat ID", callback_data: "horizon:id" }],
     appLink("Buka Pengaturan", "/settings"),
   ].filter((row) => row.length);
-  await sendTelegramText(chatId, `${intro}\n\nTekan Lihat Chat ID. ${pairingInstructions}`, buttons);
+  requireDelivery(await sendTelegramText(chatId, `${intro}\n\nTekan Lihat Chat ID. ${pairingInstructions}`, buttons));
 }
 
 async function showSummary(destination: Destination, now: Date) {
@@ -132,7 +136,7 @@ async function showTasks(destination: Destination, now: Date, page = 0) {
 
 async function showScreen(chatId: string, command: string, pairingAttempt = false) {
   if (command === "id") {
-    await sendTelegramText(chatId, `Chat ID Telegram Anda: ${chatId}\n\n${pairingInstructions}`, [[mainMenuButton]]);
+    requireDelivery(await sendTelegramText(chatId, `Chat ID Telegram Anda: ${chatId}\n\n${pairingInstructions}`, [[mainMenuButton]]));
     return;
   }
   const destination = await linkedDestination(chatId);
@@ -157,6 +161,7 @@ export async function handleTelegramMessage(chatId: string, text: string) {
   try {
     await showScreen(chatId, command, Boolean(payload && payload !== TELEGRAM_MENU_START));
   } catch {
+    // A recipient may have blocked the bot. Acknowledge the update even if the fallback cannot be delivered.
     await sendTelegramText(chatId, retryMessage);
   }
 }
@@ -202,7 +207,10 @@ export async function handleTelegramMenuCallback(chatId: string, id: string, dat
       else await showTasks(destination, now, Number.parseInt(callback.resource, 36) || 0);
     }
   } catch {
-    if (acknowledged) await sendTelegramText(chatId, retryMessage);
-    else await answerTelegramCallback(id, retryMessage, true);
+    if (acknowledged) {
+      await sendTelegramText(chatId, retryMessage);
+    } else {
+      await answerTelegramCallback(id, retryMessage, true);
+    }
   }
 }
