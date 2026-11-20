@@ -50,6 +50,13 @@ async function createJournal() {
       { ...ledger, type: "REALIZED_PNL", amount: 20, sourceTradeId: `${userId}-201` },
     ] });
     await tx.accountTransaction.create({ data: { ...ledger, type: "REVERSAL", amount: 2, reversalOfId: feeId } });
+    await tx.tradeJournal.createMany({
+      data: [
+        { tradeId: `${userId}-002`, entryReason: "Alasan saja", postChecklist: { "Sesuai plan": false } },
+        { tradeId: `${userId}-003`, entryReason: " ", compliant: false },
+        { tradeId: `${userId}-004`, entryReason: "Alasan lengkap", emotionBefore: "calm" },
+      ],
+    });
     const session = await signSession({ sub: userId, email: user.email, name: user.name });
     return { userId, account, otherAccount, fifty, fiftyOne, session };
   });
@@ -69,6 +76,40 @@ async function expectResults(page: Page, range: string, count: number) {
   await expect(page.getByText(`Menampilkan ${range} trade`, { exact: true })).toBeVisible();
   await expect(page.getByRole("table").getByRole("link")).toHaveCount(count);
 }
+
+test("shows saved completion of both psychology and reflection", async ({ page, baseURL }) => {
+  await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);
+  const list = `/journal?sort=asc&accountId=${journal.account.id}`;
+  await page.goto(list);
+  await expect(page.getByRole("columnheader", { name: "Psikologi dan Jurnal" })).toBeVisible();
+  const row = (id: string) => page.getByRole("row").filter({
+    has: page.locator(`a[href="/journal/${journal.userId}-${id}"]`),
+  });
+  await expect(row("001")).toContainText("Belum diisi");
+  await expect(row("002")).toContainText("Belum diisi");
+  await expect(row("003")).toContainText("Belum diisi");
+  await expect(row("004")).toContainText("Sudah diisi");
+
+  await row("003").getByRole("link").click();
+  await page.getByRole("tab", { name: "Psikologi & Jurnal" }).click();
+  const reason = page.locator("#j-entry");
+  await reason.fill("Menunggu uji ulang");
+  const save = async () => {
+    const saved = page.waitForResponse((response) => response.url().endsWith("/journal") && response.request().method() === "PUT");
+    await page.getByRole("button", { name: "Simpan Jurnal" }).click();
+    expect((await saved).ok()).toBeTruthy();
+  };
+  await save();
+  await page.goto(list);
+  await expect(row("003")).toContainText("Sudah diisi");
+  await row("003").getByRole("link").click();
+  await page.getByRole("tab", { name: "Psikologi & Jurnal" }).click();
+  await expect(reason).toHaveValue("Menunggu uji ulang");
+  await reason.clear();
+  await save();
+  await page.goto(list);
+  await expect(row("003")).toContainText("Belum diisi");
+});
 
 test("applies entry dates to filtered rows, pagination, and KPIs", async ({ page, baseURL }) => {
   await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);

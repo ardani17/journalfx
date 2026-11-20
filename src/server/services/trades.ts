@@ -13,6 +13,7 @@ import {
   rollupExecutions,
 } from "@/lib/finance/trades";
 import type { CreateTradeInput, AddExecutionInput } from "@/lib/validation/trades";
+import { isTradeJournalComplete, journalCompletionSelect } from "@/lib/trade-journal-completion";
 import { requireActiveAccount } from "./accounts";
 
 /**
@@ -229,7 +230,7 @@ export function tradeFilterWhere(userId: string, filter: Omit<ListTradesFilter, 
   };
 }
 
-export async function listTrades(userId: string, filter: ListTradesFilter) {
+export async function listTrades(userId: string, filter: ListTradesFilter, includeJournalCompletion = false) {
   const sort = filter.sort ?? "desc";
   const where = tradeFilterWhere(userId, filter);
   const [items, total] = await Promise.all([
@@ -242,12 +243,19 @@ export async function listTrades(userId: string, filter: ListTradesFilter) {
         instrument: { select: { symbol: true, pricePrecision: true } },
         account: { select: { currency: true } },
         strategy: { select: { name: true } },
-        journal: { select: { tags: true, mistakes: true } },
+        journal: { select: journalCompletionSelect },
       },
     }),
     prisma.trade.count({ where }),
   ]);
-  return { items, total };
+  return {
+    items: items.map(({ journal, ...trade }) => ({
+      ...trade,
+      journal: journal ? { tags: journal.tags, mistakes: journal.mistakes } : null,
+      ...(includeJournalCompletion ? { journalComplete: isTradeJournalComplete(journal) } : {}),
+    })),
+    total,
+  };
 }
 
 /** Add an execution; CLOSE/PARTIAL_CLOSE posts realized P&L to the ledger atomically. */

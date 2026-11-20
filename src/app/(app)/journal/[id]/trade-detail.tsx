@@ -190,21 +190,21 @@ function useTradeActions(trade: TradeDTO, openQty: ReturnType<typeof D>) {
     const post: Record<string, boolean> = {};
     for (const c of POST_CHECKS) post[c] = fd.get(`post_${c}`) === "on";
     const payload: Record<string, unknown> = {
-      marketContext: fd.get("marketContext") || undefined,
-      entryReason: fd.get("entryReason") || undefined,
-      exitReason: fd.get("exitReason") || undefined,
-      emotionBefore: fd.get("emotionBefore") || undefined,
-      emotionDuring: fd.get("emotionDuring") || undefined,
-      emotionAfter: fd.get("emotionAfter") || undefined,
-      confidence: fd.get("confidence") || undefined,
-      stressLevel: fd.get("stressLevel") || undefined,
+      marketContext: fd.get("marketContext") || null,
+      entryReason: fd.get("entryReason") || null,
+      exitReason: fd.get("exitReason") || null,
+      emotionBefore: fd.get("emotionBefore") || null,
+      emotionDuring: fd.get("emotionDuring") || null,
+      emotionAfter: fd.get("emotionAfter") || null,
+      confidence: fd.get("confidence") || null,
+      stressLevel: fd.get("stressLevel") || null,
       fomo: fd.get("fomo") === "on",
       revenge: fd.get("revenge") === "on",
       overtrading: fd.get("overtrading") === "on",
       compliant: compliance ? compliance === "true" : null,
       mistakes: MISTAKE_OPTIONS.filter((m) => fd.get(`mistake_${m}`) === "on"),
-      lessons: fd.get("lessons") || undefined,
-      improvement: fd.get("improvement") || undefined,
+      lessons: fd.get("lessons") || null,
+      improvement: fd.get("improvement") || null,
       tags: String(fd.get("tags") ?? "")
         .split(",")
         .map((s) => s.trim())
