@@ -27,7 +27,7 @@ export function SidebarContent({
 }) {
   const pathname = usePathname();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
-    "Plan & Strategi": true,
+    "Rencana dan Strategi": true,
     "Keuangan Pribadi": true,
   });
 
@@ -107,9 +107,9 @@ export function SidebarContent({
       {/* Project progress card */}
       <div className="p-3">
         <div className="rounded-xl border border-line bg-panel p-3">
-          <p className="text-[11px] font-medium text-muted">Project Progress</p>
+          <p className="text-[11px] font-medium text-muted">Progres Proyek</p>
           <p className="tnum mt-1 text-lg font-bold text-primary">{progressLabel}</p>
-          <Progress value={progressPct} className="mt-2 h-1.5" label="Progress project" />
+          <Progress value={progressPct} className="mt-2 h-1.5" label="Progres proyek" />
           <p className="tnum mt-1.5 text-[10px] text-faint">{progressLabel} dari target</p>
         </div>
         <p className="mt-2 text-center text-[10px] text-faint">{APP_NAME} v{appVersion}</p>

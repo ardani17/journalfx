@@ -117,11 +117,11 @@ test("security: private attachment files are never served raw (redirect or 404, 
 
 test("login → dashboard renders ledger-driven KPIs", async ({ page }) => {
   await login(page);
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
-  await expect(page.getByText("Balance Saat Ini")).toBeVisible();
-  await expect(page.getByText("Progress Target")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dasbor" })).toBeVisible();
+  await expect(page.getByText("Saldo Saat Ini")).toBeVisible();
+  await expect(page.getByText("Progres Target")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Rencana & Target" })).toBeVisible();
-  await expect(page).toHaveTitle("Dashboard · Horizon Journal");
+  await expect(page).toHaveTitle("Dasbor · Horizon Journal");
   await expect(page.getByRole("link", { name: "Horizon Journal" })).toBeVisible();
 });
 

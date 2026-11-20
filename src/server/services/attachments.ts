@@ -33,7 +33,7 @@ export async function uploadAttachment(
   req?: Request,
 ) {
   const trade = await prisma.trade.findFirst({ where: { id: tradeId, userId } });
-  if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
+  if (!trade) throw new ApiError(404, "Transaksi tidak ditemukan");
 
   const ext = ALLOWED.get(file.type);
   if (!ext) throw new ApiError(400, "Hanya PNG, JPEG, atau WebP yang diizinkan");

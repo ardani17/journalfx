@@ -106,7 +106,7 @@ export function NewTradeForm({
       });
       const body = await res.json();
       if (!res.ok || !body.ok) {
-        setError(body.error ?? "Gagal menyimpan trade");
+        setError(body.error ?? "Gagal menyimpan transaksi");
         return;
       }
       router.push(`/journal/${body.data.id}`);
@@ -154,8 +154,8 @@ export function NewTradeForm({
             <div className="grid grid-cols-3 gap-3">
               <Field label="Arah" htmlFor="t-direction">
                 <Select id="t-direction" name="direction" required defaultValue="LONG">
-                  <option value="LONG">Buy (Long)</option>
-                  <option value="SHORT">Sell (Short)</option>
+                  <option value="LONG">Beli</option>
+                  <option value="SHORT">Jual</option>
                 </Select>
               </Field>
               <Field label="Lot" htmlFor="t-lot">
@@ -166,18 +166,18 @@ export function NewTradeForm({
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Harga Entry" htmlFor="t-entry">
+              <Field label="Harga Pembukaan" htmlFor="t-entry">
                 <Input id="t-entry" name="entryPrice" type="number" step="0.000001" min="0.000001" required placeholder="2025.40" />
               </Field>
-              <Field label="Waktu Entry" htmlFor="t-entryat" hint="Kosongkan = sekarang">
+              <Field label="Waktu Pembukaan" htmlFor="t-entryat" hint="Kosongkan = sekarang">
                 <Input id="t-entryat" name="entryAt" type="datetime-local" />
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Stop Loss Awal" htmlFor="t-sl">
+              <Field label="SL Awal" htmlFor="t-sl">
                 <Input id="t-sl" name="initialStopLoss" type="number" step="0.000001" min="0.000001" placeholder="2020.00" />
               </Field>
-              <Field label="Take Profit Awal" htmlFor="t-tp">
+              <Field label="TP Awal" htmlFor="t-tp">
                 <Input id="t-tp" name="initialTakeProfit" type="number" step="0.000001" min="0.000001" placeholder="2045.00" />
               </Field>
             </div>
@@ -190,14 +190,14 @@ export function NewTradeForm({
                   <option value="newyork">New York</option>
                 </Select>
               </Field>
-              <Field label="Timeframe" htmlFor="t-tf">
+              <Field label="Kerangka Waktu" htmlFor="t-tf">
                 <Input id="t-tf" name="timeframe" placeholder="M15 / H1" maxLength={10} />
               </Field>
               <Field label={`Komisi (${account?.currency ?? "USD"})`} htmlFor="t-comm">
                 <Input id="t-comm" name="commission" type="number" step="0.01" min="0" defaultValue={0} />
               </Field>
             </div>
-            <Field label="Strategi / Setup" htmlFor="t-strategy">
+            <Field label="Strategi" htmlFor="t-strategy">
               <Select id="t-strategy" name="strategyId" value={strategyId} onChange={(event) => setStrategyId(event.target.value)}>
                 <option value="">Tanpa strategi</option>
                 {strategyOptions.map((s) => (
@@ -214,13 +214,13 @@ export function NewTradeForm({
         <div className="flex flex-col gap-4">
           <Card>
             <CardHeader>
-              <CardTitle>Konteks & Alasan Entry</CardTitle>
+              <CardTitle>Konteks & Alasan Membuka Posisi</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Field label="Konteks Market" htmlFor="t-context">
-                <Textarea id="t-context" name="marketContext" rows={2} placeholder="Kondisi harga, news, struktur chart…" />
+              <Field label="Konteks Pasar" htmlFor="t-context">
+                <Textarea id="t-context" name="marketContext" rows={2} placeholder="Kondisi harga, berita, dan pola grafik…" />
               </Field>
-              <Field label="Alasan Entry" htmlFor="t-reason">
+              <Field label="Alasan Membuka Posisi" htmlFor="t-reason">
                 <Textarea id="t-reason" name="entryReason" rows={2} placeholder="Kenapa posisi ini diambil?" />
               </Field>
             </CardContent>
@@ -228,7 +228,7 @@ export function NewTradeForm({
 
           <Card>
             <CardHeader>
-              <CardTitle>Checklist Pra-Trade</CardTitle>
+              <CardTitle>Daftar Periksa Sebelum Transaksi</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {PRE_CHECKS.map((c) => (
@@ -245,7 +245,7 @@ export function NewTradeForm({
           ) : null}
           <div className="flex justify-end gap-2">
             <Button variant="secondary" type="button" onClick={() => router.back()}>Batal</Button>
-            <Button type="submit" disabled={loading || accounts.length === 0}>{loading ? "Menyimpan…" : "Simpan Trade"}</Button>
+            <Button type="submit" disabled={loading || accounts.length === 0}>{loading ? "Menyimpan…" : "Simpan Transaksi"}</Button>
           </div>
         </div>
       </form>

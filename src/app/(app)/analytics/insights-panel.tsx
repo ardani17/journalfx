@@ -72,7 +72,7 @@ export function InsightsPanel({
         {canGenerate ? (
           <p className="text-xs text-muted">Saat Anda meminta analisis, ringkasan statistik trade dikirim ke penyedia AI.</p>
         ) : null}
-        {pending ? <p role="status" className="text-xs text-muted">Analisis trade sedang diproses.</p> : null}
+        {pending ? <p role="status" className="text-xs text-muted">Analisis transaksi sedang diproses.</p> : null}
         {error ? <p role="alert" className="text-xs text-loss">{error}</p> : null}
         {analysis ? (
           <section aria-label="Hasil insight AI" className="space-y-2">

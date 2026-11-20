@@ -66,10 +66,10 @@ test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo i
       value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
     }]);
     await page.goto("/simulator");
-    await page.getByLabel("Return / Siklus (%)", { exact: true }).fill("5");
+    await page.getByLabel("Imbal Hasil per Siklus (%)", { exact: true }).fill("5");
     await page.getByLabel("Biaya / Siklus (USD)", { exact: true }).fill("1");
-    await page.getByLabel("Mode WD", { exact: true }).selectOption("FIXED");
-    await page.getByLabel("Nominal WD (USD)", { exact: true }).fill("2");
+    await page.getByLabel("Mode Penarikan", { exact: true }).selectOption("FIXED");
+    await page.getByLabel("Nominal Penarikan (USD)", { exact: true }).fill("2");
     const { data } = await runAndRead(page, "Simulasikan", "/api/simulator/run");
     expect(data.cycles.length).toBeGreaterThan(100);
     const history = page.getByRole("region", { name: "Riwayat siklus deterministik" });
@@ -95,9 +95,9 @@ test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo i
     }
 
     await page.getByLabel("Iterasi Monte Carlo").fill("2000");
-    await page.getByLabel("Jumlah trade", { exact: true }).fill("110");
-    await page.getByLabel("Trade per siklus", { exact: true }).fill("1");
-    await page.getByLabel("Win rate (%)", { exact: true }).fill("100");
+    await page.getByLabel("Jumlah transaksi", { exact: true }).fill("110");
+    await page.getByLabel("Transaksi per siklus", { exact: true }).fill("1");
+    await page.getByLabel("Tingkat kemenangan (%)", { exact: true }).fill("100");
     const worker = page.waitForEvent("worker");
     await page.getByRole("button", { name: "Simulasikan Monte Carlo" }).click();
     await worker;
@@ -105,7 +105,7 @@ test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo i
     const sample = page.getByRole("region", { name: "Riwayat siklus Monte Carlo" });
     await sample.getByLabel("Nomor siklus").fill("100");
     await sample.getByRole("button", { name: "Ke siklus" }).click();
-    await sample.getByRole("button", { name: /Siklus 100 · Trade 100/ }).click();
+    await sample.getByRole("button", { name: /Siklus 100 · Transaksi 100/ }).click();
     await expect(sample.getByRole("cell", { name: "Menang", exact: true })).toBeVisible();
   } finally {
     await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
@@ -129,6 +129,8 @@ test("estimates capital from the active budget and prefills Monte Carlo", async 
       value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
     }]);
     await page.goto("/expenses");
+    const month = start.toLocaleDateString("id-ID", { month: "long", year: "numeric", timeZone: owner.timezone });
+    await expect(page.getByText(`Periode: ${month}`, { exact: true })).toBeVisible();
     await expect(page.getByLabel("Target dana bulanan (IDR)")).toHaveValue("5.000.000");
     await page.getByLabel("Imbal hasil bersih per bulan (%)").fill("5");
     await page.getByLabel("Porsi laba untuk kebutuhan (%)").fill("50");
@@ -230,7 +232,7 @@ for (const viewport of [
         const saveEndpoint = "/api/scenarios";
         const target = page.getByLabel("Target (USD)", { exact: true });
         const start = page.getByLabel("Modal Awal (USD)", { exact: true });
-        const returns = page.getByLabel("Return / Siklus (%)", { exact: true });
+        const returns = page.getByLabel("Imbal Hasil per Siklus (%)", { exact: true });
         const cost = page.getByLabel("Biaya / Siklus (USD)", { exact: true });
         await expect(target).toHaveValue("1.000.000");
         await expect(cost).toHaveAttribute("inputmode", "decimal");
@@ -302,10 +304,10 @@ for (const viewport of [
         }
 
         await page.goto("/roadmap");
-        const select = page.getByLabel("Skenario Compounding");
+        const select = page.getByLabel("Skenario Pemajemukan");
         const apply = page.getByRole("button", { name: "Terapkan", exact: true });
-        const milestones = page.getByRole("table", { name: "Milestone Roadmap" });
-        const history = page.getByRole("table", { name: "Riwayat Milestone" });
+        const milestones = page.getByRole("table", { name: "Tonggak Pencapaian" });
+        const history = page.getByRole("table", { name: "Riwayat Pencapaian" });
         await expect(select).toHaveValue("");
         await expect(page.getByText("Pengaturan project", { exact: true })).toBeVisible();
         await expect(select.locator("option", { hasText: "Skenario project lain" })).toHaveCount(0);

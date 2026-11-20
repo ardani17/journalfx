@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { tradeStatusLabel } from "@/lib/trading-labels";
 import { Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/misc";
@@ -76,7 +77,7 @@ export function JournalToolbar({ accounts, strategies, active, pageSize, dateErr
     const fd = new FormData(e.currentTarget);
     const file = fd.get("file");
     if (!(file instanceof File) || file.size === 0) {
-      setError("Pilih file Trade History MT5 (.xlsx)");
+      setError("Pilih berkas riwayat transaksi MT5 (.xlsx).");
       return;
     }
     setLoading(true);
@@ -110,18 +111,17 @@ export function JournalToolbar({ accounts, strategies, active, pageSize, dateErr
           className="h-8 w-auto min-w-32 text-xs"
         >
           <option value="">Semua Status</option>
-          <option value="OPEN">Open</option>
-          <option value="PARTIAL">Partial</option>
-          <option value="CLOSED">Closed</option>
-          <option value="CANCELLED">Cancelled</option>
+          {(["OPEN", "PARTIAL", "CLOSED", "CANCELLED"] as const).map((value) => (
+            <option key={value} value={value}>{tradeStatusLabel[value]}</option>
+          ))}
         </Select>
         <Select
-          aria-label="Filter setup"
+          aria-label="Filter strategi"
           value={active.strategyId ?? ""}
           onChange={(e) => setFilter("strategyId", e.target.value)}
           className="h-8 w-auto min-w-32 text-xs"
         >
-          <option value="">Semua Setup</option>
+          <option value="">Semua strategi</option>
           {strategies.map((s) => (
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
@@ -133,9 +133,9 @@ export function JournalToolbar({ accounts, strategies, active, pageSize, dateErr
           className="h-8 w-auto min-w-28 text-xs"
         >
           <option value="">Semua Hasil</option>
-          <option value="win">Profit</option>
-          <option value="loss">Loss</option>
-          <option value="be">Break Even</option>
+          <option value="win">Untung</option>
+          <option value="loss">Rugi</option>
+          <option value="be">Impas</option>
         </Select>
         <Select
           aria-label="Filter akun"
@@ -158,7 +158,7 @@ export function JournalToolbar({ accounts, strategies, active, pageSize, dateErr
           <option value="asc">Terlama dulu</option>
         </Select>
         <Select
-          aria-label="Trade per halaman"
+          aria-label="Transaksi per halaman"
           value={pageSize}
           onChange={(e) => router.push(journalHref(active, 1, getJournalPageSize(e.target.value)))}
           className="h-8 w-auto text-xs"
@@ -174,7 +174,7 @@ export function JournalToolbar({ accounts, strategies, active, pageSize, dateErr
           </Button>
           <Link href="/journal/new">
             <Button size="sm">
-              <Plus className="h-3.5 w-3.5" aria-hidden /> Tambah Trade
+              <Plus className="h-3.5 w-3.5" aria-hidden /> Tambah Transaksi
             </Button>
           </Link>
         </div>
@@ -183,7 +183,7 @@ export function JournalToolbar({ accounts, strategies, active, pageSize, dateErr
       <Dialog open={importOpen} onClose={() => setImportOpen(false)} title="Impor Riwayat MT5">
         <form onSubmit={doImport} className="space-y-3">
           <p className="text-xs leading-relaxed text-muted">
-            Unggah Trade History MT5 (.xlsx) untuk mencatat posisi, deposit, dan withdrawal. Entri yang sudah diimpor ke akun tujuan akan dilewati.
+            Unggah laporan riwayat transaksi MT5 (.xlsx) untuk mencatat posisi, setoran, dan penarikan. Entri yang sudah diimpor ke akun tujuan akan dilewati.
           </p>
           <Field label="Akun Tujuan" htmlFor="imp-account">
             <Select id="imp-account" name="accountId" required defaultValue={importAccounts[0]?.id ?? ""}>
@@ -193,7 +193,7 @@ export function JournalToolbar({ accounts, strategies, active, pageSize, dateErr
               ))}
             </Select>
           </Field>
-          <Field label="File XLSX" htmlFor="imp-file" hint="Maks 5 MB">
+          <Field label="Berkas XLSX" htmlFor="imp-file" hint="Maks 5 MB">
             <Input id="imp-file" name="file" type="file" accept=".xlsx" required />
           </Field>
           {error ? <p className="text-xs text-loss" role="alert">{error}</p> : null}

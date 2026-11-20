@@ -130,7 +130,7 @@ export async function resolveReview(userId: string, kind: ReviewKind, selection:
   });
   if (latest) return { review: latest, timezone, window };
   const project = await prisma.project.findFirst({ where: { userId, isActive: true } });
-  if (!project) throw new ApiError(404, "Project belum ada");
+  if (!project) throw new ApiError(404, "Proyek belum tersedia.");
   const projectId = project.id;
   const review = await prisma.periodReview.upsert({
     where: { userId_kind_periodStart: { userId, kind, periodStart: start } },
@@ -154,13 +154,13 @@ export async function saveReviewFields(
 ) {
   const review = await getOrCreateReview(userId, kind, selection);
   if (review.status === "CLOSED") {
-    throw new ApiError(400, "Review sudah ditutup (snapshot immutable) — buat koreksi melalui tombol koreksi");
+    throw new ApiError(400, "Review sudah ditutup. Pilih Buat Koreksi untuk membuat revisi.");
   }
   const [updated] = await prisma.periodReview.updateManyAndReturn({
     where: { id: review.id, status: "OPEN" },
     data: fields,
   });
-  if (!updated) throw new ApiError(400, "Review sudah ditutup (snapshot immutable)");
+  if (!updated) throw new ApiError(400, "Review sudah ditutup.");
   await audit({ userId, action: "update", entity: "PeriodReview", entityId: review.id, after: fields, req });
   return updated;
 }

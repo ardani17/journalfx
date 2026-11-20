@@ -42,7 +42,7 @@ export function ComingSoon({
             ))}
           </ul>
           <Link href="/dashboard" className="mt-2 text-xs font-medium text-primary hover:underline">
-            ← Kembali ke Dashboard
+            ← Kembali ke Dasbor
           </Link>
         </CardContent>
       </Card>

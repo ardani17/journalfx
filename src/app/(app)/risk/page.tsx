@@ -40,16 +40,16 @@ export default async function RiskPage() {
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Balance" value={fmtUSD(st.balance)} icon={ShieldAlert} tone="info" />
+        <StatCard label="Saldo" value={fmtUSD(st.balance)} icon={ShieldAlert} tone="info" />
         <StatCard
-          label="Loss Hari Ini"
+          label="Rugi Hari Ini"
           value={fmtUSDdelta(st.dayPnl)}
           icon={TrendingDown}
           tone={st.dayPnl.isNegative() ? "loss" : "primary"}
           sub={st.dayLimitUsedPct !== null ? `Pemakaian batas: ${Math.max(0, st.dayLimitUsedPct).toFixed(0)}%` : undefined}
         />
         <StatCard
-          label="Loss Minggu Ini"
+          label="Rugi Minggu Ini"
           value={fmtUSDdelta(st.weekPnl)}
           icon={TrendingDown}
           tone={st.weekPnl.isNegative() ? "loss" : "primary"}
@@ -74,11 +74,11 @@ export default async function RiskPage() {
             <LimitBar label={`Drawdown Review (ambang ${fmtNum(Number(st.settings.ddReview), 0)}%)`} used={Number(st.currentDdPct.div(Number(st.settings.ddReview)).times(100))} />
             <div className="grid grid-cols-2 gap-2 border-t border-line-soft pt-3 text-xs">
               <div>
-                <p className="text-faint">Drawdown Aktual (adjust arus kas)</p>
+                <p className="text-faint">Penurunan Saldo Aktual (disesuaikan dengan arus kas)</p>
                 <p className="tnum font-bold text-ink">{fmtNum(Number(st.currentDdPct), 2)}%</p>
               </div>
               <div>
-                <p className="text-faint">Max Drawdown</p>
+                <p className="text-faint">Penurunan Saldo Maksimum</p>
                 <p className="tnum font-bold text-ink">{fmtNum(Number(st.maxDdPct), 2)}%</p>
               </div>
             </div>

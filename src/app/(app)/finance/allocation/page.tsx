@@ -8,7 +8,7 @@ import { fmtDateID } from "@/lib/dates";
 import { AllocationClient } from "./allocation-client";
 import { PieChart } from "lucide-react";
 
-export const metadata = { title: "Alokasi Profit" };
+export const metadata = { title: "Alokasi Laba" };
 
 export default async function AllocationPage() {
   const user = await requireUser();
@@ -21,8 +21,8 @@ export default async function AllocationPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Alokasi Profit"
-        subtitle="Alokasikan dana withdrawal yang sudah diterima ke bucket sesuai prioritas."
+        title="Alokasi Laba"
+        subtitle="Alokasikan dana penarikan yang sudah diterima ke pos keuangan sesuai prioritas."
         actions={
           totalAllocated > 0 ? (
             <Badge tone="success">Total teralokasi: ${totalAllocated.toLocaleString("id-ID", { maximumFractionDigits: 2 })}</Badge>
@@ -62,7 +62,7 @@ export default async function AllocationPage() {
             </THead>
             <TBody>
               {allocations.length === 0 ? (
-                <EmptyRow colSpan={4}>Belum ada alokasi profit.</EmptyRow>
+                <EmptyRow colSpan={4}>Belum ada alokasi laba.</EmptyRow>
               ) : (
                 allocations.map((a) => (
                   <TR key={a.id}>

@@ -22,6 +22,7 @@ import { JournalToolbar } from "./journal-toolbar";
 import { getJournalPageSize, journalDateRange, journalHref } from "./journal-query";
 import { D, fmtDecimal, fmtNum, fmtTradingDelta } from "@/lib/money";
 import { listTradesQuery } from "@/lib/validation/trades";
+import { tradeDirectionLabel, tradeStatusLabel } from "@/lib/trading-labels";
 import { BarChart3, BookOpen, Percent, TrendingUp } from "lucide-react";
 
 export const metadata = { title: "Jurnal Trading" };
@@ -90,16 +91,16 @@ export default async function JournalPage({
 
       {/* KPI strip */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Trade" value={fmtNum(metrics.totalTrades, 0)} icon={BookOpen} />
+        <StatCard label="Total Transaksi" value={fmtNum(metrics.totalTrades, 0)} icon={BookOpen} />
         <StatCard
-          label="Win Rate"
+          label="Tingkat Kemenangan"
           value={metrics.winRate !== null ? `${fmtNum(metrics.winRate, 1)}%` : "N/A"}
           tone="primary"
           icon={Percent}
           sub={`${metrics.wins}W / ${metrics.losses}L${metrics.breakEven ? ` / ${metrics.breakEven}BE` : ""}`}
         />
         <StatCard
-          label="Total P/L"
+          label="P&L Neto"
           value={fmtTradingDelta(metrics.netPnl, summaryCurrency)}
           tone={metrics.netPnl.isPositive() ? "primary" : "loss"}
           icon={TrendingUp}
@@ -113,7 +114,7 @@ export default async function JournalPage({
       </div>
       {metrics.sampleWarning && metrics.totalTrades > 0 ? (
         <p className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="status">
-          Sampel kecil ({metrics.totalTrades} &lt; 30 trade) — metrik belum signifikan secara statistik.
+          Sampel kecil ({metrics.totalTrades} &lt; 30 transaksi). Metrik belum signifikan secara statistik.
         </p>
       ) : null}
 
@@ -123,23 +124,23 @@ export default async function JournalPage({
           <THead>
             <TR>
               <TH aria-sort={filters.sort === "asc" ? "ascending" : "descending"}>Tanggal</TH>
-              <TH>Pair</TH>
+              <TH>Instrumen</TH>
               <TH>Arah</TH>
               <TH className="text-right">Lot</TH>
-              <TH className="text-right">Entry</TH>
-              <TH className="text-right">Exit</TH>
+              <TH className="text-right">Pembukaan</TH>
+              <TH className="text-right">Penutupan</TH>
               <TH className="text-right">R</TH>
               <TH className="text-right">P/L</TH>
-              <TH>Setup</TH>
+              <TH>Strategi</TH>
               <TH>Psikologi dan Jurnal</TH>
             </TR>
           </THead>
           <TBody>
             {items.length === 0 ? (
               <EmptyRow colSpan={10}>
-                {hasDateRange ? "Tidak ada trade pada periode tersebut." : Object.values(filters).some(Boolean)
-                  ? "Tidak ada trade yang cocok dengan filter."
-                  : "Belum ada trade. Klik “Tambah Trade” untuk mencatat posisi pertama Anda."}
+                {hasDateRange ? "Tidak ada transaksi pada periode tersebut." : Object.values(filters).some(Boolean)
+                  ? "Tidak ada transaksi yang cocok dengan filter."
+                  : "Belum ada transaksi. Pilih “Tambah Transaksi” untuk mencatat posisi pertama Anda."}
               </EmptyRow>
             ) : (
               items.map((t) => {
@@ -159,7 +160,7 @@ export default async function JournalPage({
                     <TD className="text-xs font-medium">{t.instrument.symbol}</TD>
                     <TD>
                       <Badge tone={t.direction === "LONG" ? "buy" : "sell"}>
-                        {t.direction === "LONG" ? "Buy" : "Sell"}
+                        {tradeDirectionLabel[t.direction]}
                       </Badge>
                     </TD>
                     <TD className="tnum text-right text-xs">{fmtDecimal(t.lot)}</TD>
@@ -168,7 +169,7 @@ export default async function JournalPage({
                       {t.exitPrice ? (
                         fmtDecimal(t.exitPrice, t.instrument.pricePrecision)
                       ) : (
-                        <Badge tone={t.status === "OPEN" ? "info" : "neutral"}>{t.status}</Badge>
+                        <Badge tone={t.status === "OPEN" ? "info" : "neutral"}>{tradeStatusLabel[t.status]}</Badge>
                       )}
                     </TD>
                     <TD className="tnum text-right text-xs">
@@ -202,7 +203,7 @@ export default async function JournalPage({
       </TableWrap>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="tnum text-xs text-muted" aria-live="polite">
-          Menampilkan {range} dari {fmtNum(total, 0)} trade
+          Menampilkan {range} dari {fmtNum(total, 0)} transaksi
         </p>
         <nav aria-label="Paginasi jurnal" className="flex flex-wrap gap-2">
           <PageLink href={page > 1 ? journalHref(filters, page - 1, pageSize) : undefined}>

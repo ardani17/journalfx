@@ -75,7 +75,7 @@ export default async function CalendarPage({
       <CalendarReviewTabs active="calendar" date={selectedDate} />
       <div className="flex flex-wrap gap-2 text-xs">
         <Badge tone={monthPnl.gte(0) ? "success" : "danger"}>P&L Bulanan {fmtUSDdelta(monthPnl)}</Badge>
-        <Badge tone="info">{monthTrades} trade</Badge>
+        <Badge tone="info">{monthTrades} transaksi</Badge>
         {best.pnl > -Infinity && best.pnl !== 0 ? <Badge tone="success">Terbaik: {fmtUSDdelta(best.pnl)} ({best.date.slice(8)})</Badge> : null}
         {worst.pnl < Infinity && worst.pnl !== 0 ? <Badge tone="danger">Terburuk: {fmtUSDdelta(worst.pnl)} ({worst.date.slice(8)})</Badge> : null}
       </div>

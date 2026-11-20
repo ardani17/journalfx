@@ -5,9 +5,12 @@ import { prisma } from "@/server/db";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { fmtDateID } from "@/lib/dates";
+import { fmtDateTimeID } from "@/lib/dates";
 
 export const metadata = { title: "Notifikasi" };
+const kindLabel: Record<string, string> = {
+  review: "Review", debt: "Utang", risk: "Risiko", milestone: "Pencapaian", wd: "Penarikan", journal: "Jurnal",
+};
 
 export default async function NotificationsPage() {
   const user = await requireUser();
@@ -21,7 +24,7 @@ export default async function NotificationsPage() {
     <PageShell>
       <PageHeader
         title="Notifikasi"
-        subtitle="Pengingat review, risiko, milestone, WD, dan kelengkapan jurnal."
+        subtitle="Pengingat review, risiko, tonggak pencapaian, penarikan, dan kelengkapan jurnal."
       />
       <Card>
         <CardContent className="p-0">
@@ -30,7 +33,7 @@ export default async function NotificationsPage() {
               <Bell className="h-8 w-8 text-faint" aria-hidden />
               <p className="text-sm text-muted">Belum ada notifikasi</p>
               <p className="text-xs text-faint">
-                Notifikasi muncul saat milestone tercapai, review belum diisi, atau batas risiko tersentuh.
+                Notifikasi muncul saat tonggak tercapai, review belum diisi, atau batas risiko terlampaui.
               </p>
             </div>
           ) : (
@@ -42,14 +45,14 @@ export default async function NotificationsPage() {
                       n.severity === "CRITICAL" ? "danger" : n.severity === "WARNING" ? "warn" : "info"
                     }
                   >
-                    {n.kind}
+                    {kindLabel[n.kind] ?? "Informasi"}
                   </Badge>
                   <div className="min-w-0 flex-1">
                     <p className={`text-sm ${n.readAt ? "text-muted" : "font-semibold text-ink"}`}>
                       {n.title}
                     </p>
                     {n.body ? <p className="mt-0.5 text-xs text-faint">{n.body}</p> : null}
-                    <p className="mt-0.5 text-[10px] text-faint">{fmtDateID(n.createdAt, "d MMM yyyy, HH:mm")}</p>
+                    <p className="mt-0.5 text-[10px] text-faint">{fmtDateTimeID(n.createdAt, user.timezone)}</p>
                   </div>
                   {n.link ? (
                     <Link href={n.link} className="shrink-0 text-xs text-primary hover:underline">

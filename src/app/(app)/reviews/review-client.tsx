@@ -61,7 +61,7 @@ export function ReviewClient({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Catatan Review {closed ? "(immutable — gunakan koreksi)" : ""}</CardTitle>
+        <CardTitle>Catatan Review {closed ? "tersimpan" : ""}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-3 lg:grid-cols-2">
@@ -82,7 +82,7 @@ export function ReviewClient({
               <Button variant="secondary" disabled={loading} onClick={() => call("PUT", fields, "Catatan tersimpan.")}>
                 <Save className="h-4 w-4" aria-hidden /> Simpan Catatan
               </Button>
-              <Button disabled={loading} onClick={() => call("POST", { action: "close" }, "Review ditutup dan snapshot tersimpan.")}>
+              <Button disabled={loading} onClick={() => call("POST", { action: "close" }, "Review ditutup dan ringkasan tersimpan.")}>
                 <Lock className="h-4 w-4" aria-hidden /> Tutup Periode
               </Button>
             </>

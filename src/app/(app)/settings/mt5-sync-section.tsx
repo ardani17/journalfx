@@ -30,7 +30,7 @@ export function Mt5SyncSection({
     const fd = new FormData(e.currentTarget);
     const file = fd.get("file");
     if (!(file instanceof File) || file.size === 0) {
-      setError("Pilih file Trade History MT5 (.xlsx)");
+      setError("Pilih berkas riwayat transaksi MT5 (.xlsx).");
       return;
     }
     setLoading(true);
@@ -38,7 +38,7 @@ export function Mt5SyncSection({
       const res = await fetch("/api/integrations/mt5/sync", { method: "POST", body: fd });
       const json = await res.json();
       if (!res.ok || !json.ok) {
-        setError(json.error ?? "Sync gagal");
+        setError(json.error ?? "Sinkronisasi gagal.");
         return;
       }
       setResult(json.data);
@@ -54,9 +54,9 @@ export function Mt5SyncSection({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <RefreshCw className="h-4 w-4 text-primary" aria-hidden /> Sinkronisasi MT5 (read-only)
+          <RefreshCw className="h-4 w-4 text-primary" aria-hidden /> Sinkronisasi MT5 (hanya baca)
           {status.stale ? (
-            <Badge tone="warn">{status.lastSyncAt ? `Data ${status.staleHours} jam lalu` : "Belum pernah sync"}</Badge>
+            <Badge tone="warn">{status.lastSyncAt ? `Data ${status.staleHours} jam lalu` : "Belum disinkronkan"}</Badge>
           ) : (
             <Badge tone="success">Segar</Badge>
           )}
@@ -64,11 +64,11 @@ export function Mt5SyncSection({
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs leading-relaxed text-muted">
-          Unggah Trade History MT5 (.xlsx) untuk mencatat posisi, deposit, dan withdrawal. Entri yang sudah diimpor ke akun tujuan akan dilewati.
+          Unggah laporan riwayat transaksi MT5 (.xlsx) untuk mencatat posisi, setoran, dan penarikan. Entri yang sudah diimpor ke akun tujuan akan dilewati.
         </p>
         {status.lastSyncAt ? (
           <p className="tnum text-[11px] text-faint">
-            Sync terakhir: {fmtDateID(status.lastSyncAt, "d MMM yyyy, HH:mm")}
+            Sinkronisasi terakhir {fmtDateID(status.lastSyncAt, "d MMM yyyy, HH:mm")}
             {status.lastSyncResult ? ` — ${status.lastSyncResult}` : ""}
           </p>
         ) : null}
@@ -81,7 +81,7 @@ export function Mt5SyncSection({
               ))}
             </Select>
           </Field>
-          <Field label="File XLSX" htmlFor="m5-file" className="min-w-52" hint="Maks 5 MB">
+          <Field label="Berkas XLSX" htmlFor="m5-file" className="min-w-52" hint="Maks 5 MB">
             <input
               id="m5-file"
               name="file"

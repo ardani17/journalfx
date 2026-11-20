@@ -20,7 +20,7 @@ export default async function SettingsPage() {
   ]);
   return (
     <PageShell>
-      <PageHeader title="Pengaturan" subtitle="Profil, preferensi tampilan, integrasi, dan konfigurasi project." />
+      <PageHeader title="Pengaturan" subtitle="Atur profil, preferensi tampilan, integrasi, dan proyek." />
       <SettingsClient
         user={{ name: user.name, email: user.email, timezone: user.timezone, locale: user.locale }}
         project={{

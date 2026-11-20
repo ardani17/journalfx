@@ -63,7 +63,7 @@ const SimulatorPlot = dynamic(() => import("recharts").then(({
           <Tooltip
             contentStyle={{ background: "#131b2e", border: "1px solid #303b50", borderRadius: 10, fontSize: 12 }}
             labelFormatter={(l) => `Siklus ${l}`}
-            formatter={(value, name) => [fmtUSD(Number(value)), name === "closing" ? "Balance" : "WD"]}
+            formatter={(value, name) => [fmtUSD(Number(value)), name === "closing" ? "Saldo" : "WD"]}
           />
           <Area type="monotone" dataKey="closing" stroke="#22e69a" strokeWidth={2} fill="url(#simFill)" dot={false} />
         </AreaChart>
@@ -74,9 +74,9 @@ const SimulatorPlot = dynamic(() => import("recharts").then(({
 const numericFields = {
   targetAmount: { id: "sim-target", label: "Target (USD)" },
   initialCapital: { id: "sim-capital", label: "Modal Awal (USD)" },
-  returnPerCycle: { id: "sim-return", label: "Return / Siklus (%)" },
-  wdRatio: { id: "sim-ratio", label: "Cap WD (% dari profit)" },
-  fixedWdAmount: { id: "sim-fixed", label: "Nominal WD (USD)" },
+  returnPerCycle: { id: "sim-return", label: "Imbal Hasil per Siklus (%)" },
+  wdRatio: { id: "sim-ratio", label: "Batas Penarikan (% dari laba)" },
+  fixedWdAmount: { id: "sim-fixed", label: "Nominal Penarikan (USD)" },
   costPerCycle: { id: "sim-cost", label: "Biaya / Siklus (USD)" },
 } as const;
 type NumericField = keyof typeof numericFields;
@@ -234,11 +234,11 @@ export function SimulatorClient({
               {Object.entries(frequencyDetails).map(([value, detail]) => <option key={value} value={value}>{detail.name}</option>)}
             </Select>
           </Field>
-          <Field label="Mode WD" htmlFor="sim-wd">
+          <Field label="Mode Penarikan" htmlFor="sim-wd">
             <Select id="sim-wd" value={form.wdMode}
               onChange={(e) => setForm({ ...form, wdMode: e.target.value as typeof form.wdMode })}>
-              <option value="NONE">Tanpa WD (full compounding)</option>
-              <option value="DYNAMIC">Dinamis (% profit)</option>
+              <option value="NONE">Tanpa penarikan (pemajemukan penuh)</option>
+              <option value="DYNAMIC">Dinamis (% laba)</option>
               <option value="FIXED">Nominal tetap</option>
             </Select>
           </Field>
@@ -278,7 +278,7 @@ export function SimulatorClient({
         <h2 className="mb-2 text-sm font-semibold">Skenario Tersimpan</h2>
         <TableWrap>
           <Table>
-            <THead><TR><TH>Nama</TH><TH className="text-right">Return</TH><TH>Mode WD</TH><TH className="text-right">Aksi</TH></TR></THead>
+            <THead><TR><TH>Nama</TH><TH className="text-right">Imbal Hasil</TH><TH>Mode Penarikan</TH><TH className="text-right">Aksi</TH></TR></THead>
             <TBody>
               {saved.length === 0 ? (
                 <EmptyRow colSpan={4}>Belum ada skenario tersimpan.</EmptyRow>
@@ -361,7 +361,7 @@ function SimulationResult({ result, frequency }: { result: RunResult; frequency:
             <div className="flex items-center gap-2.5 text-sm">
               <TrendingUp className="h-4 w-4 text-indigo-soft" aria-hidden />
               <div>
-                <p className="text-xs text-muted">Balance Akhir (Estimasi)</p>
+                <p className="text-xs text-muted">Perkiraan Saldo Akhir</p>
                 <p className="tnum font-bold text-primary">{fmtUSD(result.finalBalance)}</p>
               </div>
             </div>

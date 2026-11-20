@@ -57,8 +57,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
                         <span className="font-semibold">{fmtUSDdelta(r.livePnl)}</span>
                         {r.snapshotPnl !== null ? <span className="block text-faint">Saat ditutup: {fmtUSDdelta(r.snapshotPnl)}</span> : null}
                       </TD>
-                      <TD className="tnum text-right text-xs">{fmtUSD(r.wdActual)}</TD>
-                      <TD className="tnum text-right text-xs">{fmtUSD(r.compoundedAmount)}</TD>
+                      <TD className="tnum text-right text-xs">{r.wdActual === null ? "—" : fmtUSD(r.wdActual)}</TD>
+                      <TD className="tnum text-right text-xs">{r.compoundedAmount === null ? "—" : fmtUSD(r.compoundedAmount)}</TD>
                       <TD className="tnum text-right text-xs font-semibold">{ds?.total != null ? fmtNum(ds.total, 1) : "—"}</TD>
                     </TR>
                   );
