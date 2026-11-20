@@ -1,3 +1,4 @@
+import type { Prisma, WithdrawalStatus } from "@prisma/client";
 import { userTimezone } from "./time";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
@@ -19,15 +20,17 @@ import { getJisdorQuote } from "./jisdor";
  * Current-week reservations consume the allowance without resetting the HWM.
  */
 
-export async function getActiveRule(userId: string) {
-  const project = await prisma.project.findFirst({ where: { userId, isActive: true } });
+const pendingWithdrawalStatuses: WithdrawalStatus[] = ["REQUESTED", "RECOMMENDED"];
+
+export async function getActiveRule(userId: string, db: Prisma.TransactionClient = prisma) {
+  const project = await db.project.findFirst({ where: { userId, isActive: true } });
   if (!project) throw new ApiError(404, "Project belum ada");
-  let rule = await prisma.withdrawalRule.findFirst({
+  let rule = await db.withdrawalRule.findFirst({
     where: { userId, projectId: project.id },
     orderBy: { activeFrom: "desc" },
   });
   if (!rule) {
-    rule = await prisma.withdrawalRule.create({ data: { userId, projectId: project.id } });
+    rule = await db.withdrawalRule.create({ data: { userId, projectId: project.id } });
   }
   return rule;
 }
@@ -77,15 +80,15 @@ export interface RecommendationBundle {
   latestFx: JisdorQuote | null;
 }
 
-export async function getRecommendation(userId: string, quote?: JisdorQuote | null): Promise<RecommendationBundle> {
+export async function getRecommendation(userId: string, quote?: JisdorQuote | null, db: Prisma.TransactionClient = prisma): Promise<RecommendationBundle> {
   const [rule, timezone, fx] = await Promise.all([
-    getActiveRule(userId),
-    userTimezone(userId),
+    getActiveRule(userId, db),
+    userTimezone(userId, db),
     quote === undefined ? getJisdorQuote() : quote,
   ]);
   const now = new Date();
   const { start: weekStart, end: weekEnd } = zonedPeriod("WEEKLY", now, timezone);
-  const ledger = (await attributedLedger(userId)).filter((r) => r.occurredAt <= now);
+  const ledger = (await attributedLedger(userId, db)).filter((r) => r.occurredAt <= now);
   const pnlRows = ledger.filter((r) => r.type === "REALIZED_PNL" || r.type === "FEE");
   let cumulative = D(0);
   let hwm = D(0);
@@ -103,22 +106,29 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
   }
   if (previousWeek !== null && previousWeek < weekStart.getTime()) hwm = Decimal.max(hwm, cumulative);
 
-  const withdrawals = await prisma.withdrawal.findMany({ where: { userId, projectId: rule.projectId } });
-  const periodTaken = withdrawals.filter((w) =>
-    w.status === "REQUESTED" || w.status === "RECOMMENDED" ||
-    (w.status === "COMPLETED" && w.completedAt && w.completedAt >= weekStart && w.completedAt < weekEnd))
-    .reduce((sum, w) => sum.plus(D(w.amountUSD)), D(0));
-  const balances = await computeBalance(userId);
+  const withdrawals = await db.withdrawal.findMany({ where: { userId, projectId: rule.projectId } });
+  let pendingUsd = D(0);
+  let completedThisWeekUsd = D(0);
+  for (const withdrawal of withdrawals) {
+    if (pendingWithdrawalStatuses.includes(withdrawal.status)) {
+      pendingUsd = pendingUsd.plus(withdrawal.amountUSD);
+    } else if (withdrawal.status === "COMPLETED" && withdrawal.completedAt &&
+      withdrawal.completedAt >= weekStart && withdrawal.completedAt < weekEnd) {
+      completedThisWeekUsd = completedThisWeekUsd.plus(withdrawal.amountUSD);
+    }
+  }
+  const periodTaken = pendingUsd.plus(completedThisWeekUsd);
+  const balances = await computeBalance(userId, undefined, undefined, db);
   const { start: mStart, end: mEnd } = zonedPeriod("MONTHLY", now, timezone);
-  const budget = await prisma.budget.findFirst({
+  const budget = await db.budget.findFirst({
     where: { userId, periodStart: mStart, periodEnd: mEnd, isActive: true }, include: { categories: true },
   });
   const planned = budget
-    ? budget.categories.filter((c) => c.isActive).reduce((sum, c) => sum.plus(D(c.plannedAmount)), D(0))
+    ? budget.categories.filter((c) => c.isActive).reduce((sum, c) => sum.plus(c.plannedAmount), D(0))
     : D(rule.needsTargetIdr);
-  const personal = (await effectiveFinancialTransactions(userId)).filter((r) =>
+  const personal = (await effectiveFinancialTransactions(userId, db)).filter((r) =>
     r.currency === "IDR" && r.occurredAt >= mStart && r.occurredAt < mEnd);
-  const buckets = await prisma.financialBucket.findMany({ where: { userId, projectId: rule.projectId } });
+  const buckets = await db.financialBucket.findMany({ where: { userId, projectId: rule.projectId } });
   const livingIds = new Set(buckets.filter((b) => b.kind === "LIVING").map((b) => b.id));
   const debtIds = new Set(buckets.filter((b) => b.kind === "DEBT").map((b) => b.id));
   const funded = personal.filter((r) => r.kind === "ALLOCATION" && r.bucketId && livingIds.has(r.bucketId))
@@ -132,7 +142,7 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
     if (entry.kind !== "EXPENSE" || !entry.debtId) continue;
     paymentsByDebt.set(entry.debtId, (paymentsByDebt.get(entry.debtId) ?? D(0)).plus(entry.amount));
   }
-  const debts = await prisma.debt.findMany({ where: { userId, status: "ACTIVE" } });
+  const debts = await db.debt.findMany({ where: { userId, status: "ACTIVE" } });
   let debtDue = D(0);
   let coveredByPayments = D(0);
   for (const debt of debts) {
@@ -159,6 +169,7 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
     maxWdRatioPct: rule.maxWdRatio,
     needsTargetUsd: needsWeeklyUsd ?? undefined,
     availableCash: balances.balance,
+    cashReservedUsd: pendingUsd,
     reserveUsd: Decimal.max(D(rule.reserveUsd), D(rule.minBalanceUsd)),
     dataUnknown: needsUnconfigured,
     dataStale: false,
@@ -166,7 +177,9 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
   const recommended = fx ? rec.recommended.toDecimalPlaces(2, Decimal.ROUND_DOWN) : D(0);
   const zeroReasons = [...rec.zeroReasons];
   if (configuredCap.isZero()) {
-    if (needsUnconfigured) {
+    if (budget && plannedNeeds.isZero()) {
+      zeroReasons.push("Anggaran aktif belum memiliki nominal kebutuhan. Isi nominal pada kategori aktif di Anggaran.");
+    } else if (needsUnconfigured) {
       zeroReasons.push("Kebutuhan bulanan belum disetel. Isi Kebutuhan Bulanan di Edit Aturan atau tambahkan anggaran dengan nominal.");
     } else if (plannedNeeds.gt(0) && needsIdr.isZero() && !rule.needsTargetIdr?.isZero()) {
       zeroReasons.push("Kebutuhan yang direncanakan sudah terpenuhi. Cek pemasukan, alokasi, dan pembayaran cicilan yang tercatat.");
@@ -197,25 +210,37 @@ export async function getRecommendation(userId: string, quote?: JisdorQuote | nu
   };
 }
 
-export async function listWithdrawalSourceAccounts(userId: string, projectId: string) {
-  const accounts = await prisma.tradingAccount.findMany({
+async function withdrawalSourceBalances(db: Prisma.TransactionClient, userId: string, projectId: string) {
+  const accounts = await db.tradingAccount.findMany({
     where: { userId, projectId, isActive: true },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true, currency: true },
   });
   if (accounts.length === 0) return [];
 
-  const totals = await prisma.accountTransaction.groupBy({
-    by: ["accountId"],
-    where: { userId, accountId: { in: accounts.map((account) => account.id) } },
-    _sum: { amount: true },
-  });
+  const accountIds = accounts.map((account) => account.id);
+  const [totals, pending] = await Promise.all([
+    db.accountTransaction.groupBy({
+      by: ["accountId"], where: { userId, accountId: { in: accountIds } }, _sum: { amount: true },
+    }),
+    db.withdrawal.groupBy({
+      by: ["accountId"],
+      where: { userId, projectId, accountId: { in: accountIds }, status: { in: pendingWithdrawalStatuses } },
+      _sum: { amountUSD: true },
+    }),
+  ]);
   const byAccount = new Map(totals.map((row) => [row.accountId, row._sum.amount]));
+  const reservedByAccount = new Map(pending.map((row) => [row.accountId, row._sum.amountUSD]));
   return accounts.map(({ id, name, currency }) => ({
     id,
     name,
-    balanceUsd: tradingAmountToUsd(byAccount.get(id), currency).toDecimalPlaces(2, Decimal.ROUND_DOWN),
-  })).filter((account) => account.balanceUsd.gt(0));
+    balanceUsd: tradingAmountToUsd(byAccount.get(id), currency).minus(D(reservedByAccount.get(id)))
+      .toDecimalPlaces(2, Decimal.ROUND_DOWN),
+  }));
+}
+
+export async function listWithdrawalSourceAccounts(userId: string, projectId: string) {
+  return (await withdrawalSourceBalances(prisma, userId, projectId)).filter((account) => account.balanceUsd.gt(0));
 }
 
 export async function listWithdrawals(userId: string) {
@@ -243,24 +268,21 @@ export async function requestWithdrawal(userId: string, amountUsd: number, note?
 
   const w = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
-    const { recommendation } = await getRecommendation(userId, fx);
+    const { recommendation, projectId } = await getRecommendation(userId, fx, tx);
     if (amount.gt(recommendation.recommended)) {
       throw new ApiError(
         400,
         `Jumlah ${amountUsd} melebihi rekomendasi ${recommendation.recommended.toFixed(2)} — kurangi jumlah atau perbaiki data`,
       );
     }
-    const project = await prisma.project.findFirst({ where: { userId, isActive: true } });
-    if (!project) throw new ApiError(404, "Project belum ada");
-    const accounts = await tx.tradingAccount.findMany({ where: { userId, projectId: project.id, isActive: true } });
+    const accounts = await withdrawalSourceBalances(tx, userId, projectId);
     const account = accountId ? accounts.find((a) => a.id === accountId) : accounts.length === 1 ? accounts[0] : null;
     if (!account) throw new ApiError(400, "Pilih akun sumber withdrawal yang aktif");
-    const cash = await tx.accountTransaction.aggregate({ where: { userId, accountId: account.id }, _sum: { amount: true } });
-    if (tradingAmountToUsd(cash._sum.amount, account.currency).lt(amount)) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
+    if (account.balanceUsd.lt(amount)) throw new ApiError(400, "Saldo yang tersedia di akun sumber tidak mencukupi");
     const w = await tx.withdrawal.create({
       data: {
         userId,
-        projectId: project.id,
+        projectId,
         accountId: account.id,
         status: "REQUESTED",
         amountUSD: amount,
@@ -286,19 +308,20 @@ export async function completeWithdrawal(
   if (w.status === "COMPLETED") throw new ApiError(400, "Withdrawal sudah selesai");
   if (w.status === "CANCELLED") throw new ApiError(400, "Withdrawal sudah dibatalkan");
 
-  const accounts = await prisma.tradingAccount.findMany({ where: { userId, isActive: true } });
-  const account = accounts[0];
-  if (!account) throw new ApiError(400, "Tidak ada akun trading aktif");
-
   const result = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
     const current = await tx.withdrawal.findFirst({ where: { id, userId } });
     if (!current || current.status === "COMPLETED" || current.status === "CANCELLED") {
       throw new ApiError(409, "Withdrawal sudah diproses atau dibatalkan");
     }
-    const source = current.accountId
-      ? await tx.tradingAccount.findFirst({ where: { id: current.accountId, userId, projectId: current.projectId } })
-      : accounts.length === 1 ? account : null;
+    const accounts = await tx.tradingAccount.findMany({
+      where: {
+        userId, projectId: current.projectId,
+        ...(current.accountId ? { id: current.accountId } : { isActive: true }),
+      },
+      take: 2,
+    });
+    const source = accounts.length === 1 ? accounts[0] : null;
     if (!source) throw new ApiError(400, "Akun sumber withdrawal harus ditentukan");
     const cash = await tx.accountTransaction.aggregate({ where: { userId, accountId: source.id }, _sum: { amount: true } });
     if (tradingAmountToUsd(cash._sum.amount, source.currency).lt(D(current.amountUSD))) throw new ApiError(400, "Saldo akun sumber tidak mencukupi");
@@ -316,7 +339,7 @@ export async function completeWithdrawal(
         rateAt: at,
         receivedAmount: new Decimal(input.receivedAmount),
         fees: input.fees !== undefined ? new Decimal(input.fees) : null,
-        note: input.note ?? w.note,
+        note: input.note ?? current.note,
         completedAt: at,
       },
     });
@@ -326,7 +349,7 @@ export async function completeWithdrawal(
         userId,
         accountId: source.id,
         type: "WITHDRAWAL",
-        amount: usdToTradingAmount(w.amountUSD, source.currency).neg(),
+        amount: usdToTradingAmount(current.amountUSD, source.currency).neg(),
         currency: source.currency,
         occurredAt: at,
         note: `WD #${w.id.slice(-6)} — diterima ${input.receivedAmount} IDR @ ${input.fxRate}`,

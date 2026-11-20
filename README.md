@@ -1,103 +1,145 @@
 # Horizon Journal
 
-Personal XAUUSD trading journal, compounding simulator, dynamic withdrawal, risk management and
-personal finance tracker.
+Horizon Journal adalah aplikasi web berbahasa Indonesia untuk mencatat trading, mengevaluasi disiplin dan risiko, serta merencanakan penggunaan laba trading untuk kebutuhan pribadi. Jurnal ini berfokus pada XAUUSD dan mendukung instrumen lain, beberapa akun broker, serta akun dalam USD dan USC (US cent).
 
-> **Protect Capital. Trade with Discipline. Withdraw Based on Needs. Compound the Rest.**
+Setiap pengguna masuk dengan Google dan mendapat ruang kerja privat. Dashboard menampilkan saldo aktual dari ledger. Simulator menghasilkan proyeksi ilustratif berdasarkan parameter skenario. Penempatan order dan penarikan dana tetap dilakukan di broker.
 
-Horizon Journal gives each Google account a private trading workspace. It keeps an exact ledger
-of trading accounts, a psychology-aware trading journal, a deterministic compounding simulator, a
-profit-only withdrawal engine with high-water-mark loss recovery, and a private budget/debt/expense
-planner. Actual and projected data are always clearly separated; the app never promises returns and
-never executes broker actions.
+## Fitur utama
 
-## Status
+| Modul | Kegunaan |
+| --- | --- |
+| **Dashboard dan akun trading** | Pantau saldo, P&L terealisasi, riwayat deposit dan penarikan, serta progres target. Kelola akun USD dan USC, koreksi transaksi melalui pembalikan ledger, dan lihat estimasi konversi rupiah dengan kurs JISDOR Bank Indonesia. |
+| **Jurnal Trading dan MetaTrader 5** | Catat eksekusi, termasuk penutupan sebagian, beserta strategi, kondisi psikologis, dan lampiran privat. Filter riwayat per akun, strategi, status, atau tanggal entri. Isi jurnal secara manual atau unggah laporan MT5. |
+| **Task / Jadwal** | Susun rencana harian, atur jenis kegiatan pribadi, dan kaitkan kegiatan trading dengan strategi. Catat hasil dan persentase keterlaksanaan, lalu simpan satu langkah perbaikan untuk hari berikutnya. |
+| **Compounding dan Target Project** | Simulasikan pertumbuhan harian, mingguan, atau bulanan dengan berbagai aturan penarikan. Bandingkan skenario deterministik dengan simulasi Monte Carlo per trade, lalu gunakan skenario aktif untuk proyeksi pencapaian milestone. |
+| **Manajemen risiko** | Hitung ukuran posisi berdasarkan jarak stop loss, spesifikasi kontrak, dan biaya. Pantau risiko posisi terbuka, batas kerugian harian dan mingguan, serta drawdown. |
+| **Withdrawal (WD)** | Hitung rekomendasi penarikan dari laba yang memenuhi syarat setelah pemulihan drawdown berdasarkan high-water mark. Perhitungan mempertimbangkan kebutuhan, dana yang tersedia, dan penarikan yang masih tertunda. Rekonsiliasi dana yang diterima untuk memperbarui ledger trading dan arus kas pribadi. |
+| **Keuangan pribadi** | Kelola anggaran, pemasukan, pengeluaran, jadwal pembayaran utang, dan alokasi dana penarikan ke pos keuangan. |
+| **Laporan, kalender, dan review** | Tinjau win rate, P&L, performa strategi dan portofolio, serta progres aturan prop firm. Catat agenda ekonomi secara manual untuk memberi konteks pada trade. Simpan review harian, mingguan, atau bulanan dengan skor disiplin dan snapshot saat review ditutup. |
+| **Notifikasi dan akses mobile** | Lihat pengingat di aplikasi, hubungkan notifikasi Telegram, atau tambahkan Horizon Journal ke layar utama Android maupun iPhone. |
 
-| Release | Scope | State |
-| --- | --- | --- |
-| v0.0.0 | Repository initialization | ✅ baseline |
-| v0.1.0 | Foundation & UI shell | 🚧 |
-| v0.2.0 | Trading Journal | ✅ released |
-| v0.3.0 | Compounding & Risk | ✅ released |
-| v0.4.0 | Financial Management | ✅ released |
-| v0.5.0 | Dashboard, Review & Reports | ✅ released |
-| v0.6.0 | Production Readiness & Visual QA | ✅ released |
-| v1.0.0 | Stable MVP Release | ✅ released |
-| v1.1.0 | MT5 Integration (read-only) | ✅ released |
-| v1.2.0 | Telegram & Push Notifications | ✅ released |
-| v1.3.0 | Economic Calendar & AI Journal | ✅ released |
-| v1.4.0 | Monte Carlo & Portfolio Analytics | ✅ released |
+## Alur penggunaan
 
-## Tech stack
+1. **Siapkan akun.** Setelah login, pilih **Akun Trading** dari menu profil dan gunakan mata uang yang sesuai dengan akun broker.
+2. **Bangun riwayat.** Masuk ke **Jurnal Trading** untuk mencatat trade atau mengimpor riwayat MT5. Tambahkan konteks dan strategi agar hasil bisa ditinjau kembali.
+3. **Tinjau performa.** Gunakan **Laporan & Analisis**, lalu catat evaluasi dan rencana berikutnya di **Review Periodik**.
+4. **Rencanakan penarikan.** Perbarui kebutuhan bulanan dan kewajiban, tinjau rekomendasi di **Withdrawal (WD)**, lalu catat kurs dan nominal yang benar-benar diterima setelah dana cair.
 
-- **Framework**: Next.js (App Router) + TypeScript (strict)
-- **UI**: Tailwind CSS with shadcn-style local components, Lucide icons, Recharts
-- **Data**: PostgreSQL + Prisma (Decimal money, UTC timestamps)
-- **Auth**: Google OpenID Connect with signed HttpOnly session cookies
-- **Validation**: Zod on every API route; ownership checks server-side
-- **Finance core**: deterministic, dependency-light engine (`src/lib/finance/`) using `decimal.js`
-- **Tests**: Vitest (unit/integration), Playwright (E2E + visual QA)
-- **Deploy**: Docker Compose (app + PostgreSQL + Nginx)
+## Menjalankan secara lokal
 
-## Quick start (development)
+Gunakan Node.js 22 seperti yang digunakan CI, npm, serta Docker dengan Compose. Siapkan kredensial Google OAuth dan Cloudflare Turnstile untuk mencoba login.
 
-```bash
-npm install
-cp .env.example .env            # then edit secrets
+Jalankan dari direktori repositori. Jika belum memiliki `.env`, salin templatnya dengan `Copy-Item .env.example .env` di PowerShell atau `cp .env.example .env` di Bash.
+
+```sh
+npm ci
 docker compose up -d --wait postgres
 docker compose exec -T postgres createdb -U mdtp horizon_journal_google_local
-npm run db:deploy
-npm run db:seed:reference
-npx prisma generate
-npm run dev                     # http://localhost:3000
 ```
 
-Configure the Google Web OAuth client as described in the [Google sign-in and deployment guide](docs/deployment/google-sign-in.md). First sign-in creates an empty private journal. The optional demo seed is for the local `horizon_journal_google_test` database.
+Jalankan `createdb` sekali untuk setiap database baru. PostgreSQL lokal tersedia di `127.0.0.1:5433`. Pastikan `DATABASE_URL` mengarah ke `horizon_journal_google_local` di port tersebut.
 
-## Shared Telegram bot
+Isi konfigurasi login di `.env`. Untuk membuat `AUTH_SECRET` acak, jalankan `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`. Daftarkan `http://localhost:3000/api/auth/google/callback` pada client Google OAuth bertipe **Web application** dan gunakan widget Turnstile pengembangan untuk hostname `localhost`. [Panduan Google OAuth dan Turnstile](docs/deployment/google-sign-in.md)
 
-Set `TELEGRAM_BOT_TOKEN` in the server environment. The app derives the webhook secret from this token. After deployment, register the public HTTPS webhook using the derived secret. Register it again after switching from a separately configured secret or rotating the bot token.
+```sh
+npx prisma generate
+npm run db:deploy
+npm run db:seed:reference
+npm run dev
+```
 
-```text
+Buka [http://localhost:3000](http://localhost:3000). Login pertama membuat jurnal baru dengan saldo nol.
+
+### Variabel lingkungan
+
+| Variabel | Fungsi |
+| --- | --- |
+| `DATABASE_URL` | Koneksi PostgreSQL. Stack produksi Compose membentuk URL dari `POSTGRES_USER`, `POSTGRES_PASSWORD`, dan `POSTGRES_DB`. |
+| `APP_ORIGIN` | Origin yang dipakai browser, misalnya `http://localhost:3000` saat pengembangan. Gunakan origin HTTPS tanpa path di produksi. |
+| `AUTH_SECRET` | Rahasia penandatanganan sesi dengan minimal 32 karakter. Gunakan nilai berbeda di setiap lingkungan. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Kredensial client OAuth untuk login Google. |
+| `TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Kunci widget dan verifikasi Turnstile. Keduanya diperlukan agar login aktif. |
+| `UPLOAD_DIR` | Direktori lampiran privat. Bawaan lokalnya `./uploads`. |
+| `PUBLIC_SUPPORT_EMAIL` | Alamat kontak opsional yang ditampilkan pada kebijakan privasi. |
+| `TELEGRAM_BOT_TOKEN` | Token bot bersama yang opsional untuk pengiriman notifikasi. |
+| `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL` | Konfigurasi opsional penyedia AI Journal Insights. |
+
+Simpan rahasia di lingkungan server atau di `.env` privat. [Templat konfigurasi](.env.example)
+
+## Integrasi
+
+### MetaTrader 5
+
+Di **Jurnal Trading** atau bagian **Sinkronisasi MT5** di **Pengaturan**, unggah laporan **Trade History** berformat `.xlsx` berukuran maksimal 5 MB. Pilih akun tujuan dengan mata uang yang sesuai dengan laporan. Importer mencatat posisi tertutup, deposit, penarikan, dan biaya yang dikenali. Entri yang sudah tercatat pada akun tujuan dilewati saat file dengan riwayat yang sama diunggah kembali. Periksa ringkasan impor untuk melihat entri yang dilewati atau perlu dikoreksi.
+
+### Telegram
+
+Isi `TELEGRAM_BOT_TOKEN` pada server. Untuk deployment dengan origin HTTPS publik, daftarkan webhook dari lingkungan yang memuat token dan `APP_ORIGIN`. Ulangi pendaftaran setelah rotasi token.
+
+```sh
 node --env-file=.env scripts/register-telegram-webhook.mjs
 ```
 
-In **Pengaturan → Notifikasi Telegram**, open the bot with **Temukan Chat ID**, send `/id` in your private chat, and enter the returned number. Select **Hubungkan Telegram** and press **Start** in the same chat to verify it. In staging, pair two accounts in separate private chats and check that each chat receives one test message.
+Di **Pengaturan → Notifikasi Telegram**, pilih **Temukan Chat ID**, kirim `/id` di chat pribadi bot, masukkan angka yang diberikan, lalu pilih **Hubungkan Telegram** dan tekan **Start** di chat yang sama. Setelah terhubung, gunakan pesan tes untuk memeriksa pengiriman. Jam tenang mengikuti zona waktu profil.
 
-For local testing with a loopback `APP_ORIGIN`, run `node --env-file=.env scripts/poll-telegram-local.mjs` alongside the app. Use one poller per bot and stop it before registering an HTTPS webhook.
+Untuk pengujian lokal, jalankan `node --env-file=.env scripts/poll-telegram-local.mjs` bersama aplikasi dengan `APP_ORIGIN` loopback. Gunakan satu poller per bot dan hentikan poller sebelum mendaftarkan webhook HTTPS.
 
-## AI Journal Insights
+### AI Journal Insights
 
-Set server-side `AI_BASE_URL`, `AI_API_KEY`, and `AI_MODEL` for a Chat Completions provider that supports non-streaming responses. Use the provider's API base including its version path (for example, `https://provider.example/v1`), or its full `/chat/completions` endpoint. Run `npm run db:deploy` before enabling the feature so the existing AI rate-limit table is available. Recreate the app process with the updated runtime environment.
+Jalankan migrasi, lalu isi `AI_BASE_URL`, `AI_API_KEY`, dan `AI_MODEL` untuk penyedia dengan API Chat Completions non-streaming. Gunakan base URL yang menyertakan path versi API, misalnya `https://provider.example/v1`, atau URL endpoint lengkap yang berakhir dengan `/chat/completions`. Mulai ulang proses aplikasi setelah mengubah konfigurasi.
 
-In staging, use synthetic accounts to verify **Laporan & Analisis → Buat insight AI** and compare the resulting evidence against the closed trades. Check `[ai-journal]` server log entries for the failure stage if generation fails.
+Di **Laporan & Analisis**, pilih **Buat insight AI** setelah tersedia minimal tiga trade tertutup dengan P&L tercatat. Trade yang belum memiliki catatan jurnal tetap berkontribusi pada statistik performa. Aplikasi mengirim statistik agregat dan label tetap ke penyedia AI. Analisis berbasis aturan tersedia tanpa konfigurasi AI. Jika pembuatan insight gagal, periksa tahap kegagalan di log server bertanda `[ai-journal]`.
 
-Run `npm run e2e -- e2e/ai-journal.spec.ts` against a local migrated database whose name ends in `_test`. Use `127.0.0.1:5433` with the repository's local Compose service on Windows. The suite uses a mock provider by default. Set `AI_JOURNAL_E2E_MODE=disabled` to exercise missing configuration or `AI_JOURNAL_E2E_MODE=live` to run the synthetic browser checks against the configured provider.
+## Arsitektur
 
-## Quality gates (every release)
+Aplikasi menggunakan Next.js App Router, React, TypeScript, Tailwind CSS, dan Recharts. Route handler meneruskan operasi ke layanan server. PostgreSQL dan Prisma menyimpan data, Zod memvalidasi masukan, dan `decimal.js` menjaga presisi perhitungan uang. Waktu transaksi disimpan dalam UTC, dengan periode laporan mengikuti zona waktu profil.
 
-```bash
-npm run lint          # ESLint
-npm run typecheck     # tsc --noEmit (strict)
-npm run test          # Vitest unit + integration (financial engine)
-npm run build         # production build
-npm run e2e           # Playwright with the production build and seeded test database
+Layanan server membatasi data privat berdasarkan pengguna yang sedang masuk. Sesi menggunakan cookie bertanda tangan dengan atribut `HttpOnly`. Akses lampiran diperiksa oleh rute privat, dan koreksi ledger memiliki jejak audit.
+
+| Lokasi | Tanggung jawab |
+| --- | --- |
+| [`src/app/`](src/app) | Halaman, rute API, autentikasi, dan manifest aplikasi web. |
+| [`src/components/`](src/components) | Komponen antarmuka, navigasi, dan grafik. |
+| [`src/lib/finance/`](src/lib/finance) | Perhitungan trade, risiko, compounding, Monte Carlo, utang, dan withdrawal. |
+| [`src/server/`](src/server) | Layanan domain, transaksi database, autentikasi, impor MT5, dan integrasi. |
+| [`prisma/`](prisma) | Skema, migrasi, seed instrumen referensi, dan data demo untuk pengujian. |
+| [`tests/`](tests) dan [`e2e/`](e2e) | Tes unit dan integrasi Vitest serta pengujian browser Playwright. |
+
+## Pengujian
+
+```sh
+npm run lint
+npm run typecheck
+npm run test
+npm run build
 ```
 
-A release is tagged only when all gates pass. See `RELEASES.md` and `CHANGELOG.md`.
+Set `RUN_DB_TESTS=1` dan arahkan `DATABASE_URL` ke database PostgreSQL pengujian yang telah dimigrasikan untuk menyertakan tes integrasi database.
 
-## Documentation
+Untuk Playwright, gunakan database loopback terpisah bernama `horizon_journal_google_test`. Setelah build tersedia, contoh berikut menjalankan suite dengan PostgreSQL dari Compose lokal. Jalankan `createdb` saat membuat database uji untuk pertama kali.
 
-- [`DATABASE.md`](DATABASE.md) — schema, migrations, backup/restore
-- [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) — delivery sequence and acceptance gates
-- [`TASKS.md`](TASKS.md) — live task tracker mapped to Linear
-- [`CHANGELOG.md`](CHANGELOG.md) / [`RELEASES.md`](RELEASES.md) — version history & release checklists
-- [`docs/design/MDTP-UI-UX-reference.png`](docs/design/MDTP-UI-UX-reference.png) — mandatory UI baseline
+```powershell
+docker compose exec -T postgres createdb -U mdtp horizon_journal_google_test
+$env:DATABASE_URL = 'postgresql://mdtp:mdtp@127.0.0.1:5433/horizon_journal_google_test?schema=public'
+$env:APP_ORIGIN = 'http://localhost:3210'
+$env:AUTH_SECRET = node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+npm run db:deploy
+npm run db:seed:demo
+npx playwright install chromium
+npm run e2e
+```
 
-## Guardrails
+Playwright menjalankan build produksi pada port `3210` dan membuat sesi dari fixture sintetis. Suite visual juga menulis tangkapan layar ke `e2e/visual/`.
 
-- Ledger is the single source of truth; balances are derived, never stored twice.
-- Actual vs projected figures are visually and logically separated.
-- Withdrawal engine is a recommendation only; broker actions stay manual with receipt reconciliation.
-- No automated trading, signals, broker credentials, or promised returns.
-- Keep private financial figures out of the repository. When a user requests AI Journal Insights, the app shares only aggregate trade statistics with the configured AI provider.
+Jalankan `npm run e2e -- e2e/ai-journal.spec.ts` untuk memeriksa AI Journal Insights dengan penyedia tiruan. Set `AI_JOURNAL_E2E_MODE=disabled` untuk memeriksa kondisi tanpa konfigurasi AI, atau `AI_JOURNAL_E2E_MODE=live` untuk menguji akun sintetis dengan penyedia yang dikonfigurasi.
+
+GitHub Actions menjalankan lint, pemeriksaan tipe, tes Vitest dengan PostgreSQL, serta build. Pipeline rilis turut menjalankan Playwright.
+
+## Deployment dan pemeliharaan
+
+Deploy dengan [`docker-compose.prod.yml`](docker-compose.prod.yml), yang menjalankan aplikasi, PostgreSQL 16, dan Nginx. Siapkan kredensial database dan login pada server, gunakan volume persisten untuk database dan lampiran, lalu jalankan migrasi dan seed referensi sebelum membuka akses publik. Nginx dipublikasikan ke loopback pada port `8080` secara default. Reverse proxy di host menangani HTTPS.
+
+Gunakan `GET /api/health` untuk memeriksa koneksi database. Endpoint mengembalikan HTTP `200` saat database dapat diakses dan `503` saat koneksi gagal. Untuk deployment baru atau migrasi dari sistem login lama, ikuti panduan deployment yang menjelaskan penggunaan database kosong dan prosedur cutover. [Panduan deployment](docs/deployment/google-sign-in.md)
+
+- [Skema database, backup, dan restore](DATABASE.md)
+- [Changelog](CHANGELOG.md), [proses rilis](RELEASES.md), dan [rilis GitHub](https://github.com/ardani17/journalfx/releases)

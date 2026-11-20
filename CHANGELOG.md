@@ -8,14 +8,49 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+## [1.4.5] — 2026-11-20
+
 ### Added
 
 - Plan daily activities in Task / Jadwal, record outcomes and completion, and carry one improvement into the next day.
 - Manage personal activity types and change an activity's type while keeping its recorded outcome.
+- Create and select a strategy while planning a trading activity, with the activity draft preserved.
+
+### Fixed
+
+- Generate AI Journal Insights from closed trades with recorded P/L, including trades without journal entries. Compare eligible groups using server-calculated performance figures.
+- Explain when AI insights need more trade data, lack a configured provider, or fail temporarily. Rule-based insights remain available.
+- Record trading-plan compliance as yes, no, or unrecorded.
+- Preserve draft entry conditions when switching activity types and report conflicts when concurrent edits change the activity type.
 
 ### Security
 
-- Verify Cloudflare Turnstile before starting Google sign-in. Deployments that offer Google sign-in require both Turnstile keys.
+- Send aggregate statistics and fixed labels to the AI provider. Reserve quota before loading the full trading history and limit the provider response size before parsing.
+- Update Prisma CLI's transitive Effect dependency to 3.22.1 to address a regular-expression denial-of-service advisory.
+
+## [1.4.4] — 2026-11-19
+
+### Added
+
+- Convert US cents (USC) to Indonesian rupiah on the dashboard using the JISDOR rate and the ratio of 100 USC to 1 USD.
+- Create a strategy directly from the New Trade form. The new strategy is selected automatically, and the trade details already entered are preserved.
+
+## [1.4.3] — 2026-11-19
+
+### Added
+
+- Register an instrument symbol from the New Trade form without losing the trade details already entered. Existing symbols are reused.
+- See why a withdrawal recommendation is zero and follow a guide from the request through manual broker withdrawal and receipt reconciliation.
+
+### Fixed
+
+- Reserve funds for pending withdrawals against both the overall cash limit and the selected source account. A pending withdrawal can still be reconciled if its source account has since been deactivated.
+- Preserve the price precision of custom instruments as new trade executions are recorded.
+- Load the sign-in page with the browser policy required by Turnstile and let users retry after returning from Google.
+
+### Security
+
+- Verify Cloudflare Turnstile before starting Google sign-in and limit the size of sign-in requests. Deployments that offer Google sign-in require both Turnstile keys. See the [Turnstile setup guide](https://github.com/ardani17/journalfx/blob/7bd8a93d30e6c2711a29ea4cca5a262dc839afb8/docs/deployment/google-sign-in.md#cloudflare-turnstile).
 
 ## [1.4.2] — 2026-11-19
 

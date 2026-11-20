@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { AI_JOURNAL_SMALL_SAMPLE, MIN_AI_JOURNAL_TRADES, type AiJournalAnalysis } from "@/lib/ai-journal";
 import { D, fmtNum, fmtPct, fmtUSD, tradingAmountToUsd, type Decimal } from "@/lib/money";
 import { prisma } from "@/server/db";
@@ -139,9 +140,21 @@ export function renderAiJournalFinding(evidence: Evidence, actionId: ActionId): 
   };
 }
 
+function closedTradesWhere(userId: string): Prisma.TradeWhereInput {
+  return { userId, status: "CLOSED", realizedPnl: { not: null } };
+}
+
+export async function hasEnoughAiJournalTrades(userId: string) {
+  const count = await prisma.trade.count({
+    where: closedTradesWhere(userId),
+    take: MIN_AI_JOURNAL_TRADES,
+  });
+  return count >= MIN_AI_JOURNAL_TRADES;
+}
+
 export async function loadAiJournalEvidence(userId: string): Promise<AiJournalEvidence> {
   const rows = await prisma.trade.findMany({
-    where: { userId, status: "CLOSED", realizedPnl: { not: null } },
+    where: closedTradesWhere(userId),
     select: {
       realizedPnl: true,
       actualR: true,

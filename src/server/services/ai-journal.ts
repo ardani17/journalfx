@@ -7,6 +7,8 @@ import { renderAiJournalFinding, REVIEW_ACTIONS, type AiJournalEvidence } from "
 const REQUESTS_PER_USER_PER_MINUTE = 1;
 const TOTAL_REQUESTS_PER_MINUTE = 30;
 const PROVIDER_TIMEOUT_MS = 15_000;
+const MAX_PROVIDER_RESPONSE_BYTES = 128 * 1024;
+const performanceComparisons = new Set(["strategy", "instrument", "session"]);
 
 export async function reserveAiJournalRequest(userId: string) {
   await prisma.$transaction(async (tx) => {
@@ -64,6 +66,21 @@ function providerFailure(stage: ProviderStage, status?: number) {
     : new ApiError(502, "Insight AI gagal dibuat. Silakan coba lagi.");
 }
 
+function readProviderResponse(response: Response) {
+  let bytes = 0;
+  const boundedBody = response.body?.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      bytes += chunk.byteLength;
+      if (bytes > MAX_PROVIDER_RESPONSE_BYTES) {
+        controller.error(new Error("Provider response exceeds the size limit"));
+      } else {
+        controller.enqueue(chunk);
+      }
+    },
+  }));
+  return new Response(boundedBody).json();
+}
+
 export async function generateAiJournal(
   { coverage, evidence }: AiJournalEvidence,
   config: NonNullable<ReturnType<typeof aiJournalConfig>>,
@@ -105,7 +122,7 @@ export async function generateAiJournal(
       throw providerFailure("provider_http", response.status);
     }
     stage = "provider_response";
-    const body = await response.json();
+    const body = await readProviderResponse(response);
     const content = body?.choices?.[0]?.message?.content;
     if (typeof content !== "string" || content.length > 12_000) throw new Error("Invalid provider response");
     const trimmed = content.trim();
@@ -118,6 +135,11 @@ export async function generateAiJournal(
       selected.add(source.id);
       return renderAiJournalFinding(source, action);
     });
+    if (!findings.some(({ id }) => performanceComparisons.has(id))) {
+      const comparison = evidence.find(({ id }) => performanceComparisons.has(id));
+      const action = comparison?.actionIds[0];
+      if (comparison && action) findings.push(renderAiJournalFinding(comparison, action));
+    }
     return { coverage, findings };
   } catch (error) {
     if (error instanceof ApiError) throw error;

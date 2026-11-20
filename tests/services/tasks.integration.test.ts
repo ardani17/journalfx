@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createActivitySchema, taskDateSchema, taskReflectionSchema, updateActivitySchema } from "@/lib/validation/tasks";
 import { prisma } from "@/server/db";
+import { createStrategy } from "@/server/services/journal";
 import { createActivity, deleteActivity, getTaskDay, saveTaskReflection, updateActivity } from "@/server/services/tasks";
 import { archiveActivityType, createActivityType, listActivityTypes, renameActivityType } from "@/server/services/task-types";
 
@@ -27,6 +28,17 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL daily activity pla
     userIds.push(id);
     return id;
   }
+
+  it("returns a conflict for concurrent duplicate strategy names within one user", async () => {
+    const [owner, other] = await Promise.all([createUser(), createUser()]);
+    const input = { name: "Konfirmasi pembukaan" };
+    const results = await Promise.allSettled([createStrategy(owner, input), createStrategy(owner, input)]);
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+    expect(results.find((result) => result.status === "rejected")).toMatchObject({
+      reason: { status: 409, message: "Nama strategi sudah dipakai" },
+    });
+    await expect(createStrategy(other, input)).resolves.toMatchObject({ userId: other, name: input.name });
+  });
 
   it("keeps one day and one activity per request during concurrent first writes", async () => {
     const userId = await createUser();

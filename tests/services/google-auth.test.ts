@@ -187,6 +187,11 @@ describe("Google-only authentication", () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  it("stops reading a login body over 16 KiB before contacting a provider", async () => {
+    await expectRejected(await requestLogin(JSON.stringify({ turnstileToken: "é".repeat(8192) })), 413);
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
   it.each(["invalid-input-response", "timeout-or-duplicate"])("rejects a Turnstile %s token", async (code) => {
     siteverify.mockImplementationOnce(() => Response.json({ success: false, "error-codes": [code] }));
     await expectRejected(await requestLogin(), 403);

@@ -4,8 +4,8 @@ import { ApiError } from "@/lib/api";
 import { aiJournalConfig, reserveAiJournalRequest } from "@/server/services/ai-journal";
 import { requireUser } from "@/server/auth";
 
-const { findTrades } = vi.hoisted(() => ({ findTrades: vi.fn() }));
-vi.mock("@/server/db", () => ({ prisma: { trade: { findMany: findTrades } } }));
+const { countTrades, findTrades } = vi.hoisted(() => ({ countTrades: vi.fn(), findTrades: vi.fn() }));
+vi.mock("@/server/db", () => ({ prisma: { trade: { count: countTrades, findMany: findTrades } } }));
 vi.mock("@/server/auth", () => ({ requireUser: vi.fn() }));
 vi.mock("@/server/services/ai-journal", async (importOriginal) => ({
   ...await importOriginal<typeof import("@/server/services/ai-journal")>(),
@@ -55,6 +55,7 @@ describe("AI Journal Insights endpoint", () => {
     vi.stubEnv("AI_API_KEY", "private-test-key");
     vi.stubEnv("AI_MODEL", "test-model");
     vi.mocked(requireUser).mockResolvedValue({ id: "caller", email: "private@example.test", name: "Private Name", timezone: "UTC", locale: "id" });
+    countTrades.mockResolvedValue(3);
     findTrades.mockResolvedValue([trade("25"), trade("-5"), trade("0")]);
     vi.mocked(reserveAiJournalRequest).mockResolvedValue(undefined);
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -190,7 +191,7 @@ describe("AI Journal Insights endpoint", () => {
     vi.stubEnv("AI_BASE_URL", "");
     expect((await request()).status).toBe(503);
     vi.stubEnv("AI_BASE_URL", "https://provider.example/v1");
-    findTrades.mockResolvedValueOnce([trade("1"), trade("2")]);
+    countTrades.mockResolvedValueOnce(2);
     expect((await request()).status).toBe(422);
     expect(reserveAiJournalRequest).not.toHaveBeenCalled();
     vi.mocked(reserveAiJournalRequest).mockRejectedValueOnce(new ApiError(429, "Batas permintaan tercapai."));
@@ -200,6 +201,11 @@ describe("AI Journal Insights endpoint", () => {
     expect(unavailable.status).toBe(503);
     expect(await unavailable.text()).not.toContain("Private error details");
     expect(fetchMock).not.toHaveBeenCalled();
+    expect(findTrades).not.toHaveBeenCalled();
+    expect(countTrades).toHaveBeenCalledWith({
+      where: { userId: "caller", status: "CLOSED", realizedPnl: { not: null } },
+      take: 3,
+    });
     expect(console.warn).toHaveBeenCalledWith("[ai-journal]", { stage: "configuration" });
     expect(console.warn).toHaveBeenCalledWith("[ai-journal]", { stage: "quota" });
     expect(console.warn).toHaveBeenCalledWith("[ai-journal]", { stage: "quota_store" });
@@ -220,6 +226,29 @@ describe("AI Journal Insights endpoint", () => {
       expect(await response.json()).toEqual({ ok: false, error: "Insight AI gagal dibuat. Silakan coba lagi." });
     }
     expect(console.warn).toHaveBeenCalledTimes(5);
+    expect(console.warn).toHaveBeenCalledWith("[ai-journal]", { stage: "provider_response" });
+  });
+
+  it("includes an available performance comparison when the provider returns only an overview", async () => {
+    findTrades.mockResolvedValue([
+      ...Array.from({ length: 3 }, () => trade("30", { session: "london" })),
+      ...Array.from({ length: 3 }, () => trade("-10", { session: "newyork" })),
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => providerResponse({ evidenceId: "overview", actionId: "review-exits" })));
+    const response = await request();
+    expect(response.status).toBe(200);
+    const { data } = await response.json();
+    expect(data.findings.map(({ id }: { id: string }) => id)).toEqual(["overview", "session"]);
+    expect(data.findings[1].finding).toMatch(/London.*lebih tinggi.*New York/);
+  });
+
+  it("treats an oversized provider response as a temporary provider error", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({
+      choices: [{ message: { content: '[{"evidenceId":"overview","actionId":"review-exits"}]' } }],
+      metadata: " ".repeat(128 * 1024),
+    })));
+
+    expect((await request()).status).toBe(502);
     expect(console.warn).toHaveBeenCalledWith("[ai-journal]", { stage: "provider_response" });
   });
 

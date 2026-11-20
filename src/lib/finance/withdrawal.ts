@@ -29,6 +29,8 @@ export interface WdRecommendationInput {
   needsTargetUsd?: Decimal | number | string;
   /** cash available for withdrawal (balance, unrealized excluded) */
   availableCash: Decimal | number | string;
+  /** Cash already reserved by outstanding withdrawals. */
+  cashReservedUsd?: Decimal | number | string;
   /** cash floor that must remain in the account */
   reserveUsd?: Decimal | number | string;
   /** data-quality guards */
@@ -63,11 +65,13 @@ export function wdRecommendation(input: WdRecommendationInput): WdRecommendation
   const ratio = D(input.maxWdRatioPct);
   const available = D(input.availableCash);
   const reserve = D(input.reserveUsd ?? 0);
+  const reserved = D(input.cashReservedUsd);
 
   const eligible = Decimal.max(cum.minus(hwm), new Decimal(0));
   const profitOnlyCap = eligible.times(ratio).div(100);
   const needsCap = input.needsTargetUsd !== undefined ? D(input.needsTargetUsd) : null;
-  const cashCap = Decimal.max(available.minus(reserve), new Decimal(0));
+  const cashAboveReserve = available.minus(reserve);
+  const cashCap = Decimal.max(cashAboveReserve.minus(reserved), 0);
 
   const zeroReasons: string[] = [];
   const warnings: string[] = [];
@@ -112,7 +116,9 @@ export function wdRecommendation(input: WdRecommendationInput): WdRecommendation
 
   if (recommended.isZero()) {
     if (cashCap.isZero()) {
-      zeroReasons.push("Kas tersedia tidak melebihi cadangan. Cek Kas Tersedia dan Reserve Kas di Edit Aturan.");
+      zeroReasons.push(cashAboveReserve.lte(0)
+        ? "Kas tersedia tidak melebihi cadangan. Cek Kas Tersedia dan Reserve Kas di Edit Aturan."
+        : "Kas di atas cadangan sudah dialokasikan ke pengajuan yang menunggu. Cek riwayat WD.");
     }
     if (eligible.gt(0) && profitOnlyCap.lte(0)) {
       zeroReasons.push("Batas rasio WD $0. Cek Cap WD di Edit Aturan.");
