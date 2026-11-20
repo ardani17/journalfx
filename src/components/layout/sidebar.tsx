@@ -66,7 +66,9 @@ export function SidebarContent({
               {(!hasLabel || isOpen) && (
                 <ul className="mt-0.5 space-y-0.5">
                   {group.items.map((item) => {
-                    const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                    const active = [item.href, ...(item.relatedPaths ?? [])].some(
+                      (href) => pathname === href || pathname.startsWith(href + "/"),
+                    );
                     const Icon = item.icon;
                     return (
                       <li key={item.href}>

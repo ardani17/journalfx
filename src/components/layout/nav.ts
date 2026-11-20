@@ -3,7 +3,6 @@ import {
   BarChart3,
   CalendarRange,
   BookOpen,
-  CalendarDays,
   ListTodo,
   CreditCard,
   LayoutDashboard,
@@ -19,6 +18,7 @@ export interface NavLeaf {
   label: string;
   href: string;
   icon: LucideIcon;
+  relatedPaths?: readonly string[];
   /** release that fills this page — placeholder until then */
   since?: string;
 }
@@ -60,8 +60,7 @@ export const NAV: NavGroup[] = [
     label: "",
     items: [
       { label: "Laporan & Analisis", href: "/analytics", icon: BarChart3 },
-      { label: "Kalender", href: "/calendar", icon: CalendarDays },
-      { label: "Review Periodik", href: "/reports", icon: CalendarRange },
+      { label: "Kalender & Review", href: "/calendar", icon: CalendarRange, relatedPaths: ["/reports", "/reviews"] },
       { label: "Pengaturan", href: "/settings", icon: Settings },
     ],
   },

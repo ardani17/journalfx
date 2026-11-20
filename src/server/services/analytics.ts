@@ -107,8 +107,7 @@ export async function coreMetrics(
   const n = closed.length;
   const journalTradeIds = journal ? new Set(trades.map((trade) => trade.id)) : null;
   const hasTradeSpecificFilter = journal?.status || journal?.result || journal?.strategyId;
-  const periodLedger = (await attributedLedger(userId)).filter((r) => {
-    if (r.type !== "REALIZED_PNL" && r.type !== "FEE") return false;
+  const periodLedger = (await realizedTradingRows(userId)).filter((r) => {
     if (filter?.accountId && r.accountId !== filter.accountId) return false;
     if ((filter?.from && r.occurredAt < filter.from) || (filter?.to && r.occurredAt >= filter.to)) return false;
     if (!journalTradeIds) return true;
@@ -180,9 +179,14 @@ export interface DayPnl {
   date: string; // yyyy-MM-dd
   pnl: number;
   trades: number;
+  hasActivity: boolean;
 }
 
-/** Daily realized P&L by UTC close date — powers calendar & P/L bars. */
+export async function realizedTradingRows(userId: string) {
+  return (await attributedLedger(userId)).filter((row) => row.type === "REALIZED_PNL" || row.type === "FEE");
+}
+
+/** Daily realized P&L grouped by ledger date in the user's local time. */
 export async function dailyPnl(
   userId: string,
   from: Date,
@@ -190,8 +194,8 @@ export async function dailyPnl(
   accountId?: string,
 ): Promise<DayPnl[]> {
   const timezone = await userTimezone(userId);
-  const ledger = (await attributedLedger(userId)).filter((r) =>
-    (r.type === "REALIZED_PNL" || r.type === "FEE") && r.occurredAt >= from && r.occurredAt < to &&
+  const ledger = (await realizedTradingRows(userId)).filter((r) =>
+    r.occurredAt >= from && r.occurredAt < to &&
     (!accountId || r.accountId === accountId));
   const map = new Map<string, { pnl: Decimal; ids: Set<string> }>();
   for (const row of ledger) {
@@ -207,7 +211,7 @@ export async function dailyPnl(
   for (let d = startOfUTCDay(calendarDate(from, timezone)); d.toISOString().slice(0, 10) <= lastDay; d = addUTCDays(d, 1)) {
     const key = d.toISOString().slice(0, 10);
     const v = map.get(key);
-    out.push({ date: key, pnl: v ? Number(v.pnl.toFixed(2)) : 0, trades: v?.ids.size ?? 0 });
+    out.push({ date: key, pnl: v?.pnl.toNumber() ?? 0, trades: v?.ids.size ?? 0, hasActivity: v !== undefined });
   }
   return out;
 }

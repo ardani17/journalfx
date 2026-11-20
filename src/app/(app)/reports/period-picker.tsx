@@ -7,10 +7,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { reviewHref, reviewKindLabel, reviewKinds, reviewPeriodForDate, reviewPeriodLabel, type ReviewKind } from "@/lib/review-period";
 
-export function PeriodPicker({ today, timezone }: { today: string; timezone: string }) {
+export function PeriodPicker({ today, timezone, calendar }: { today: string; timezone: string; calendar?: string }) {
   const router = useRouter();
-  const [kind, setKind] = useState<ReviewKind>("WEEKLY");
-  const [date, setDate] = useState(today);
+  const [kind, setKind] = useState<ReviewKind>(calendar && calendar <= today ? "DAILY" : "WEEKLY");
+  const [date, setDate] = useState(calendar && calendar <= today ? calendar : today);
   const isMonthly = kind === "MONTHLY";
   const selected = isMonthly ? date.slice(0, 7) + "-01" : date;
   const valid = /^\d{4}-\d{2}-\d{2}$/.test(selected) && selected <= today;
@@ -31,7 +31,7 @@ export function PeriodPicker({ today, timezone }: { today: string; timezone: str
         </Field>
         <div className="space-y-2">
           <p aria-live="polite" className="text-xs text-muted">{range ?? "Pilih tanggal hari ini atau tanggal lampau."}</p>
-          <Button disabled={!range} onClick={() => router.push(reviewHref(kind, { date: selected }))}>Buka Review</Button>
+          <Button disabled={!range} onClick={() => router.push(reviewHref(kind, { date: selected, calendar }))}>Buka Review</Button>
         </div>
       </CardContent>
     </Card>
