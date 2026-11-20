@@ -265,7 +265,10 @@ export async function listTrades(userId: string, filter: ListTradesFilter, { inc
       ...trade,
       journal: journal ? { tags: journal.tags, mistakes: journal.mistakes } : null,
       ...(includeJournalCompletion ? {
-        journalComplete: isTradeJournalComplete(journal && "marketContext" in journal ? journal : null, checkedTradeIds.has(trade.id)),
+        journalComplete: isTradeJournalComplete(
+          journal as Parameters<typeof isTradeJournalComplete>[0],
+          checkedTradeIds.has(trade.id),
+        ),
       } : {}),
     })),
     total,

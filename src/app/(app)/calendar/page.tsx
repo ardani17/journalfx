@@ -52,8 +52,8 @@ export default async function CalendarPage({
 
   const monthPnl = days.reduce((sum, day) => sum.plus(day.pnl), D(0));
   const monthTrades = days.reduce((s, d) => s + d.trades, 0);
-  const best = days.reduce<DayPnl | null>((best, day) => day.pnl.gt(best?.pnl ?? 0) ? day : best, null);
-  const worst = days.reduce<DayPnl | null>((worst, day) => day.pnl.lt(worst?.pnl ?? 0) ? day : worst, null);
+  const best = days.reduce<DayPnl | null>((best, day) => !best || day.pnl.gt(best.pnl) ? day : best, null);
+  const worst = days.reduce<DayPnl | null>((worst, day) => !worst || day.pnl.lt(worst.pnl) ? day : worst, null);
 
   const prev = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
   const next = mm === 12 ? `${yy + 1}-01` : `${yy}-${String(mm + 1).padStart(2, "0")}`;
@@ -76,8 +76,8 @@ export default async function CalendarPage({
       <div className="flex flex-wrap gap-2 text-xs">
         <Badge tone={monthPnl.gte(0) ? "success" : "danger"}>P&L Bulanan {fmtUSDdelta(monthPnl)}</Badge>
         <Badge tone="info">{monthTrades} transaksi</Badge>
-        {best ? <Badge tone="success">Terbaik: {fmtUSDdelta(best.pnl)} ({best.date.slice(8)})</Badge> : null}
-        {worst ? <Badge tone="danger">Terburuk: {fmtUSDdelta(worst.pnl)} ({worst.date.slice(8)})</Badge> : null}
+        {best && !best.pnl.isZero() ? <Badge tone="success">Terbaik: {fmtUSDdelta(best.pnl)} ({best.date.slice(8)})</Badge> : null}
+        {worst && !worst.pnl.isZero() ? <Badge tone="danger">Terburuk: {fmtUSDdelta(worst.pnl)} ({worst.date.slice(8)})</Badge> : null}
       </div>
 
       <EventsPanel events={events.map((e) => ({ id: e.id, at: e.at.toISOString(), currency: e.currency, title: e.title, impact: e.impact }))} />
