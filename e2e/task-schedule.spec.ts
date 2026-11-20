@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 import { expect, test, type BrowserContext } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
+import { requireLocalTestDatabase } from "./test-database";
 
 const prisma = new PrismaClient();
+test.beforeAll(requireLocalTestDatabase);
 test.afterAll(() => prisma.$disconnect());
 
 async function createUser() {
@@ -236,6 +238,9 @@ test("adds the first strategy from a trading activity without losing the plan", 
     await page.getByLabel("Rencana kegiatan", { exact: true }).fill(plan);
     await page.getByLabel("Jenis kegiatan").selectOption({ label: "Trading" });
     await page.getByLabel("Kondisi masuk (opsional)").fill(conditions);
+    await page.getByLabel("Jenis kegiatan").selectOption({ label: "Umum" });
+    await page.getByLabel("Jenis kegiatan").selectOption({ label: "Trading" });
+    await expect(page.getByLabel("Kondisi masuk (opsional)")).toHaveValue(conditions);
     const strategy = page.getByLabel("Strategi (opsional)");
     await expect(strategy.getByRole("option")).toHaveCount(1);
 

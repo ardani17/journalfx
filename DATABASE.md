@@ -1,7 +1,8 @@
 # Database — MDTP
 
 PostgreSQL 16 + Prisma ORM. All money is stored as `Decimal`; all timestamps are UTC
-(`timestamptz`); every user-owned row carries `userId` with an index for ownership checks.
+(`timestamptz`). User-owned rows scope queries by an indexed `userId` or through an
+indexed relation to their owner-scoped parent (for example, `DailyActivity.dailyPlanId`).
 
 ## Local development
 

@@ -125,12 +125,14 @@ export async function createActivity(userId: string, input: CreateActivity) {
 
 export async function updateActivity(userId: string, id: string, input: UpdateActivity) {
   return prisma.$transaction(async (tx) => {
-    const where = { id, dailyPlan: { userId } };
+    const owner = { id, dailyPlan: { userId } };
+    let where: Prisma.DailyActivityWhereInput = owner;
     let data: Prisma.DailyActivityUncheckedUpdateManyInput;
     if (input.section === "plan") {
-      const current = await tx.dailyActivity.findUnique({ where, select: { typeId: true, kind: true } });
+      const current = await tx.dailyActivity.findUnique({ where: owner, select: { typeId: true, kind: true } });
       if (!current) throw new ApiError(404, "Kegiatan tidak ditemukan");
       data = await validatePlanFields(tx, userId, input, current);
+      where = { ...owner, ...current };
     } else {
       data = { status: input.status, actualNotes: input.actualNotes };
     }
@@ -138,7 +140,12 @@ export async function updateActivity(userId: string, id: string, input: UpdateAc
       where,
       data,
     });
-    if (!count) throw new ApiError(404, "Kegiatan tidak ditemukan");
+    if (!count) {
+      if (input.section === "plan" && await tx.dailyActivity.findUnique({ where: owner, select: { id: true } })) {
+        throw new ApiError(409, "Jenis kegiatan sudah berubah. Muat ulang dan coba lagi.");
+      }
+      throw new ApiError(404, "Kegiatan tidak ditemukan");
+    }
     return { id };
   });
 }

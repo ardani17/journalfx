@@ -3,6 +3,7 @@ import { createServer, type Server } from "node:http";
 import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
+import { requireLocalTestDatabase } from "./test-database";
 
 const mode = process.env.AI_JOURNAL_E2E_MODE ?? "mock";
 const db = new PrismaClient();
@@ -11,10 +12,7 @@ let mockProvider: Server | undefined;
 let stallProvider = false;
 
 test.beforeAll(async () => {
-  const database = new URL(process.env.DATABASE_URL ?? "");
-  if (!["localhost", "127.0.0.1", "[::1]"].includes(database.hostname) || !database.pathname.endsWith("_test")) {
-    throw new Error("AI journal browser tests require a local PostgreSQL database ending in _test.");
-  }
+  requireLocalTestDatabase();
   if (mode !== "mock") return;
 
   const server = createServer(async (request, response) => {
@@ -107,6 +105,25 @@ test("explains why AI needs more closed trades", async ({ page }) => {
   await openReports(page, [{ pnl: 30 }]);
   await expect(page.getByRole("button", { name: "Buat insight AI" })).toBeDisabled();
   await expect(page.getByText("Analisis AI membutuhkan minimal 3 trade tertutup dengan P/L tercatat.")).toBeVisible();
+});
+
+test("records an explicit noncompliant trade and clears a prior journal answer", async ({ page }) => {
+  const userId = await openReports(page, [{ pnl: 30 }]);
+  const { id } = await db.trade.findFirstOrThrow({ where: { userId }, select: { id: true } });
+  await page.goto(`/journal/${id}`);
+  await page.getByRole("tab", { name: "Psikologi & Jurnal" }).click();
+  const compliant = page.getByLabel("Patuh pada rencana");
+  await expect(compliant).toHaveValue("");
+
+  for (const value of ["true", "false", ""]) {
+    const saved = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === `/api/trades/${id}/journal` && response.request().method() === "PUT");
+    await compliant.selectOption(value);
+    await page.getByRole("button", { name: "Simpan Jurnal" }).click();
+    expect((await saved).ok()).toBe(true);
+    expect(await db.tradeJournal.findUnique({ where: { tradeId: id }, select: { compliant: true } }))
+      .toEqual({ compliant: value === "" ? null : value === "true" });
+  }
 });
 
 test("explains unavailable configuration and keeps rule-based insights visible", async ({ page }) => {

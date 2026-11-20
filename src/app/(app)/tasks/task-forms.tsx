@@ -57,9 +57,10 @@ export function PlanForm({ date, activity, strategies, types, defaultTypeId = ""
   const router = useRouter();
   const submissionId = useRef<string>(null);
   const currentType = activity?.type;
-  const [typeId, setTypeId] = useState(currentType?.id ?? defaultTypeId);
+  const [typeId, setTypeId] = useState(activity ? activity.type?.id ?? "" : defaultTypeId);
   const [strategyOpen, setStrategyOpen] = useState(false);
   const [strategyId, setStrategyId] = useState(activity?.strategy?.id ?? "");
+  const [entryConditions, setEntryConditions] = useState(activity?.entryConditions ?? "");
   const [addedStrategies, setAddedStrategies] = useState<StrategyOption[]>([]);
   const selectedType = types.find((type) => type.id === typeId) ?? (currentType?.id === typeId ? currentType : null);
   const trading = selectedType?.kind === "TRADING";
@@ -110,7 +111,7 @@ export function PlanForm({ date, activity, strategies, types, defaultTypeId = ""
                 </Button>
               </Field>
               <Field label="Kondisi masuk (opsional)" htmlFor={`${id}-entry`}>
-                <Textarea id={`${id}-entry`} name="entryConditions" defaultValue={activity?.entryConditions ?? ""} maxLength={2000} rows={2} />
+                <Textarea id={`${id}-entry`} name="entryConditions" value={entryConditions} onChange={(event) => setEntryConditions(event.target.value)} maxLength={2000} rows={2} />
               </Field>
             </>
           )}
