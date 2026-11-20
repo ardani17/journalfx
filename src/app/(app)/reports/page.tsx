@@ -5,12 +5,11 @@ import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
-import { fmtDateID } from "@/lib/dates";
+import { localDateKey, reviewHref, reviewKindLabel, reviewPeriodLabel } from "@/lib/review-period";
 import { D, fmtNum, fmtUSD } from "@/lib/money";
+import { PeriodPicker } from "./period-picker";
 
 export const metadata = { title: "Laporan" };
-
-const KIND_LABEL: Record<string, string> = { DAILY: "Harian", WEEKLY: "Mingguan", MONTHLY: "Bulanan" };
 
 export default async function ReportsPage() {
   const user = await requireUser();
@@ -23,18 +22,7 @@ export default async function ReportsPage() {
         subtitle="Review periodik dengan snapshot yang tersimpan"
       />
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        {(["DAILY", "WEEKLY", "MONTHLY"] as const).map((k) => (
-          <Link key={k} href={`/reviews/${k.toLowerCase()}`}>
-            <Card className="transition-colors hover:border-primary/40">
-              <CardContent className="p-4">
-                <p className="text-xs text-muted">Review {KIND_LABEL[k]}</p>
-                <p className="mt-1 text-sm font-semibold text-primary">Buka / lanjutkan →</p>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
+      <PeriodPicker today={localDateKey(new Date(), user.timezone)} timezone={user.timezone} />
 
       <Card>
         <CardHeader><CardTitle>Riwayat Review (snapshot tertutup immutable)</CardTitle></CardHeader>
@@ -51,8 +39,12 @@ export default async function ReportsPage() {
                   const ds = (r.disciplineScore ?? null) as { total?: number | null } | null;
                   return (
                     <TR key={r.id}>
-                      <TD className="tnum text-xs">{fmtDateID(r.periodStart, "d MMM yyyy")}</TD>
-                      <TD className="text-xs">{KIND_LABEL[r.kind] ?? r.kind}{r.correctionOfId ? " (koreksi)" : ""}</TD>
+                      <TD className="tnum text-xs">
+                        <Link prefetch={false} href={reviewHref(r.kind, { reviewId: r.id })} className="font-medium text-primary hover:underline">
+                          {reviewPeriodLabel({ start: r.periodStart, end: r.periodEnd }, user.timezone)}
+                        </Link>
+                      </TD>
+                      <TD className="text-xs">{reviewKindLabel[r.kind]}{r.correctionOfId ? " (koreksi)" : ""}</TD>
                       <TD>
                         <Badge tone={r.status === "CLOSED" ? "success" : "warn"}>{r.status === "CLOSED" ? "Ditutup" : "Terbuka"}</Badge>
                       </TD>
