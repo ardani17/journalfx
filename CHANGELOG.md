@@ -12,6 +12,19 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 - Plan daily activities in Task / Jadwal, record outcomes and completion, and carry one improvement into the next day.
 - Manage personal activity types and change an activity's type while keeping its recorded outcome.
+- Create and select a strategy while planning a trading activity, with the activity draft preserved.
+
+### Fixed
+
+- Generate AI Journal Insights from closed trades with recorded P/L, including trades without journal entries. Compare eligible groups using server-calculated performance figures.
+- Explain when AI insights need more trade data, lack a configured provider, or fail temporarily. Rule-based insights remain available.
+- Record trading-plan compliance as yes, no, or unrecorded.
+- Preserve draft entry conditions when switching activity types and report conflicts when concurrent edits change the activity type.
+
+### Security
+
+- Send aggregate statistics and fixed labels to the AI provider. Reserve quota before loading the full trading history and limit the provider response size before parsing.
+- Update Prisma CLI's transitive Effect dependency to 3.22.1 to address a regular-expression denial-of-service advisory.
 
 ## [1.4.4] — 2026-11-19
 
