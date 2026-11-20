@@ -238,6 +238,8 @@ for (const viewport of [
           httpOnly: true,
         }]);
         await page.goto("/simulator");
+        await expect(page.getByRole("heading", { name: "Simulasi Compounding", exact: true })).toBeVisible();
+        await expect(page.getByRole("link", { name: "Compounding", exact: true })).toHaveAttribute("href", "/simulator");
         const runEndpoint = "/api/simulator/run";
         const saveEndpoint = "/api/scenarios";
         const target = page.getByLabel("Target (USD)", { exact: true });
@@ -314,7 +316,8 @@ for (const viewport of [
         }
 
         await page.goto("/roadmap");
-        const select = page.getByLabel("Skenario Pemajemukan");
+        const select = page.getByLabel("Skenario Compounding");
+        await expect(page.getByRole("link", { name: "Buka Simulasi Compounding" })).toHaveAttribute("href", "/simulator");
         const apply = page.getByRole("button", { name: "Terapkan", exact: true });
         const milestones = page.getByRole("table", { name: "Tonggak Pencapaian" });
         const history = page.getByRole("table", { name: "Riwayat Pencapaian" });

@@ -237,7 +237,7 @@ export function SimulatorClient({
           <Field label="Mode Penarikan" htmlFor="sim-wd">
             <Select id="sim-wd" value={form.wdMode}
               onChange={(e) => setForm({ ...form, wdMode: e.target.value as typeof form.wdMode })}>
-              <option value="NONE">Tanpa penarikan (pemajemukan penuh)</option>
+              <option value="NONE">Tanpa penarikan (compounding penuh)</option>
               <option value="DYNAMIC">Dinamis (% laba)</option>
               <option value="FIXED">Nominal tetap</option>
             </Select>
