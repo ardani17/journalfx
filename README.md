@@ -11,7 +11,7 @@ Setiap pengguna masuk dengan Google dan mendapat ruang kerja privat. Dashboard m
 | **Dashboard dan akun trading** | Pantau saldo, P&L terealisasi, riwayat deposit dan penarikan, serta progres target. Kelola akun USD dan USC, koreksi transaksi melalui pembalikan ledger, dan lihat estimasi konversi rupiah dengan kurs JISDOR Bank Indonesia. |
 | **Jurnal Trading dan MetaTrader 5** | Catat eksekusi, termasuk penutupan sebagian, beserta strategi, kondisi psikologis, dan lampiran privat. Filter riwayat per akun, strategi, status, atau tanggal entri. Isi jurnal secara manual atau unggah laporan MT5. |
 | **Task / Jadwal** | Susun rencana harian, atur jenis kegiatan pribadi, dan kaitkan kegiatan trading dengan strategi. Catat hasil dan persentase keterlaksanaan, lalu simpan satu langkah perbaikan untuk hari berikutnya. |
-| **Compounding dan Target Project** | Simulasikan pertumbuhan harian, mingguan, atau bulanan dengan berbagai aturan penarikan. Bandingkan skenario deterministik dengan simulasi Monte Carlo per trade, lalu gunakan skenario aktif untuk proyeksi pencapaian milestone. |
+| **Compounding dan Target Project** | Eksplorasi peluang mencapai target, lalu buka **Rencana tersimpan dan Monte Carlo lanjutan** pada halaman yang sama untuk membandingkan proyeksi per siklus dan risiko per trade. Gunakan rencana tersimpan sebagai skenario aktif di Roadmap. |
 | **Manajemen risiko** | Hitung ukuran posisi berdasarkan jarak stop loss, spesifikasi kontrak, dan biaya. Pantau risiko posisi terbuka, batas kerugian harian dan mingguan, serta drawdown. |
 | **Withdrawal (WD)** | Hitung rekomendasi penarikan dari laba yang memenuhi syarat setelah pemulihan drawdown berdasarkan high-water mark. Perhitungan mempertimbangkan kebutuhan, dana yang tersedia, dan penarikan yang masih tertunda. Rekonsiliasi dana yang diterima untuk memperbarui ledger trading dan arus kas pribadi. |
 | **Keuangan pribadi** | Kelola anggaran, pemasukan, pengeluaran, jadwal pembayaran utang, dan alokasi dana penarikan ke pos keuangan. |
@@ -80,11 +80,11 @@ Isi `TELEGRAM_BOT_TOKEN` pada server. Untuk deployment dengan origin HTTPS publi
 node --env-file=.env scripts/register-telegram-webhook.mjs
 ```
 
-Di **Pengaturan → Notifikasi Telegram**, pilih **Temukan Chat ID**, kirim `/id` di chat pribadi bot, masukkan angka yang diberikan, lalu pilih **Hubungkan Telegram** dan tekan **Start** di chat yang sama. Setelah terhubung, gunakan pesan tes untuk memeriksa pengiriman. Jam tenang mengikuti zona waktu profil.
+Di **Pengaturan → Notifikasi Telegram**, pilih **Temukan Chat ID** untuk membuka chat pribadi bot. Tekan **Start**, lalu pilih **Lihat Chat ID**. Masukkan angka yang diberikan, pilih **Hubungkan Telegram**, dan tekan **Start** pada tautan verifikasi. Setelah terhubung, gunakan pesan tes untuk memeriksa pengiriman. Jam tenang mengikuti zona waktu profil.
 
-Bot menampilkan menu setelah akun terhubung. Gunakan `/menu`, `/ringkasan`, atau `/tugas` untuk melihat ringkasan transaksi mingguan dan agenda hari ini. Tombol **Tandai selesai** menyimpan status tugas di aplikasi. Jalankan ulang skrip pendaftaran webhook setelah memasang versi dengan menu Telegram agar klik tombol diterima.
+Bot menampilkan tombol **Ringkasan Trading** dan **Tugas Hari Ini** setelah akun terhubung. Tekan **Menu Utama** untuk kembali dari ringkasan atau daftar tugas, atau pilih **Buka Menu Bot** di Pengaturan untuk membuka menu kembali di Telegram. Tombol **Tandai selesai** menyimpan status tugas di aplikasi. Jika sebuah tombol lama kedaluwarsa, bot mengirim menu baru. Pastikan webhook menerima `message` dan `callback_query` dengan menjalankan skrip pendaftaran di atas.
 
-Untuk pengujian lokal, jalankan `node --env-file=.env scripts/poll-telegram-local.mjs` bersama aplikasi dengan `APP_ORIGIN` loopback. Gunakan satu poller per bot dan hentikan poller sebelum mendaftarkan webhook HTTPS.
+Untuk pengujian lokal, jalankan aplikasi dengan `APP_ORIGIN` loopback. Di terminal kedua, jalankan `node --env-file=.env scripts/poll-telegram-local.mjs` dan biarkan berjalan selama pengujian. Jika menjalankan beberapa checkout, arahkan `APP_ORIGIN` poller ke port checkout yang ingin diuji. Gunakan satu poller per bot dan hentikan poller sebelum mendaftarkan webhook HTTPS.
 
 ### AI Journal Insights
 

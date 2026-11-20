@@ -1,5 +1,5 @@
 import { convertUsdIdr, type JisdorQuote } from "@/lib/finance/exchange";
-import { tradeSimulationFields } from "@/lib/finance/trade-monte-carlo";
+import { explorationSchema } from "@/lib/finance/exploration-monte-carlo";
 import { D, type Decimal } from "@/lib/money";
 import { normalizeNumericInput } from "@/lib/number-input";
 
@@ -17,11 +17,9 @@ export function estimateTradingCapital(target: Decimal, netReturnPct: Decimal, p
   return { status: "estimated", idr, usd } as const;
 }
 
-export function parseMonteCarloEquity(value: unknown): number | undefined {
-  if (typeof value !== "string" || !/^\d{1,9}(?:\.\d{1,2})?$/.test(value)) return undefined;
-  const amount = Number(value);
-  const { min, max } = tradeSimulationFields.initialEquity;
-  return amount >= min && amount <= max ? amount : undefined;
+export function parseMonteCarloEquity(value: unknown): string | undefined {
+  if (typeof value !== "string" || !/^\d{1,17}(?:\.\d{1,2})?$/.test(value)) return undefined;
+  return explorationSchema.shape.capital.safeParse(value).data;
 }
 
 export function monteCarloEquityStorageKey(userId: string) {

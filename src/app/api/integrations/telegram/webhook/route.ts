@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { handleTelegramChatMessage, telegramWebhookSecret } from "@/server/services/notify-channels";
-import { handleTelegramMenuCallback, handleTelegramMenuCommand } from "@/server/services/telegram-menu";
+import { telegramWebhookSecret } from "@/server/services/notify-channels";
+import { handleTelegramMenuCallback, handleTelegramMessage } from "@/server/services/telegram-menu";
 import { fail, handleRouteError, ok } from "@/lib/api";
 
 const telegramId = z.number().int().positive().max(2 ** 52 - 1);
@@ -31,6 +31,8 @@ export async function POST(req: Request) {
   }
   try {
     const body = await req.json().catch(() => null);
+    if (body?.check === "inline-menu") return ok({ inlineMenu: true });
+
     const callback = callbackSchema.safeParse(body);
     if (callback.success) {
       const { from, message, id, data } = callback.data.callback_query;
@@ -39,12 +41,7 @@ export async function POST(req: Request) {
       const parsed = messageSchema.safeParse(body);
       if (parsed.success) {
         const { chat, text } = parsed.data.message;
-        const chatId = String(chat.id);
-        const message = text.trim();
-        const paired = await handleTelegramChatMessage(chatId, message);
-        const command = /^\/(menu|ringkasan|tugas)(?:@[a-z0-9_]+)?$/i.exec(message)?.[1]?.toLowerCase();
-        const next = paired ? "menu" : command;
-        if (next) await handleTelegramMenuCommand(chatId, next);
+        await handleTelegramMessage(String(chat.id), text);
       }
     }
     return ok({ received: true });

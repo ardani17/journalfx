@@ -48,7 +48,7 @@ export function ActiveScenarioForm({ active, options }: { active: ScenarioOption
       <CardContent className="space-y-3 p-4">
         <p className="text-xs text-muted">Rencana aktif <strong className="ml-1 text-ink">{active?.name ?? "Pengaturan project"}</strong></p>
         <form onSubmit={apply} className="flex flex-wrap items-end gap-3">
-          <Field label="Skenario Pemajemukan" htmlFor="roadmap-scenario" className="w-full sm:w-auto sm:min-w-56">
+          <Field label="Skenario Compounding" htmlFor="roadmap-scenario" className="w-full sm:w-auto sm:min-w-56">
             <Select id="roadmap-scenario" value={selection} disabled={pending}
               onChange={(event) => setSelection(event.target.value)}>
               <option value="">Gunakan pengaturan proyek</option>
@@ -58,13 +58,10 @@ export function ActiveScenarioForm({ active, options }: { active: ScenarioOption
           <Button type="submit" disabled={pending || selection === (active?.id ?? "")}>
             {pending ? "Menerapkan…" : "Terapkan"}
           </Button>
-          {active ? (
-            <Link className="inline-flex min-h-10 items-center text-xs text-primary hover:underline"
-              href={`/simulator?scenarioId=${encodeURIComponent(active.id)}`}>Buka skenario aktif</Link>
-          ) : (
-            <Link className="inline-flex min-h-10 items-center text-xs text-primary hover:underline"
-              href="/simulator">Buka Simulasi Pemajemukan</Link>
-          )}
+          <Link className="inline-flex min-h-10 items-center text-xs text-primary hover:underline"
+            href={active ? `/simulator?scenarioId=${encodeURIComponent(active.id)}#rencana-tersimpan` : "/simulator"}>
+            Buka Simulasi Compounding
+          </Link>
         </form>
         {error && <p className="text-xs text-loss" role="alert">{error}</p>}
       </CardContent>

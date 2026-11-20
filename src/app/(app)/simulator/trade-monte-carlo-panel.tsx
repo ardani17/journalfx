@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/field";
 import { Table, TableWrap, TBody, TD, THead, TH, TR } from "@/components/ui/table";
-import { monteCarloEquityStorageKey, parseMonteCarloEquity } from "@/lib/finance/trading-capital";
 import { D, fmtNum, fmtUSD } from "@/lib/money";
 import { simulateTradeMonteCarlo, tradeSimulationFields, tradeSimulationSchema, type TradeMonteCarloResult, type TradeSimulationField, type TradeStep } from "@/lib/finance/trade-monte-carlo";
 import { CyclePagination } from "./cycle-pagination";
@@ -30,7 +29,7 @@ function initialNumericFields(initialEquity: number): Record<TradeSimulationFiel
   ])) as Record<TradeSimulationField, string>;
 }
 
-export function TradeMonteCarloPanel({ initialEquity, userId }: { initialEquity: number; userId: string }) {
+export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number }) {
   const [form, setForm] = useState(() => initialNumericFields(initialEquity));
   const [example, setExample] = useState<(typeof examples)[number]["name"]>();
   const [throttle, setThrottle] = useState(true);
@@ -41,20 +40,6 @@ export function TradeMonteCarloPanel({ initialEquity, userId }: { initialEquity:
   const [invalidField, setInvalidField] = useState<string>();
   const worker = useRef<Worker | null>(null);
   useEffect(() => () => worker.current?.terminate(), []);
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => {
-      if (window.location.hash !== "#monte-carlo") return;
-      try {
-        const key = monteCarloEquityStorageKey(userId);
-        const value = parseMonteCarloEquity(sessionStorage.getItem(key));
-        sessionStorage.removeItem(key);
-        if (value !== undefined) setForm((current) => ({ ...current, initialEquity: formatTarget(value) }));
-      } catch {
-        // Storage may be unavailable. Keep the amount already in the form.
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [userId]);
 
   const equity = parseSimulationNumber(form.initialEquity, true);
   const riskPercent = parseSimulationNumber(form.baseRiskPercent, true);
@@ -123,7 +108,7 @@ export function TradeMonteCarloPanel({ initialEquity, userId }: { initialEquity:
   }
 
   return (
-    <Card id="monte-carlo" className="scroll-mt-20">
+    <Card>
       <CardHeader><CardTitle>Monte Carlo</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <section aria-label="Contoh Monte Carlo" className="space-y-3 rounded-xl border border-line bg-panel-2/50 p-3">

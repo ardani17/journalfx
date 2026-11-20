@@ -43,7 +43,7 @@ export const NAV: NavGroup[] = [
   {
     label: "Rencana dan Strategi",
     items: [
-      { label: "Pemajemukan", href: "/simulator", icon: TrendingUp },
+      { label: "Simulasi Compounding", href: "/simulator", icon: TrendingUp },
       { label: "Penarikan Dana", href: "/withdrawals", icon: Wallet },
       { label: "Target Proyek", href: "/roadmap", icon: Target },
     ],
@@ -69,7 +69,7 @@ export const NAV: NavGroup[] = [
 export const MOBILE_NAV: NavLeaf[] = [
   { label: "Dasbor", href: "/dashboard", icon: LayoutDashboard },
   { label: "Jurnal", href: "/journal", icon: BookOpen },
-  { label: "Simulator", href: "/simulator", icon: TrendingUp },
+  { label: "Compounding", href: "/simulator", icon: TrendingUp },
   { label: "WD", href: "/withdrawals", icon: Wallet },
   { label: "Lainnya", href: "/settings", icon: Settings },
 ];

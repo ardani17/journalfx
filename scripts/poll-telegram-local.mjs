@@ -25,22 +25,35 @@ async function start() {
     return body.result;
   }
 
+  async function forwardUpdate(update) {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": secret },
+      body: JSON.stringify(update),
+      redirect: "error",
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) throw new Error(`Local Telegram route returned HTTP ${response.status}.`);
+    return response;
+  }
+
   const webhook = await telegram("getWebhookInfo");
   if (webhook.url) throw new Error("A Telegram webhook is already registered. Local polling stopped.");
-  console.log("Listening for Telegram messages and button callbacks locally.");
+  const probe = await forwardUpdate({ check: "inline-menu" }).catch((error) => {
+    const reason = error instanceof TypeError ? "Could not reach the local app." : error.message;
+    throw new Error(`${reason} Start the app on APP_ORIGIN and check that it uses the same bot token.`);
+  });
+  const capabilities = await probe.json().catch(() => null);
+  if (capabilities?.data?.inlineMenu !== true) {
+    throw new Error(`The app at ${origin.origin} does not support the current Telegram menu. Check that APP_ORIGIN points to the current checkout.`);
+  }
+  console.log(`Forwarding Telegram messages and button callbacks to ${origin.origin}.`);
   let offset = 0;
   while (true) {
     try {
       const updates = await telegram("getUpdates", { offset, timeout: 25, allowed_updates: ["message", "callback_query"] });
       for (const update of updates) {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": secret },
-          body: JSON.stringify(update),
-          redirect: "error",
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (!response.ok) throw new Error(`Local Telegram route returned HTTP ${response.status}.`);
+        await forwardUpdate(update);
         offset = update.update_id + 1;
         console.log("Telegram update processed.");
       }

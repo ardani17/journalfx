@@ -22,9 +22,11 @@ it("handles missing funding and guards simulator handoff boundaries", () => {
     expect(estimateTradingCapital(D(5_000_000), D(rate), D(share), quote)).toEqual({ status: "no-funding" });
   }
   expect(estimateTradingCapital(D(5_000_000), D(5), D(101), quote)).toEqual({ status: "invalid" });
-  expect(parseMonteCarloEquity("12500.25")).toBe(12_500.25);
-  expect(parseMonteCarloEquity("100000000.00")).toBe(100_000_000);
-  for (const value of ["0", "100000000.01", "1e2", "1.000,50", ["12"]]) {
+  expect(parseMonteCarloEquity("12500.25")).toBe("12500.25");
+  expect(parseMonteCarloEquity("100000000.01")).toBe("100000000.01");
+  expect(parseMonteCarloEquity("9999999999999999.99")).toBe("9999999999999999.99");
+  expect(parseMonteCarloEquity("10000000000000000.00")).toBe("10000000000000000");
+  for (const value of ["0", "10000000000000000.01", "1e2", "1.000,50", ["12"]]) {
     expect(parseMonteCarloEquity(value)).toBeUndefined();
   }
 });

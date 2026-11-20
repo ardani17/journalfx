@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth";
-import { createTelegramLink, telegramBotUrl } from "@/server/services/notify-channels";
+import { createTelegramLink, TELEGRAM_MENU_START, telegramBotUrl } from "@/server/services/notify-channels";
 import { handleRouteError, ok, parseBody } from "@/lib/api";
 import { z } from "zod";
 
@@ -11,7 +11,9 @@ const linkInput = z.strictObject({
 export async function GET() {
   try {
     await requireUser();
-    const response = ok({ url: await telegramBotUrl() });
+    const url = new URL(await telegramBotUrl());
+    url.searchParams.set("start", TELEGRAM_MENU_START);
+    const response = ok({ url: url.href });
     response.headers.set("Cache-Control", "no-store");
     return response;
   } catch (error) {

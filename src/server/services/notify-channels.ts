@@ -7,6 +7,8 @@ import { APP_NAME } from "@/lib/brand";
 const LINK_LIFETIME_MS = 10 * 60 * 1000;
 const DEFAULT_PREFERENCES = { quietStartHour: 22, quietEndHour: 7, isActive: true };
 
+export const TELEGRAM_MENU_START = "menu";
+
 type Preferences = typeof DEFAULT_PREFERENCES;
 type DispatchResult = {
   delivered: boolean;
@@ -119,28 +121,15 @@ export async function createTelegramLink(userId: string, chatId: string) {
   return { url: `${botUrl}?start=${code}`, expiresAt: expiresAt.toISOString() };
 }
 
-export async function handleTelegramChatMessage(chatId: string, text: string) {
-  if (text === "/start" || text === "/id") {
-    const token = botToken();
-    if (token) await telegramRequest(token, "sendMessage", {
-      chat_id: chatId,
-      text: `Chat ID Telegram Anda: ${chatId}\n\nMasukkan angka ini di Pengaturan → Notifikasi Telegram Horizon Journal, lalu pilih Hubungkan Telegram.`,
-    });
-    return false;
-  }
-  const code = /^\/start ([A-Za-z0-9_-]{43})$/.exec(text)?.[1];
-  if (!code) return false;
-
+export async function pairTelegramChat(chatId: string, code: string) {
   try {
-    const { count } = await prisma.notificationChannel.updateMany({
+    await prisma.notificationChannel.updateMany({
       where: { telegramLinkCodeHash: hashLinkCode(code, chatId), telegramLinkExpiresAt: { gt: new Date() } },
       data: { telegramChatId: chatId, telegramLinkCodeHash: null, telegramLinkExpiresAt: null },
     });
-    return count === 1;
   } catch (error) {
     // A chat already paired with another account keeps its current owner.
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
-    return false;
   }
 }
 

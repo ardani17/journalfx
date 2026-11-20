@@ -86,7 +86,6 @@ export function SimulatorClient({
   defaults,
   saved,
   selected,
-  userId,
 }: {
   defaults: {
     initialCapital: number;
@@ -98,7 +97,6 @@ export function SimulatorClient({
   };
   saved: { id: string; name: string; returnPerCycle: number; wdMode: string; wdRatio: number | null }[];
   selected: (ScenarioFactsData & { id: string; name: string }) | null;
-  userId: string;
 }) {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -269,7 +267,6 @@ export function SimulatorClient({
         : result ? <SimulationResult result={result.data} frequency={result.frequency} /> : null}
 
       <TradeMonteCarloPanel
-        userId={userId}
         initialEquity={Number(selected?.initialCapital ?? defaults.initialCapital)}
       />
 
@@ -290,7 +287,7 @@ export function SimulatorClient({
                     <TD className="text-xs text-muted">{s.wdMode === "DYNAMIC" ? `Dinamis ${s.wdRatio ?? "—"}%` : s.wdMode === "FIXED" ? "Tetap" : "Tanpa WD"}</TD>
                     <TD className="text-right">
                       <div className="flex flex-wrap items-center justify-end gap-x-2">
-                        <Link href={`/simulator?scenarioId=${encodeURIComponent(s.id)}`} className="inline-flex min-h-9 items-center text-xs text-primary hover:underline" aria-label={`Buka ${s.name}`}>Buka</Link>
+                        <Link href={`/simulator?scenarioId=${encodeURIComponent(s.id)}#rencana-tersimpan`} className="inline-flex min-h-9 items-center text-xs text-primary hover:underline" aria-label={`Buka ${s.name}`}>Buka</Link>
                         <Button variant="ghost" size="sm" onClick={() => remove(s.id)} disabled={pending !== null} aria-label={`Hapus ${s.name}`}>
                           <Trash2 className="h-3.5 w-3.5" aria-hidden />
                         </Button>
