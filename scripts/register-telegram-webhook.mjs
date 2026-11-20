@@ -14,7 +14,7 @@ async function registerWebhook() {
     body: JSON.stringify({
       url: endpoint.href,
       secret_token: createHmac("sha256", token).update("horizon-journal:telegram-webhook:v1").digest("hex"),
-      allowed_updates: ["message"],
+      allowed_updates: ["message", "callback_query"],
     }),
     redirect: "error",
     signal: AbortSignal.timeout(10_000),

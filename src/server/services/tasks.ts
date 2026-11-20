@@ -150,6 +150,17 @@ export async function updateActivity(userId: string, id: string, input: UpdateAc
   });
 }
 
+export async function completePendingActivity(userId: string, id: string, dateKey: string, db: Prisma.TransactionClient) {
+  const where = { id, dailyPlan: { userId, date: new Date(dateKey) } };
+  const { count } = await db.dailyActivity.updateMany({
+    where: { ...where, status: "PENDING" },
+    data: { status: "COMPLETED" },
+  });
+  if (count) return "completed";
+  const current = await db.dailyActivity.findUnique({ where, select: { status: true } });
+  return current?.status === "COMPLETED" ? "already-completed" : "not-available";
+}
+
 export async function deleteActivity(userId: string, id: string) {
   const { count } = await prisma.dailyActivity.deleteMany({ where: { id, dailyPlan: { userId } } });
   if (!count) throw new ApiError(404, "Kegiatan tidak ditemukan");

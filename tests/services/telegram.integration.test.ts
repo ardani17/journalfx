@@ -4,6 +4,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { prisma } from "@/server/db";
 import { requireUser } from "@/server/auth";
 import { channelConfig, dispatchNotification, telegramWebhookSecret, updateChannel } from "@/server/services/notify-channels";
+import { localDateKey } from "@/lib/review-period";
+import { fmtUSDdelta } from "@/lib/money";
+import { weeklySummary } from "@/server/services/ledger";
 import { GET as getBot, POST as createLink } from "@/app/api/notifications/channels/telegram-link/route";
 import { POST as testDelivery, PUT as updatePreferences } from "@/app/api/notifications/channels/route";
 import { POST as webhook } from "@/app/api/integrations/telegram/webhook/route";
@@ -12,7 +15,12 @@ vi.mock("@/server/auth", () => ({ requireUser: vi.fn() }));
 
 describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound delivery", () => {
   const userIds: string[] = [];
-  const messages: { chat_id: string; text: string }[] = [];
+  const messages: {
+    chat_id: string;
+    text: string;
+    reply_markup?: { inline_keyboard: { text: string; callback_data?: string; url?: string }[][] };
+  }[] = [];
+  const callbackAnswers: { callback_query_id: string; text?: string; show_alert: boolean }[] = [];
 
   beforeAll(() => {
     if (existsSync(".env")) process.loadEnvFile(".env");
@@ -20,9 +28,15 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
 
   beforeEach(() => {
     vi.stubEnv("TELEGRAM_BOT_TOKEN", "qa-bot-token");
+    vi.stubEnv("APP_ORIGIN", "https://journal.example.test");
     messages.length = 0;
+    callbackAnswers.length = 0;
     vi.stubGlobal("fetch", vi.fn(async (input: string, init: RequestInit) => {
       if (input.endsWith("/getMe")) return Response.json({ ok: true, result: { username: "Horizon_QA_bot" } });
+      if (input.endsWith("/answerCallbackQuery")) {
+        callbackAnswers.push(JSON.parse(String(init.body)));
+        return Response.json({ ok: true, result: true });
+      }
       if (!input.endsWith("/sendMessage")) throw new Error("Unexpected mock request");
       messages.push(JSON.parse(String(init.body)));
       if (messages.at(-1)?.text.includes("Timeout QA")) throw new Error("Simulated network timeout");
@@ -69,6 +83,16 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
       method: "POST",
       headers: { "x-telegram-bot-api-secret-token": header },
       body: JSON.stringify({ update_id: 123, message: { chat: { id: chat, type }, text } }),
+    }));
+  }
+
+  function click(chat: number, id: string, data: string, type = "private", sender = chat) {
+    return webhook(new Request("https://journal.example.test/api/integrations/telegram/webhook", {
+      method: "POST",
+      headers: { "x-telegram-bot-api-secret-token": telegramWebhookSecret()! },
+      body: JSON.stringify({
+        callback_query: { id, from: { id: sender }, data, message: { chat: { id: chat, type } } },
+      }),
     }));
   }
 
@@ -144,6 +168,7 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     const chat = randomInt(100_000_000, 2_147_483_646);
     await update(chat, await startCommand(alice, chat));
     await update(chat + 1, await startCommand(bob, chat + 1));
+    messages.length = 0;
     await updateChannel(alice.id, { quietStartHour: 0, quietEndHour: 0 });
     await updateChannel(bob.id, { quietStartHour: 0, quietEndHour: 0 });
 
@@ -175,5 +200,80 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     expect(await dispatchNotification(alice.id, timeout.id)).toEqual({ delivered: false, suppressed: null });
     expect((await dispatchNotification(alice.id, timeout.id)).suppressed).toBe("duplicate");
     expect(messages).toHaveLength(4);
+  });
+
+  it("uses the linked owner's local summary and makes task callbacks private, expiring, and idempotent", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const now = new Date("2026-11-15T18:00:00.000Z");
+      vi.setSystemTime(now);
+      const [alice, bob] = await Promise.all([createUser(), createUser()]);
+      await prisma.user.update({ where: { id: alice.id }, data: { timezone: "Asia/Jakarta" } });
+      const chat = randomInt(100_000_000, 2_147_483_644);
+      await update(chat, await startCommand(alice, chat));
+      expect(messages.at(-1)?.reply_markup?.inline_keyboard.flat().map(({ text }) => text))
+        .toEqual(["Ringkasan Trading", "Tugas Hari Ini"]);
+      await update(chat + 1, await startCommand(bob, chat + 1));
+      await updateChannel(alice.id, { isActive: false, quietStartHour: 0, quietEndHour: 23 });
+      const project = await prisma.project.create({ data: { userId: alice.id, name: "Telegram QA", initialCapital: 200 } });
+      const account = await prisma.tradingAccount.create({ data: { userId: alice.id, projectId: project.id, name: "QA" } });
+      await prisma.accountTransaction.create({
+        data: { userId: alice.id, accountId: account.id, type: "REALIZED_PNL", amount: 42, occurredAt: now },
+      });
+
+      const getTask = async (userId: string, timezone: string, plan: string) => {
+        const row = await prisma.dailyPlan.create({
+          data: {
+            userId, date: new Date(localDateKey(now, timezone)),
+            activities: { create: { requestId: randomUUID(), plan, kind: "GENERAL", actualNotes: "Catatan tetap ada" } },
+          }, include: { activities: true },
+        });
+        return row.activities[0]!;
+      };
+      const aliceTask = await getTask(alice.id, "Asia/Jakarta", "Agenda privat Alice");
+      const bobTask = await getTask(bob.id, "UTC", "Agenda privat Bob");
+
+      await update(chat, "/ringkasan");
+      const expected = await weeklySummary(alice.id, now);
+      expect(messages.at(-1)).toMatchObject({
+        chat_id: String(chat), text: expect.stringContaining(fmtUSDdelta(expected.realizedPnl)),
+        reply_markup: { inline_keyboard: [[{ url: "https://journal.example.test/dashboard" }]] },
+      });
+      await update(chat + 1, "/ringkasan");
+      expect(messages.at(-1)?.text).toContain("Belum ada transaksi");
+      await update(chat + 2, "/tugas");
+      expect(messages.at(-1)?.text).toContain("Hubungkan Telegram");
+      const received = messages.length;
+      await update(chat, "/tugas", "group");
+      expect(messages).toHaveLength(received);
+
+      await update(chat, "/tugas");
+      const agenda = messages.at(-1)!;
+      expect(agenda.text).toContain("16 Nov 2026");
+      expect(agenda.text).toContain("Agenda privat Alice");
+      expect(agenda.text).not.toContain("Agenda privat Bob");
+      const done = agenda.reply_markup?.inline_keyboard.flat().find((button) => button.text.includes("Tandai selesai"))?.callback_data;
+      expect(done).toBeDefined();
+      expect(Buffer.byteLength(done!)).toBeLessThanOrEqual(64);
+      await click(chat, "sender", done!, "private", chat + 1);
+      await click(chat, "group", done!, "group");
+      await click(chat + 1, "foreign", done!);
+      expect(callbackAnswers).toMatchObject([{ callback_query_id: "foreign", show_alert: true }]);
+      expect(await prisma.dailyActivity.findUnique({ where: { id: aliceTask.id } })).toMatchObject({ status: "PENDING" });
+
+      await Promise.all([click(chat, "first", done!), click(chat, "repeat", done!)]);
+      expect(callbackAnswers.filter(({ text }) => text === "Tugas ditandai selesai.")).toHaveLength(1);
+      expect(callbackAnswers.filter(({ text }) => text === "Tugas sudah selesai.")).toHaveLength(1);
+      expect(await prisma.dailyActivity.findUnique({ where: { id: aliceTask.id } }))
+        .toMatchObject({ status: "COMPLETED", actualNotes: "Catatan tetap ada" });
+      expect(await prisma.dailyActivity.findUnique({ where: { id: bobTask.id } })).toMatchObject({ status: "PENDING" });
+      expect(messages.at(-1)?.text).toContain("Agenda privat Alice · Selesai");
+
+      vi.setSystemTime(now.getTime() + 16 * 60_000);
+      await click(chat, "expired", done!);
+      expect(callbackAnswers.at(-1)).toMatchObject({ callback_query_id: "expired", text: expect.stringContaining("kedaluwarsa"), show_alert: true });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
