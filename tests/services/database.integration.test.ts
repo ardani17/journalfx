@@ -217,8 +217,9 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
       .toEqual([[true, false], [true, true], [false, false]]);
     expect(days[1]?.pnl.toString()).toBe("900719925474099.01");
 
-    await prisma.tradeJournal.create({
-      data: { tradeId: trade.id, entryReason: "Alasan masuk", postChecklist: { plan: true }, tags: [], mistakes: [] },
+    await prisma.tradeJournal.update({
+      where: { tradeId: trade.id },
+      data: { entryReason: "Alasan masuk", postChecklist: { plan: true } },
     });
     const filter = { limit: 10, offset: 0 };
     const publicRow = (await listTrades(f.userId, filter)).items[0];
