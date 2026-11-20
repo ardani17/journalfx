@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/field";
 import { Table, TableWrap, TBody, TD, THead, TH, TR } from "@/components/ui/table";
+import { monteCarloEquityStorageKey, parseMonteCarloEquity } from "@/lib/finance/trading-capital";
 import { D, fmtNum, fmtUSD } from "@/lib/money";
 import { simulateTradeMonteCarlo, tradeSimulationFields, tradeSimulationSchema, type TradeMonteCarloResult, type TradeSimulationField, type TradeStep } from "@/lib/finance/trade-monte-carlo";
 import { CyclePagination } from "./cycle-pagination";
@@ -29,7 +30,7 @@ function initialNumericFields(initialEquity: number): Record<TradeSimulationFiel
   ])) as Record<TradeSimulationField, string>;
 }
 
-export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number }) {
+export function TradeMonteCarloPanel({ initialEquity, userId }: { initialEquity: number; userId: string }) {
   const [form, setForm] = useState(() => initialNumericFields(initialEquity));
   const [example, setExample] = useState<(typeof examples)[number]["name"]>();
   const [throttle, setThrottle] = useState(true);
@@ -40,14 +41,33 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
   const [invalidField, setInvalidField] = useState<string>();
   const worker = useRef<Worker | null>(null);
   useEffect(() => () => worker.current?.terminate(), []);
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      if (window.location.hash !== "#monte-carlo") return;
+      try {
+        const key = monteCarloEquityStorageKey(userId);
+        const value = parseMonteCarloEquity(sessionStorage.getItem(key));
+        sessionStorage.removeItem(key);
+        if (value !== undefined) setForm((current) => ({ ...current, initialEquity: formatTarget(value) }));
+      } catch {
+        // Storage may be unavailable. Keep the amount already in the form.
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [userId]);
 
   const equity = parseSimulationNumber(form.initialEquity, true);
   const riskPercent = parseSimulationNumber(form.baseRiskPercent, true);
   const risk = equity !== undefined && equity > 0 && riskPercent !== undefined && riskPercent > 0
     ? { equity, percent: riskPercent, amount: D(equity).times(riskPercent).div(100) } : null;
 
-  function applyExample(selected: (typeof examples)[number]) {
-    setForm({ ...initialNumericFields(200), baseRiskPercent: formatTarget(selected.risk), pipValue: "5" });
+  function applyExample(selected: (typeof examples)[number], useSampleCapital = false) {
+    setForm((current) => ({
+      ...initialNumericFields(200),
+      initialEquity: useSampleCapital ? "200" : current.initialEquity,
+      baseRiskPercent: formatTarget(selected.risk),
+      pipValue: "5",
+    }));
     setExample(selected.name);
     setThrottle(true);
     setWithdrawal(false);
@@ -107,7 +127,7 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
       <CardHeader><CardTitle>Monte Carlo</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <section aria-label="Contoh Monte Carlo" className="space-y-3 rounded-xl border border-line bg-panel-2/50 p-3">
-          <Button variant="secondary" disabled={pending} onClick={() => applyExample(examples[1])}>Coba contoh US$200</Button>
+          <Button variant="secondary" disabled={pending} onClick={() => applyExample(examples[1], true)}>Coba contoh US$200</Button>
           <div className="grid gap-2 sm:grid-cols-3">
             {examples.map((preset) => (
               <div key={preset.name} className="rounded-lg border border-line p-2">

@@ -72,6 +72,7 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
       .toMatchObject({ id: draft.id, reflections: "Minggu pertama" });
     const closed = await closeReview(owner.userId, "WEEKLY", undefined, first);
     expect(closed.snapshot).toMatchObject({ tradesCount: 1, netPnl: "10", balance: "210" });
+    expect(closed.snapshot).toMatchObject({ discipline: { missing: expect.arrayContaining(["Risiko"]) } });
     expect((await closeReview(owner.userId, "WEEKLY", undefined, second)).snapshot)
       .toMatchObject({ tradesCount: 0, netPnl: "40" });
     const correction = await correctReview(owner.userId, "WEEKLY", undefined, { reviewId: closed.id });
@@ -194,9 +195,38 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
       commission: 0, swap: 0, fees: 0, executedAt: "2026-11-03T00:00:00Z" });
     expect((await computeBalance(f.userId)).balance.toNumber()).toBe(215.5);
     const days = await dailyPnl(f.userId, new Date("2026-11-01T17:00:00Z"), new Date("2026-11-03T17:00:00Z"));
-    expect(days.map((d) => d.pnl)).toEqual([3.8, 11.7]);
+    expect(days.map((d) => d.pnl.toString())).toEqual(["3.8", "11.7"]);
     const firstDay = await coreMetrics(f.userId, { from: new Date("2026-11-02"), to: new Date("2026-11-03") });
     expect(firstDay.netPnl.toNumber()).toBe(3.8);
+  });
+
+  it("distinguishes an open trade from no activity and retains ledger precision", async () => {
+    const f = await fixture();
+    const trade = await createTrade(f.userId, {
+      accountId: f.accountId, instrumentId, direction: "LONG", lot: 0.1,
+      entryPrice: 2000, entryAt: "2026-11-02T00:00:00Z", commission: 0, swap: 0, fees: 0,
+    });
+    await prisma.accountTransaction.create({
+      data: {
+        userId: f.userId, accountId: f.accountId, type: "REALIZED_PNL",
+        amount: "900719925474099.01", occurredAt: new Date("2026-11-03T10:00:00Z"),
+      },
+    });
+    const days = await dailyPnl(f.userId, new Date("2026-11-01T17:00:00Z"), new Date("2026-11-04T17:00:00Z"));
+    expect(days.map(({ hasActivity, hasRealizedPnl }) => [hasActivity, hasRealizedPnl]))
+      .toEqual([[true, false], [true, true], [false, false]]);
+    expect(days[1]?.pnl.toString()).toBe("900719925474099.01");
+
+    await prisma.tradeJournal.update({
+      where: { tradeId: trade.id },
+      data: { entryReason: "Alasan masuk", postChecklist: { plan: true } },
+    });
+    const filter = { limit: 10, offset: 0 };
+    const publicRow = (await listTrades(f.userId, filter)).items[0];
+    expect(publicRow?.journal).toEqual({ tags: [], mistakes: [] });
+    expect(publicRow).not.toHaveProperty("journalComplete");
+    expect((await listTrades(f.userId, filter, { includeJournalCompletion: true })).items[0])
+      .toMatchObject({ id: trade.id, journalComplete: true });
   });
 
   it("completes a withdrawal once and prevents concurrent/overlapping double allocations", async () => {

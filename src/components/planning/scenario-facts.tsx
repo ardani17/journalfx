@@ -21,7 +21,7 @@ export function ScenarioFacts({ scenario, estimate }: { scenario: ScenarioFactsD
   const rows = [
     ["Modal Awal", fmtUSD(scenario.initialCapital)],
     ["Target Akhir", fmtUSD(scenario.targetAmount)],
-    ["Return / Siklus", `${fmtDecimal(scenario.returnPerCycle, 0)}%`],
+    ["Imbal Hasil per Siklus", `${fmtDecimal(scenario.returnPerCycle, 0)}%`],
     ["Frekuensi", frequencyDetails[scenario.frequency].name],
     ["Mode Penarikan", wd],
     ["Biaya / Siklus", fmtUSD(scenario.costPerCycle)],

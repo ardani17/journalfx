@@ -207,7 +207,7 @@ function WeeklySummaryCard({ weekly, pnlIdr }: {
           tone={weekly.realizedPnl.gt(0) ? "pos" : weekly.realizedPnl.lt(0) ? "neg" : undefined}
         />
         <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Deposit" value={fmtUSD(weekly.deposits)} />
-        <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Withdrawal" value={fmtUSD(weekly.withdrawals)} />
+        <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Penarikan Dana" value={fmtUSD(weekly.withdrawals)} />
       </CardContent>
     </Card>
   );

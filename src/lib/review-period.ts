@@ -1,4 +1,5 @@
 import { calendarDate, calendarDayStart, fmtCalendarDateID, zonedPeriod } from "@/lib/dates";
+import type { Decimal } from "@/lib/money";
 
 export const reviewKinds = ["DAILY", "WEEKLY", "MONTHLY"] as const;
 export type ReviewKind = (typeof reviewKinds)[number];
@@ -37,8 +38,9 @@ export function calendarHref(date?: string) {
   return date ? `/calendar?m=${date.slice(0, 7)}&date=${date}#day-${date}` : "/calendar";
 }
 
-export function dailyPnlLabel(amount: number, hasActivity: boolean) {
+export function dailyPnlLabel(amount: Decimal, hasActivity: boolean, hasRealizedPnl: boolean) {
   if (!hasActivity) return "Tanpa transaksi";
-  if (amount === 0) return "Impas";
-  return amount > 0 ? "Untung" : "Rugi";
+  if (!hasRealizedPnl) return "Belum ada P&L terealisasi";
+  if (amount.isZero()) return "Impas";
+  return amount.gt(0) ? "Untung" : "Rugi";
 }

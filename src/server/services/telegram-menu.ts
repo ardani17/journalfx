@@ -4,9 +4,10 @@ import { fmtCalendarDateID, zonedPeriod } from "@/lib/dates";
 import { fmtNum, fmtUSDdelta } from "@/lib/money";
 import { localDateKey, reviewPeriodLabel } from "@/lib/review-period";
 import { prisma } from "@/server/db";
+import type { Prisma } from "@prisma/client";
 import { weeklySummary } from "./ledger";
 import { answerTelegramCallback, sendTelegramText, telegramCallbackSignature, type TelegramButton } from "./notify-channels";
-import { completePendingActivity, getTaskDay } from "./tasks";
+import { completePendingActivity, getTaskDayPage } from "./tasks";
 
 type Destination = { chatId: string; userId: string; timezone: string };
 type CallbackAction = "w" | "t" | "d";
@@ -23,6 +24,14 @@ async function linkedDestination(chatId: string): Promise<Destination | null> {
     select: { userId: true, user: { select: { timezone: true } } },
   });
   return config && { chatId, userId: config.userId, timezone: config.user.timezone };
+}
+
+async function lockLinkedDestination(tx: Prisma.TransactionClient, { userId, chatId }: Destination) {
+  const [connected] = await tx.$queryRaw<{ userId: string }[]>`
+    SELECT "userId" FROM "NotificationChannel"
+    WHERE "telegramChatId" = ${chatId} AND "userId" = ${userId} FOR SHARE
+  `;
+  return Boolean(connected);
 }
 
 function signCallback(destination: Destination, payload: string) {
@@ -56,9 +65,13 @@ function appLink(text: string, path: string): TelegramButton[] {
 }
 
 async function reply(destination: Destination, text: string, buttons: TelegramButton[][] = []) {
-  const current = await linkedDestination(destination.chatId);
-  if (current?.userId !== destination.userId) return;
-  if (!await sendTelegramText(destination.chatId, text, buttons)) throw new Error("Pengiriman balasan Telegram gagal.");
+  let delivery: Promise<boolean> | undefined;
+  await prisma.$transaction(async (tx) => {
+    if (!await lockLinkedDestination(tx, destination)) return;
+    // Start sending under the ownership lock. Wait for Telegram after releasing it.
+    delivery = sendTelegramText(destination.chatId, text, buttons);
+  });
+  if (delivery && !await delivery) throw new Error("Pengiriman balasan Telegram gagal.");
 }
 
 async function showMenu(destination: Destination) {
@@ -81,11 +94,7 @@ const taskStatus = { PENDING: "Menunggu", COMPLETED: "Selesai", NOT_COMPLETED: "
 
 async function showTasks(destination: Destination, now: Date, page = 0) {
   const date = localDateKey(now, destination.timezone);
-  const { activities } = await getTaskDay(destination.userId, date);
-  const totalPages = Math.max(1, Math.ceil(activities.length / tasksPerMessage));
-  const currentPage = Math.max(0, Math.min(totalPages - 1, page));
-  const start = currentPage * tasksPerMessage;
-  const tasks = activities.slice(start, start + tasksPerMessage);
+  const { activities: tasks, currentPage, totalPages, start } = await getTaskDayPage(destination.userId, date, page, tasksPerMessage);
   const rows = tasks.map((task, index) => `${start + index + 1}. ${task.plan.replace(/\s+/g, " ").slice(0, 170)} · ${taskStatus[task.status]}`);
   const buttons: TelegramButton[][] = [];
   for (const [index, task] of tasks.entries()) {
@@ -134,11 +143,8 @@ export async function handleTelegramMenuCallback(chatId: string, id: string, dat
     if (callback.action === "d") {
       const date = localDateKey(now, destination.timezone);
       const outcome = await prisma.$transaction(async (tx) => {
-        const [connected] = await tx.$queryRaw<{ userId: string }[]>`
-          SELECT "userId" FROM "NotificationChannel"
-          WHERE "telegramChatId" = ${chatId} AND "userId" = ${destination.userId} FOR SHARE
-        `;
-        return connected ? completePendingActivity(destination.userId, callback.resource, date, tx) : "not-available";
+        return await lockLinkedDestination(tx, destination)
+          ? completePendingActivity(destination.userId, callback.resource, date, tx) : "not-available";
       });
       const label = outcome === "completed" ? "Tugas ditandai selesai."
         : outcome === "already-completed" ? "Tugas sudah selesai." : expiredMessage;

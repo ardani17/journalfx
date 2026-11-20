@@ -49,7 +49,7 @@ export default async function AccountsPage() {
                 <Metric label="Saldo" value={fmtTradingMoney(a.balance.balance, a.currency)} strong />
                 <Metric label="Deposit" value={fmtTradingMoney(a.balance.deposits, a.currency)} />
                 <Metric label="P&L Realisasi" value={fmtTradingMoney(a.balance.realizedPnl, a.currency)} />
-                <Metric label="Withdrawal" value={fmtTradingMoney(a.balance.withdrawals, a.currency)} />
+                <Metric label="Penarikan Dana" value={fmtTradingMoney(a.balance.withdrawals, a.currency)} />
               </div>
               {a.notes ? <p className="text-[11px] text-faint">{a.notes}</p> : null}
               <AccountsClient account={{

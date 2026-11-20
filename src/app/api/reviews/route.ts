@@ -1,5 +1,5 @@
 import { requireUser } from "@/server/auth";
-import { closeReview, correctReview, getOrCreateReview, saveReviewFields } from "@/server/services/reviews";
+import { closeReview, correctReview, resolveReview, saveReviewFields } from "@/server/services/reviews";
 import { reviewActionSchema, reviewFieldsSchema, reviewSelectorSchema } from "@/lib/validation/reviews";
 import { handleRouteError, ok, parseBody } from "@/lib/api";
 
@@ -12,7 +12,9 @@ export async function GET(req: Request) {
       date: searchParams.get("date") ?? undefined,
       reviewId: searchParams.get("reviewId") ?? undefined,
     });
-    return ok(await getOrCreateReview(user.id, kind, selection));
+    const response = ok((await resolveReview(user.id, kind, selection)).review);
+    response.headers.set("Cache-Control", "private, no-store");
+    return response;
   } catch (e) {
     return handleRouteError(e);
   }

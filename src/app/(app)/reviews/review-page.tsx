@@ -39,12 +39,14 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
   const { date, reviewId, calendar } = await searchParams;
   const selection = reviewSelectorSchema.safeParse({ kind, date, reviewId });
   if (!selection.success) notFound();
-  const { review, window, timezone } = await resolveReview(user.id, kind, selection.data).catch((error: unknown) => {
+  const { review, window, timezone, date: selectedDate } = await resolveReview(user.id, kind, selection.data).catch((error: unknown) => {
     if (error instanceof ApiError && (error.status === 404 || error.status === 400)) notFound();
     throw error;
   });
-  const closed = review.status === "CLOSED";
+  const closed = review?.status === "CLOSED";
   const calendarDate = reviewSelectorSchema.shape.date.safeParse(calendar).data;
+  const historical = window.end <= new Date();
+  const unavailable = historical ? "Data historis tidak tersedia" : "—";
   const today = localDateKey(new Date(), timezone);
   const [facts, days] = await Promise.all([
     closed && review.snapshot ? review.snapshot as unknown as StoredFacts : collectFacts(user.id, window),
@@ -52,7 +54,7 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
   ]);
   const titles: Record<string, { t: string; s: string }> = {
     DAILY: { t: "Review Harian", s: "Tutup hari dengan evaluasi disiplin dan rencana besok" },
-    WEEKLY: { t: "Review Mingguan", s: "Evaluasi minggu: WD, compounding, dan disiplin eksekusi" },
+    WEEKLY: { t: "Review Mingguan", s: "Evaluasi penarikan dana, pemajemukan, dan disiplin eksekusi" },
     MONTHLY: { t: "Review Bulanan", s: "Evaluasi bulanan: cakupan anggaran, hutang, dan milestone" },
   };
 
@@ -77,7 +79,7 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
       {/* Facts strip */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card><CardContent className="p-4"><p className="text-xs text-muted">{closed ? "Transaksi / P&L saat ditutup" : "Transaksi / P&L Neto"}</p><p className="tnum text-lg font-bold">{facts.tradesCount} · <span className={D(facts.netPnl).gte(0) ? "text-primary" : "text-loss"}>{fmtUSDdelta(facts.netPnl)}</span></p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted">Penarikan Dana Aktual dan Rekomendasi</p><p className="tnum text-lg font-bold">{fmtUSD(facts.wdActual)} <span className="text-xs font-normal text-faint">/ {facts.wdRecommended === null ? "—" : fmtUSD(facts.wdRecommended)}</span></p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted">Penarikan Dana Aktual dan Rekomendasi</p><p className="tnum text-lg font-bold">{fmtUSD(facts.wdActual)} <span className="text-xs font-normal text-faint">/ {facts.wdRecommended === null ? unavailable : fmtUSD(facts.wdRecommended)}</span></p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted">Laba Ditahan</p><p className="tnum text-lg font-bold text-primary">{fmtUSD(facts.compoundedAmount)}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted">Skor Disiplin</p><p className={`tnum text-lg font-bold ${facts.discipline.total !== null && facts.discipline.total >= 70 ? "text-primary" : "text-warn"}`}>{facts.discipline.total !== null ? fmtNum(facts.discipline.total, 1) : "N/A"}</p>
           {facts.discipline.missing.length > 0 ? <p className="mt-0.5 text-[10px] text-faint">Data kurang: {facts.discipline.missing.map(labelID).join(", ")}</p> : null}
@@ -98,8 +100,8 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
                       <Link href={reviewHref("DAILY", { date: day.date, calendar: day.date })} prefetch={false} className="font-medium text-primary hover:underline">{label}</Link>
                     ) : <span>{label}</span>}
                     <span className="tnum text-right">
-                      {dailyPnlLabel(day.pnl, day.hasActivity)}
-                      {day.hasActivity ? ` · ${fmtUSDdelta(day.pnl)}` : null}
+                      {dailyPnlLabel(day.pnl, day.hasActivity, day.hasRealizedPnl)}
+                      {day.hasRealizedPnl ? ` · ${fmtUSDdelta(day.pnl)}` : null}
                     </span>
                   </li>
                 );
@@ -120,7 +122,7 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
                 <span className="tnum text-ink">{c.score !== null ? fmtNum(c.score, 1) : "—"}</span>
               </div>
               <Progress value={c.score ?? 0} tone={c.score !== null && c.score < 50 ? "loss" : undefined} label={labelID(c.label)} />
-              <p className="mt-0.5 text-[10px] text-faint">{c.ratio ?? "belum ada data"}</p>
+              <p className="mt-0.5 text-[10px] text-faint">{c.ratio ?? (historical && c.key === "risk" ? unavailable : "belum ada data")}</p>
             </div>
           ))}
         </CardContent>
@@ -134,23 +136,24 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
               <div><dt className="text-xs text-muted">Waktu penutupan</dt><dd>{review.closedAt ? fmtDateTimeID(review.closedAt, timezone) : "—"}</dd></div>
               <div><dt className="text-xs text-muted">Saldo</dt><dd>{fmtUSD(facts.balance)}</dd></div>
               <div><dt className="text-xs text-muted">Tingkat kemenangan</dt><dd>{facts.winRate === null ? "—" : `${fmtNum(facts.winRate, 1)}%`}</dd></div>
-              <div><dt className="text-xs text-muted">Cakupan anggaran</dt><dd>{facts.budgetCoveragePct === null ? "—" : `${fmtNum(facts.budgetCoveragePct, 1)}%`}</dd></div>
+              <div><dt className="text-xs text-muted">Cakupan anggaran</dt><dd>{facts.budgetCoveragePct === null ? unavailable : `${fmtNum(facts.budgetCoveragePct, 1)}%`}</dd></div>
             </dl>
           </CardContent>
         </Card>
       ) : null}
 
       <ReviewClient
-        key={review.id}
+        key={selection.data.reviewId ?? selectedDate}
         kind={kind}
-        reviewId={review.id}
+        reviewId={review?.id}
+        date={selectedDate}
         calendar={calendarDate}
         closed={closed}
         initial={{
-          performance: review.performance ?? "",
-          riskNotes: review.riskNotes ?? "",
-          reflections: review.reflections ?? "",
-          nextPlan: review.nextPlan ?? "",
+          performance: review?.performance ?? "",
+          riskNotes: review?.riskNotes ?? "",
+          reflections: review?.reflections ?? "",
+          nextPlan: review?.nextPlan ?? "",
         }}
       />
     </PageShell>

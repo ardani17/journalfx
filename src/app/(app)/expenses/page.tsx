@@ -61,7 +61,7 @@ export default async function ExpensesPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <Progress value={Math.min(overview.coveragePct, 100)} label="Terndanai" />
+            <Progress value={Math.min(overview.coveragePct, 100)} label="Terdanai" />
             <p className="tnum text-[11px] text-faint">
               Terdanai {fmtIDR(overview.funded)} · Terpakai {fmtIDR(overview.totalSpent)} · Target {fmtIDR(overview.planned)}
             </p>
@@ -69,7 +69,7 @@ export default async function ExpensesPage() {
         </Card>
       </div>
 
-      <TradingCapitalEstimate planned={overview.planned.toString()} quote={fx} />
+      <TradingCapitalEstimate userId={user.id} planned={overview.planned.toString()} quote={fx} />
       <BudgetClient
         categories={overview.categories.map((c) => ({
           id: c.id,

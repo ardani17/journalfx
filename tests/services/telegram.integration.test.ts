@@ -266,6 +266,8 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
       expect(callbackAnswers.filter(({ text }) => text === "Tugas sudah selesai.")).toHaveLength(1);
       expect(await prisma.dailyActivity.findUnique({ where: { id: aliceTask.id } }))
         .toMatchObject({ status: "COMPLETED", actualNotes: "Catatan tetap ada" });
+      expect(await prisma.auditLog.findMany({ where: { userId: alice.id, entity: "DailyActivity", entityId: aliceTask.id } }))
+        .toMatchObject([{ action: "update", after: { status: "COMPLETED" } }]);
       expect(await prisma.dailyActivity.findUnique({ where: { id: bobTask.id } })).toMatchObject({ status: "PENDING" });
       expect(messages.at(-1)?.text).toContain("Agenda privat Alice · Selesai");
 

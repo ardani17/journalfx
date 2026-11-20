@@ -67,7 +67,7 @@ export default async function AnalyticsPage() {
         <CardHeader><CardTitle>P/L Harian (30 hari)</CardTitle></CardHeader>
         <CardContent>
           {days.some((d) => d.trades > 0) ? (
-            <DailyPnlChart data={days} />
+            <DailyPnlChart data={days.map(({ date, pnl, trades }) => ({ date, pnl: pnl.toNumber(), trades }))} />
           ) : (
             <p className="py-10 text-center text-xs text-faint">Belum ada trade tertutup — grafik P/L harian akan muncul di sini.</p>
           )}

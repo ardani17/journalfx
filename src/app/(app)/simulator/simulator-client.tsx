@@ -86,7 +86,7 @@ export function SimulatorClient({
   defaults,
   saved,
   selected,
-  monteCarloEquity,
+  userId,
 }: {
   defaults: {
     initialCapital: number;
@@ -98,7 +98,7 @@ export function SimulatorClient({
   };
   saved: { id: string; name: string; returnPerCycle: number; wdMode: string; wdRatio: number | null }[];
   selected: (ScenarioFactsData & { id: string; name: string }) | null;
-  monteCarloEquity?: number;
+  userId: string;
 }) {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -269,8 +269,8 @@ export function SimulatorClient({
         : result ? <SimulationResult result={result.data} frequency={result.frequency} /> : null}
 
       <TradeMonteCarloPanel
-        key={monteCarloEquity ?? selected?.id ?? "default"}
-        initialEquity={monteCarloEquity ?? Number(selected?.initialCapital ?? defaults.initialCapital)}
+        userId={userId}
+        initialEquity={Number(selected?.initialCapital ?? defaults.initialCapital)}
       />
 
       {/* Saved scenarios */}
@@ -396,7 +396,7 @@ function SimulationResult({ result, frequency }: { result: RunResult; frequency:
               <THead>
                 <TR>
                   <TH>Siklus</TH>
-                  {["Saldo awal", "Return", "L/R kotor", "Biaya", "L/R bersih", "Deposit", "Withdrawal", "Saldo akhir"].map((label) => (
+                  {["Saldo awal", "Imbal hasil", "L/R kotor", "Biaya", "L/R bersih", "Deposit", "Penarikan Dana", "Saldo akhir"].map((label) => (
                     <TH key={label} className="text-right">{label}</TH>
                   ))}
                 </TR>

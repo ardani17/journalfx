@@ -34,7 +34,7 @@ interface Row {
 
 const TYPE_LABELS: Record<string, string> = {
   DEPOSIT: "Deposit",
-  WITHDRAWAL: "Withdrawal",
+  WITHDRAWAL: "Penarikan Dana",
   REALIZED_PNL: "P&L Realisasi",
   ADJUSTMENT: "Adjustment",
   FEE: "Fee",
@@ -278,7 +278,7 @@ function TypeBadge({ type }: { type: string }) {
     case "DEPOSIT":
       return <Badge tone="info"><ArrowDownLeft className="h-3 w-3" /> Deposit</Badge>;
     case "WITHDRAWAL":
-      return <Badge tone="warn"><ArrowUpRight className="h-3 w-3" /> Withdrawal</Badge>;
+      return <Badge tone="warn"><ArrowUpRight className="h-3 w-3" /> Penarikan Dana</Badge>;
     case "REALIZED_PNL":
       return <Badge tone="success">P&L</Badge>;
     case "ADJUSTMENT":
