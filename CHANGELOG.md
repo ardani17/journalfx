@@ -10,14 +10,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ### Added
 
-- View daily realized P&L and daily, weekly, and monthly reviews from the trading calendar. Close reviews to save a snapshot and use corrections to preserve the original.
-- Estimate funding capital from the monthly budget and use that estimate in editable Monte Carlo templates.
+- View daily realized P&L from the trading calendar and open historical daily, weekly, and monthly reviews. Closing a review saves a snapshot, and corrections preserve the original.
+- Estimate trading capital from monthly expenses and carry the estimate into the Monte Carlo simulator.
+- Try a US$200 Monte Carlo example with three editable risk presets.
 - Open the weekly trading summary and today's tasks in Telegram. Mark pending tasks complete from the bot.
+
+### Changed
+
+- Open trade details from any part of a journal row and see whether the psychology and journal sections are complete.
+- Document setup and integrations in the Indonesian README.
 
 ### Fixed
 
 - Keep Telegram pairing verified across visits after the user enters their Chat ID in the web settings and confirms in the bot.
-- Make journal notes and checklists easier to complete. Improve access to imported trade and attachment details on mobile.
+- Improve access to imported trade and attachment details on mobile.
 - Use Indonesian number entry and more consistent Indonesian labels across trading and finance pages.
 
 ## [1.4.5] — 2026-11-20
