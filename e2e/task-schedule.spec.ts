@@ -51,8 +51,10 @@ test("plans tomorrow, records outcomes, reviews history and opens the schedule o
     await page.getByLabel("Langkah perbaikan").fill(reflection);
     await page.getByRole("button", { name: "Simpan refleksi" }).click();
     await expect(page.getByRole("status")).toHaveText("Refleksi tersimpan.");
-    await page.getByRole("link", { name: "Besok", exact: true }).click();
+    const tomorrowLink = page.getByRole("link", { name: "Besok", exact: true });
+    await tomorrowLink.click();
     await expect(dateInput).toHaveValue(tomorrow);
+    await expect(tomorrowLink).toHaveAttribute("aria-current", "date");
     await expect(page.getByRole("complementary", { name: "Langkah dari hari sebelumnya" })).toContainText(reflection);
 
     const plans = ["Periksa peluang trading", "Baca buku", "Olahraga pagi", "Belanja rumah", "Telepon keluarga"];

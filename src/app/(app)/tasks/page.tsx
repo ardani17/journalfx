@@ -48,8 +48,8 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
             <Button type="submit" variant="secondary">Lihat</Button>
           </form>
           <nav aria-label="Pintasan tanggal" className="flex gap-2 text-xs">
-            <Link className="rounded-md border border-line px-3 py-1.5 text-muted hover:text-ink aria-current:border-primary/50 aria-current:text-primary" href={`/tasks?date=${today}`} aria-current={date === today ? "date" : undefined}>Hari ini</Link>
-            <Link className="rounded-md border border-line px-3 py-1.5 text-muted hover:text-ink aria-current:border-primary/50 aria-current:text-primary" href={`/tasks?date=${tomorrow}`} aria-current={date === tomorrow ? "date" : undefined}>Besok</Link>
+            <Link className="rounded-md border border-line px-3 py-1.5 text-muted hover:text-ink aria-[current=date]:border-primary/50 aria-[current=date]:text-primary" href={`/tasks?date=${today}`} aria-current={date === today ? "date" : undefined}>Hari ini</Link>
+            <Link className="rounded-md border border-line px-3 py-1.5 text-muted hover:text-ink aria-[current=date]:border-primary/50 aria-[current=date]:text-primary" href={`/tasks?date=${tomorrow}`} aria-current={date === tomorrow ? "date" : undefined}>Besok</Link>
           </nav>
         </div>
         <section className="min-w-0 rounded-xl border border-line bg-panel-2/60 p-4" aria-labelledby="completion-heading">
@@ -102,7 +102,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
                   {history.map((entry) => (
                     <li key={entry.date}>
                       <Link
-                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md px-2 py-2.5 text-sm text-ink hover:bg-panel-2 aria-current:bg-panel-2 aria-current:text-primary"
+                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md px-2 py-2.5 text-sm text-ink hover:bg-panel-2 aria-[current=date]:bg-panel-2 aria-[current=date]:text-primary"
                         href={`/tasks?date=${entry.date}`}
                         aria-current={date === entry.date ? "date" : undefined}
                       >
