@@ -52,7 +52,7 @@ export async function updateChannel(userId: string, data: Partial<Preferences>) 
   return channelConfig(userId);
 }
 
-async function telegramRequest(token: string, method: "getMe" | "sendMessage", data?: object) {
+async function telegramRequest(token: string, method: "getMe" | "sendMessage" | "answerCallbackQuery", data?: object) {
   try {
     const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: "POST",
@@ -67,6 +67,29 @@ async function telegramRequest(token: string, method: "getMe" | "sendMessage", d
   } catch {
     return null;
   }
+}
+
+export type TelegramButton = { text: string } & ({ callback_data: string } | { url: string });
+
+export async function sendTelegramText(chatId: string, text: string, buttons?: TelegramButton[][]) {
+  const token = botToken();
+  if (!token) return false;
+  return Boolean(await telegramRequest(token, "sendMessage", {
+    chat_id: chatId, text, ...(buttons?.length ? { reply_markup: { inline_keyboard: buttons } } : {}),
+    link_preview_options: { is_disabled: true },
+  }));
+}
+
+export async function answerTelegramCallback(id: string, text?: string, alert = false) {
+  const token = botToken();
+  if (token) await telegramRequest(token, "answerCallbackQuery", { callback_query_id: id, text, show_alert: alert });
+}
+
+export function telegramCallbackSignature(value: string) {
+  const token = botToken();
+  if (!token) return null;
+  return createHmac("sha256", token).update("horizon-journal:telegram-callback:v1:").update(value)
+    .digest().subarray(0, 12);
 }
 
 function hashLinkCode(code: string, chatId: string) {
@@ -103,19 +126,21 @@ export async function handleTelegramChatMessage(chatId: string, text: string) {
       chat_id: chatId,
       text: `Chat ID Telegram Anda: ${chatId}\n\nMasukkan angka ini di Pengaturan → Notifikasi Telegram Horizon Journal, lalu pilih Hubungkan Telegram.`,
     });
-    return;
+    return false;
   }
   const code = /^\/start ([A-Za-z0-9_-]{43})$/.exec(text)?.[1];
-  if (!code) return;
+  if (!code) return false;
 
   try {
-    await prisma.notificationChannel.updateMany({
+    const { count } = await prisma.notificationChannel.updateMany({
       where: { telegramLinkCodeHash: hashLinkCode(code, chatId), telegramLinkExpiresAt: { gt: new Date() } },
       data: { telegramChatId: chatId, telegramLinkCodeHash: null, telegramLinkExpiresAt: null },
     });
+    return count === 1;
   } catch (error) {
     // A chat already paired with another account keeps its current owner.
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") throw error;
+    return false;
   }
 }
 
