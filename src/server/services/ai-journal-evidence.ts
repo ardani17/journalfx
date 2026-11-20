@@ -174,7 +174,7 @@ export async function loadAiJournalEvidence(userId: string): Promise<AiJournalEv
   const stopComparison = compareGroups("stop-loss", trades, ({ recordedStop }) => recordedStop
     ? { key: "recorded", label: "Trade dengan SL awal tercatat", alias: "recorded" }
     : { key: "missing", label: "Trade tanpa catatan SL awal", alias: "missing" }, riskActions);
-  const stopCoverage: Evidence | undefined = missingStop.length > 0 ? {
+  const stopCoverage: Evidence | undefined = missingStop.length >= MIN_AI_JOURNAL_TRADES ? {
     id: "stop-loss",
     groups: [{ label: "Trade tanpa catatan SL awal", alias: "missing", metrics: tradeMetrics(missingStop) }],
     actionIds: riskActions,

@@ -23,7 +23,7 @@ export default defineConfig({
   webServer: {
     command: `npx next start -p ${PORT}`,
     port: PORT,
-    reuseExistingServer: process.env.AI_JOURNAL_E2E_MODE === undefined,
+    reuseExistingServer: false,
     timeout: 120_000,
     env: {
       NODE_ENV: "production",

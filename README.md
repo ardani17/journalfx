@@ -100,4 +100,4 @@ A release is tagged only when all gates pass. See `RELEASES.md` and `CHANGELOG.m
 - Actual vs projected figures are visually and logically separated.
 - Withdrawal engine is a recommendation only; broker actions stay manual with receipt reconciliation.
 - No automated trading, signals, broker credentials, or promised returns.
-- Private financial figures live only in the user's private app, never in the repository.
+- Keep private financial figures out of the repository. When a user requests AI Journal Insights, the app shares only aggregate trade statistics with the configured AI provider.

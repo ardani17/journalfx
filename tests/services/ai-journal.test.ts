@@ -157,6 +157,21 @@ describe("AI Journal Insights endpoint", () => {
     expect(response.status).toBe(200);
   });
 
+  it.each([1, 2, 3])("requires three trades to share missing-SL performance (sample: %i)", async (missingStops) => {
+    findTrades.mockResolvedValue(Array.from({ length: 5 }, (_, index) => trade(String(index), {
+      initialStopLoss: index < missingStops ? null : "1",
+    })));
+    vi.stubGlobal("fetch", vi.fn(async (_url: URL, init: RequestInit) => {
+      const payload = JSON.parse(JSON.parse(String(init.body)).messages[1].content);
+      expect(payload.evidence.map((item: { id: string }) => item.id)).toEqual(
+        missingStops === 3 ? ["overview", "stop-loss"] : ["overview"],
+      );
+      return providerResponse({ evidenceId: "overview", actionId: "review-exits" });
+    }));
+
+    expect((await request()).status).toBe(200);
+  });
+
   it("supports a configured full endpoint and fenced JSON without accepting other response text", async () => {
     vi.stubEnv("AI_BASE_URL", "https://provider.example/v1/chat/completions/");
     expect(aiJournalConfig()?.url.href).toBe("https://provider.example/v1/chat/completions");
