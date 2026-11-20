@@ -31,7 +31,7 @@ async function withJournal(page: Page, baseURL: string, run: (userId: string) =>
 }
 
 test("selects historical days, weeks, and months and keeps each review separate", async ({ page, baseURL }, testInfo) => {
-  await withJournal(page, baseURL!, async () => {
+  await withJournal(page, baseURL!, async (userId) => {
     async function choose(kind: "DAILY" | "WEEKLY" | "MONTHLY", date: string, range: string) {
       await page.goto("/reports");
       await page.getByLabel("Jenis review").selectOption(kind);
@@ -42,6 +42,9 @@ test("selects historical days, weeks, and months and keeps each review separate"
     }
 
     await choose("WEEKLY", "2026-11-04", "2 Nov 2026 – 8 Nov 2026");
+    const initial = await page.request.get("/api/reviews?kind=WEEKLY&date=2026-11-04");
+    expect(await initial.json()).toMatchObject({ ok: true, data: null });
+    expect(await prisma.periodReview.count({ where: { userId } })).toBe(0);
     await expect(page.getByText("+$15,00", { exact: true })).toBeVisible();
     await page.getByLabel("Refleksi").fill("Catatan minggu pertama");
     await page.getByRole("button", { name: "Simpan Catatan" }).click();
@@ -107,5 +110,12 @@ test("connects calendar status, live P&L, and review snapshots", async ({ page, 
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(cell("02")).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath("calendar-review-mobile.png") });
+
+    await prisma.user.update({ where: { id: userId }, data: { timezone: "UTC" } });
+    await page.goto("/calendar?m=2026-11");
+    await expect(cell("03")).not.toContainText("Selesai");
+    await cell("03").click();
+    await expect(page.getByRole("heading", { name: "Review Harian" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Simpan Catatan" })).toBeVisible();
   });
 });

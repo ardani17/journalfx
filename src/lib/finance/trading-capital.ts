@@ -23,3 +23,7 @@ export function parseMonteCarloEquity(value: unknown): number | undefined {
   const { min, max } = tradeSimulationFields.initialEquity;
   return amount >= min && amount <= max ? amount : undefined;
 }
+
+export function monteCarloEquityStorageKey(userId: string) {
+  return `horizon-journal:monte-carlo-equity:${userId}`;
+}

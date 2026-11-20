@@ -4,7 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
 import { fmtUSD } from "../src/lib/money";
 import { zonedPeriod } from "../src/lib/dates";
-import { formatLocalizedNumber } from "../src/lib/number-input";
+import { monteCarloEquityStorageKey } from "../src/lib/finance/trading-capital";
 
 const prisma = new PrismaClient();
 test.afterAll(() => prisma.$disconnect());
@@ -140,15 +140,25 @@ test("estimates capital from the active budget and prefills Monte Carlo", async 
     await page.screenshot({ path: testInfo.outputPath("capital-estimate-desktop.png") });
     const jump = page.getByRole("link", { name: "Uji di Monte Carlo" });
     const href = await jump.getAttribute("href", { timeout: 3000 }).catch(() => null);
+    const storageKey = monteCarloEquityStorageKey(owner!.id);
     if (href) {
-      const amount = new URL(href, baseURL).searchParams.get("monteCarloEquity")!;
+      expect(href).toBe("/simulator#monte-carlo");
       await jump.click();
-      await expect(page.locator("#monte-carlo-initialEquity")).toHaveValue(formatLocalizedNumber(amount));
+      await expect(page.locator("#monte-carlo-initialEquity")).not.toHaveValue("200");
     } else {
       await expect(page.getByText("Kurs USD diperlukan untuk mengisi modal awal Monte Carlo.")).toBeVisible();
-      await page.goto("/simulator?monteCarloEquity=6250.25#monte-carlo");
+      await page.evaluate(([key, amount]) => sessionStorage.setItem(key!, amount!), [storageKey, "6250.25"]);
+      await page.goto("/simulator#monte-carlo");
       await expect(page.locator("#monte-carlo-initialEquity")).toHaveValue("6.250,25");
     }
+    await expect(page).toHaveURL(/\/simulator#monte-carlo$/);
+    const equity = page.locator("#monte-carlo-initialEquity");
+    const transferred = await equity.inputValue();
+    await page.getByRole("button", { name: "Konservatif", exact: true }).click();
+    await expect(equity).toHaveValue(transferred);
+    expect(await page.evaluate((key) => sessionStorage.getItem(key), storageKey)).toBeNull();
+    await page.reload();
+    await expect(equity).toHaveValue("200");
     await expect(page.getByRole("heading", { name: "Contoh jalur simulasi" })).toHaveCount(0);
   } finally {
     await prisma.exchangeRate.deleteMany({ where: { id: rateId } });

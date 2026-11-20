@@ -17,12 +17,11 @@ export const journalCompletionSelect = {
   overtrading: true,
   compliant: true,
   mistakes: true,
-  postChecklist: true,
 } satisfies Prisma.TradeJournalSelect;
 
 type Journal = Prisma.TradeJournalGetPayload<{ select: typeof journalCompletionSelect }>;
 
-export function isTradeJournalComplete(journal: Journal | null): boolean {
+export function isTradeJournalComplete(journal: Journal | null, hasCheckedItem: boolean): boolean {
   if (!journal) return false;
 
   const hasText = (value: string | null) => Boolean(value?.trim());
@@ -31,9 +30,6 @@ export function isTradeJournalComplete(journal: Journal | null): boolean {
     journal.lessons, journal.improvement, ...journal.tags,
   ].some(hasText);
 
-  const { postChecklist } = journal;
-  const hasCheckedItem = postChecklist !== null && typeof postChecklist === "object" &&
-    !Array.isArray(postChecklist) && Object.values(postChecklist).some((value) => value === true);
   const hasPsychology = [
     journal.emotionBefore, journal.emotionDuring, journal.emotionAfter, ...journal.mistakes,
   ].some(hasText) || journal.confidence !== null || journal.stressLevel !== null ||

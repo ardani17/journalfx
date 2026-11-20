@@ -230,7 +230,7 @@ export function tradeFilterWhere(userId: string, filter: Omit<ListTradesFilter, 
   };
 }
 
-export async function listTrades(userId: string, filter: ListTradesFilter, includeJournalCompletion = false) {
+export async function listTrades(userId: string, filter: ListTradesFilter, { includeJournalCompletion = false } = {}) {
   const sort = filter.sort ?? "desc";
   const where = tradeFilterWhere(userId, filter);
   const [items, total] = await Promise.all([
@@ -243,16 +243,28 @@ export async function listTrades(userId: string, filter: ListTradesFilter, inclu
         instrument: { select: { symbol: true, pricePrecision: true } },
         account: { select: { currency: true } },
         strategy: { select: { name: true } },
-        journal: { select: journalCompletionSelect },
+        journal: { select: includeJournalCompletion ? journalCompletionSelect : { tags: true, mistakes: true } },
       },
     }),
     prisma.trade.count({ where }),
   ]);
+  const checkedItems = includeJournalCompletion && items.length ? await prisma.$queryRaw<{ tradeId: string }[]>`
+    SELECT j."tradeId"
+    FROM "TradeJournal" j
+    JOIN "Trade" t ON t."id" = j."tradeId"
+    WHERE t."userId" = ${userId}
+      AND j."tradeId" IN (${Prisma.join(items.map(({ id }) => id))})
+      AND jsonb_typeof(j."postChecklist") = 'object'
+      AND jsonb_path_exists(j."postChecklist", '$.* ? (@.type() == "boolean" && @ == true)')
+  ` : [];
+  const checkedTradeIds = new Set(checkedItems.map(({ tradeId }) => tradeId));
   return {
     items: items.map(({ journal, ...trade }) => ({
       ...trade,
       journal: journal ? { tags: journal.tags, mistakes: journal.mistakes } : null,
-      ...(includeJournalCompletion ? { journalComplete: isTradeJournalComplete(journal) } : {}),
+      ...(includeJournalCompletion ? {
+        journalComplete: isTradeJournalComplete(journal && "marketContext" in journal ? journal : null, checkedTradeIds.has(trade.id)),
+      } : {}),
     })),
     total,
   };

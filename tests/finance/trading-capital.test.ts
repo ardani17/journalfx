@@ -12,6 +12,8 @@ it("estimates capital with Decimal from localized monthly targets and optional J
   expect(estimateTradingCapital(target.div(2), D(5), D(50), null))
     .toEqual({ status: "estimated", idr: D(100_000_000), usd: null });
   expect(parseCapitalInput("2.500.000,50")).toEqual(D("2500000.50"));
+  expect(parseCapitalInput("0.050")).toEqual(D("0.05"));
+  expect(parseCapitalInput("1.000")).toEqual(D("1000"));
   expect(parseCapitalInput("1.2.3")).toBeNull();
 });
 

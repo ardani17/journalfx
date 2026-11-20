@@ -11,12 +11,14 @@ import { reviewHref, type ReviewKind } from "@/lib/review-period";
 export function ReviewClient({
   kind,
   reviewId,
+  date,
   calendar,
   closed,
   initial,
 }: {
   kind: ReviewKind;
-  reviewId: string;
+  reviewId?: string;
+  date?: string;
   calendar?: string;
   closed: boolean;
   initial: { performance: string; riskNotes: string; reflections: string; nextPlan: string };
@@ -35,7 +37,7 @@ export function ReviewClient({
       const res = await fetch("/api/reviews", {
         method,
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind, reviewId, ...body }),
+        body: JSON.stringify({ kind, ...(reviewId ? { reviewId } : { date }), ...body }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {

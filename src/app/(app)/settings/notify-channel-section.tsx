@@ -24,7 +24,7 @@ const testMessages: Record<string, string> = {
   "not-configured": "Hubungkan Telegram sebelum mengirim tes.",
 };
 
-export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
+export function NotifyChannelSection({ userId, initial }: { userId: string; initial: ChannelConfig }) {
   const [cfg, setCfg] = useState(initial);
   const [chatId, setChatId] = useState(initial.telegramChatId ?? "");
   const [link, setLink] = useState<{ url: string; expiresAt: string; chatId: string } | null>(null);
@@ -41,7 +41,7 @@ export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
   }, [link]);
 
   const connection = useQuery({
-    queryKey: ["telegram-connection"],
+    queryKey: ["telegram-connection", userId],
     queryFn: ({ signal }) => channelRequest<ChannelConfig>(CHANNEL_ENDPOINT, { signal, cache: "no-store" }),
     initialData: initial,
     staleTime: 0,

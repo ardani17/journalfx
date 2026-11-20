@@ -38,7 +38,7 @@ export default async function SettingsPage() {
           staleHours: syncStatus.staleHours,
         }}
       />
-      <NotifyChannelSection initial={channels} />
+      <NotifyChannelSection key={user.id} userId={user.id} initial={channels} />
     </PageShell>
   );
 }

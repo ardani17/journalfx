@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/server/auth";
-import { dailyPnl } from "@/server/services/analytics";
+import { dailyPnl, type DayPnl } from "@/server/services/analytics";
 import { dailyReviewStatuses } from "@/server/services/reviews";
 import { CalendarReviewTabs } from "@/components/layout/calendar-review-tabs";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
@@ -52,8 +52,8 @@ export default async function CalendarPage({
 
   const monthPnl = days.reduce((sum, day) => sum.plus(day.pnl), D(0));
   const monthTrades = days.reduce((s, d) => s + d.trades, 0);
-  const best = days.reduce((b, d) => (d.pnl > b.pnl ? d : b), { date: "", pnl: -Infinity, trades: 0 });
-  const worst = days.reduce((b, d) => (d.pnl < b.pnl ? d : b), { date: "", pnl: Infinity, trades: 0 });
+  const best = days.reduce<DayPnl | null>((best, day) => day.pnl.gt(best?.pnl ?? 0) ? day : best, null);
+  const worst = days.reduce<DayPnl | null>((worst, day) => day.pnl.lt(worst?.pnl ?? 0) ? day : worst, null);
 
   const prev = mm === 1 ? `${yy - 1}-12` : `${yy}-${String(mm - 1).padStart(2, "0")}`;
   const next = mm === 12 ? `${yy + 1}-01` : `${yy}-${String(mm + 1).padStart(2, "0")}`;
@@ -76,8 +76,8 @@ export default async function CalendarPage({
       <div className="flex flex-wrap gap-2 text-xs">
         <Badge tone={monthPnl.gte(0) ? "success" : "danger"}>P&L Bulanan {fmtUSDdelta(monthPnl)}</Badge>
         <Badge tone="info">{monthTrades} transaksi</Badge>
-        {best.pnl > -Infinity && best.pnl !== 0 ? <Badge tone="success">Terbaik: {fmtUSDdelta(best.pnl)} ({best.date.slice(8)})</Badge> : null}
-        {worst.pnl < Infinity && worst.pnl !== 0 ? <Badge tone="danger">Terburuk: {fmtUSDdelta(worst.pnl)} ({worst.date.slice(8)})</Badge> : null}
+        {best ? <Badge tone="success">Terbaik: {fmtUSDdelta(best.pnl)} ({best.date.slice(8)})</Badge> : null}
+        {worst ? <Badge tone="danger">Terburuk: {fmtUSDdelta(worst.pnl)} ({worst.date.slice(8)})</Badge> : null}
       </div>
 
       <EventsPanel events={events.map((e) => ({ id: e.id, at: e.at.toISOString(), currency: e.currency, title: e.title, impact: e.impact }))} />
@@ -93,19 +93,19 @@ export default async function CalendarPage({
               const status = reviewStatuses.get(day.date);
               const dateLabel = fmtCalendarDateID(day.date);
               const statusLabel = status === "CLOSED" ? "Selesai" : status === "OPEN" ? "Draf" : "Belum direview";
-              const pnlLabel = dailyPnlLabel(day.pnl, day.hasActivity);
+              const pnlLabel = dailyPnlLabel(day.pnl, day.hasActivity, day.hasRealizedPnl);
               const className = cn(
                 "flex min-h-24 scroll-mt-20 flex-col rounded-lg border p-2 text-left focus-visible:outline-2 focus-visible:outline-primary",
-                day.pnl > 0 ? "border-primary/30 bg-primary/8" : day.pnl < 0 ? "border-loss/30 bg-loss/8" : "border-line bg-panel-2/40",
+                day.pnl.gt(0) ? "border-primary/30 bg-primary/8" : day.pnl.lt(0) ? "border-loss/30 bg-loss/8" : "border-line bg-panel-2/40",
                 day.date === selectedDate && "ring-2 ring-primary",
               );
               const content = (
                 <>
                   <span className="tnum text-[11px] font-semibold">{dateLabel}</span>
-                  <span className={cn("tnum mt-1 text-xs font-bold", day.pnl > 0 ? "text-primary" : day.pnl < 0 ? "text-loss" : "text-muted")}>
-                    {day.hasActivity ? fmtUSDdelta(day.pnl) : pnlLabel}
+                  <span className={cn("tnum mt-1 text-xs font-bold", day.pnl.gt(0) ? "text-primary" : day.pnl.lt(0) ? "text-loss" : "text-muted")}>
+                    {day.hasRealizedPnl ? fmtUSDdelta(day.pnl) : pnlLabel}
                   </span>
-                  {day.hasActivity ? <span className="text-[10px] text-faint">{pnlLabel}</span> : null}
+                  {day.hasRealizedPnl ? <span className="text-[10px] text-faint">{pnlLabel}</span> : null}
                   {day.hasActivity || status ? <span className="mt-auto pt-1 text-[10px] font-medium text-muted">{statusLabel}</span> : null}
                 </>
               );

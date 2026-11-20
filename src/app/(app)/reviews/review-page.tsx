@@ -39,11 +39,11 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
   const { date, reviewId, calendar } = await searchParams;
   const selection = reviewSelectorSchema.safeParse({ kind, date, reviewId });
   if (!selection.success) notFound();
-  const { review, window, timezone } = await resolveReview(user.id, kind, selection.data).catch((error: unknown) => {
+  const { review, window, timezone, date: selectedDate } = await resolveReview(user.id, kind, selection.data).catch((error: unknown) => {
     if (error instanceof ApiError && (error.status === 404 || error.status === 400)) notFound();
     throw error;
   });
-  const closed = review.status === "CLOSED";
+  const closed = review?.status === "CLOSED";
   const calendarDate = reviewSelectorSchema.shape.date.safeParse(calendar).data;
   const today = localDateKey(new Date(), timezone);
   const [facts, days] = await Promise.all([
@@ -98,8 +98,8 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
                       <Link href={reviewHref("DAILY", { date: day.date, calendar: day.date })} prefetch={false} className="font-medium text-primary hover:underline">{label}</Link>
                     ) : <span>{label}</span>}
                     <span className="tnum text-right">
-                      {dailyPnlLabel(day.pnl, day.hasActivity)}
-                      {day.hasActivity ? ` · ${fmtUSDdelta(day.pnl)}` : null}
+                      {dailyPnlLabel(day.pnl, day.hasActivity, day.hasRealizedPnl)}
+                      {day.hasRealizedPnl ? ` · ${fmtUSDdelta(day.pnl)}` : null}
                     </span>
                   </li>
                 );
@@ -141,16 +141,17 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
       ) : null}
 
       <ReviewClient
-        key={review.id}
+        key={selection.data.reviewId ?? selectedDate}
         kind={kind}
-        reviewId={review.id}
+        reviewId={review?.id}
+        date={selectedDate}
         calendar={calendarDate}
         closed={closed}
         initial={{
-          performance: review.performance ?? "",
-          riskNotes: review.riskNotes ?? "",
-          reflections: review.reflections ?? "",
-          nextPlan: review.nextPlan ?? "",
+          performance: review?.performance ?? "",
+          riskNotes: review?.riskNotes ?? "",
+          reflections: review?.reflections ?? "",
+          nextPlan: review?.nextPlan ?? "",
         }}
       />
     </PageShell>

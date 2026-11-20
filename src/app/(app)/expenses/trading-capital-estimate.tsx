@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/field";
 import { JisdorRateNote } from "@/components/finance/jisdor-rate-note";
-import { estimateTradingCapital, parseCapitalInput, parseMonteCarloEquity } from "@/lib/finance/trading-capital";
+import { estimateTradingCapital, monteCarloEquityStorageKey, parseCapitalInput, parseMonteCarloEquity } from "@/lib/finance/trading-capital";
 import type { JisdorQuote } from "@/lib/finance/exchange";
 import { D, fmtIDR, fmtUSD } from "@/lib/money";
 import { formatLocalizedNumber } from "@/lib/number-input";
@@ -16,8 +16,9 @@ const assumptions = [
   { key: "share", label: "Porsi laba untuk kebutuhan (%)" },
 ] as const;
 
-export function TradingCapitalEstimate({ planned, quote }: { planned: string; quote: JisdorQuote | null }) {
+export function TradingCapitalEstimate({ userId, planned, quote }: { userId: string; planned: string; quote: JisdorQuote | null }) {
   const [draft, setDraft] = useState({ target: null as string | null, return: "", share: "" });
+  const [transferFailed, setTransferFailed] = useState(false);
   const form = { ...draft, target: draft.target ?? (D(planned).gt(0) ? formatLocalizedNumber(planned) : "") };
   const target = parseCapitalInput(form.target);
   const monthlyReturn = parseCapitalInput(form.return);
@@ -25,8 +26,7 @@ export function TradingCapitalEstimate({ planned, quote }: { planned: string; qu
   const estimate = target && monthlyReturn && share ? estimateTradingCapital(target, monthlyReturn, share, quote) : null;
   const malformed = assumptions.some(({ key }) => form[key].trim() && parseCapitalInput(form[key]) === null);
   const usdValue = estimate?.status === "estimated" ? estimate.usd?.toFixed(2) : undefined;
-  const simulatorHref = parseMonteCarloEquity(usdValue) !== undefined
-    ? `/simulator?monteCarloEquity=${usdValue}#monte-carlo` : null;
+  const canTransfer = usdValue !== undefined && parseMonteCarloEquity(usdValue) !== undefined;
 
   return (
     <Card>
@@ -60,8 +60,15 @@ export function TradingCapitalEstimate({ planned, quote }: { planned: string; qu
               <p className="text-xs text-muted">Estimasi berdasarkan asumsi</p>
               <p className="tnum text-xl font-semibold">{fmtIDR(estimate.idr)}{estimate.usd ? ` · ≈ ${fmtUSD(estimate.usd)}` : ""}</p>
               <JisdorRateNote quote={quote} />
-              {simulatorHref ? (
-                <Link href={simulatorHref} className="inline-flex h-10 items-center rounded-lg border border-line px-3 text-sm font-medium text-primary hover:border-primary focus-visible:outline-2 focus-visible:outline-primary">
+              {canTransfer ? (
+                <Link href="/simulator#monte-carlo" onNavigate={(event) => {
+                  try {
+                    sessionStorage.setItem(monteCarloEquityStorageKey(userId), usdValue);
+                  } catch {
+                    event.preventDefault();
+                    setTransferFailed(true);
+                  }
+                }} className="inline-flex h-10 items-center rounded-lg border border-line px-3 text-sm font-medium text-primary hover:border-primary focus-visible:outline-2 focus-visible:outline-primary">
                   Uji di Monte Carlo
                 </Link>
               ) : (
@@ -69,6 +76,7 @@ export function TradingCapitalEstimate({ planned, quote }: { planned: string; qu
                   ? "Estimasi USD di luar rentang modal awal Monte Carlo."
                   : "Kurs USD diperlukan untuk mengisi modal awal Monte Carlo."}</p>
               )}
+              {transferFailed ? <p role="alert" className="text-xs text-loss">Peramban tidak dapat meneruskan nominal. Buka Simulator dan isi modal awal secara manual.</p> : null}
             </>
           ) : <p className="text-xs text-muted">Isi ketiga nilai. Gunakan imbal hasil setelah biaya trading.</p>}
         </div>
