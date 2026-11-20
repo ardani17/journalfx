@@ -62,7 +62,7 @@ test("plans tomorrow, records outcomes, reviews history and opens the schedule o
       await page.getByRole("button", { name: "Tambah kegiatan" }).click();
       await page.getByLabel("Rencana kegiatan", { exact: true }).fill(plan);
       if (index === 0) {
-        await page.getByLabel("Jenis kegiatan").selectOption("TRADING");
+        await page.getByLabel("Jenis kegiatan").selectOption({ label: "Trading" });
         await page.getByLabel("Strategi (opsional)").selectOption(strategy.id);
         await page.getByLabel("Kondisi masuk (opsional)").fill("Tunggu penutupan di atas level rencana.");
       } else {
@@ -152,7 +152,7 @@ test("protects private plans, reflections and strategies at the normal page and 
     await expect(otherPage.getByText("Belum ada rencana")).toBeVisible();
     await expect(otherPage.getByText("Rencana privat")).toHaveCount(0);
     await otherPage.getByRole("button", { name: "Tambah kegiatan" }).click();
-    await otherPage.getByLabel("Jenis kegiatan").selectOption("TRADING");
+    await otherPage.getByLabel("Jenis kegiatan").selectOption({ label: "Trading" });
     await expect(otherPage.getByRole("option", { name: "Strategi privat" })).toHaveCount(0);
     await otherPage.goto("/tasks?date=2028-03-01");
     await expect(otherPage.getByText("Refleksi privat")).toHaveCount(0);
@@ -164,5 +164,60 @@ test("protects private plans, reflections and strategies at the normal page and 
   } finally {
     await otherContext.close();
     await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
+  }
+});
+
+test("manages activity types on mobile and changes an existing activity without losing its result", async ({ page, baseURL }) => {
+  const user = await createUser();
+  const plan = "Periksa kondisi pasar";
+
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signIn(page.context(), baseURL!, user);
+    await page.goto("/tasks?date=2028-03-05");
+    await page.getByRole("button", { name: "Tambah kegiatan" }).click();
+    const kinds = page.getByLabel("Jenis kegiatan");
+    await kinds.selectOption({ label: "Trading" });
+    await page.getByLabel("Rencana kegiatan", { exact: true }).fill(plan);
+    await page.getByLabel("Kondisi masuk (opsional)").fill("Patuhi kondisi masuk.");
+    await page.getByRole("button", { name: "Simpan rencana" }).click();
+    const activity = page.getByRole("listitem").filter({ has: page.getByText(plan, { exact: true }) });
+    await activity.getByRole("button", { name: "Catat realisasi" }).click();
+    await activity.getByLabel("Status", { exact: true }).selectOption("COMPLETED");
+    await activity.getByLabel("Catatan realisasi").fill("Menunggu konfirmasi dan tidak membuka posisi.");
+    await activity.getByRole("button", { name: "Simpan realisasi" }).click();
+    await expect(activity.getByText("Terlaksana", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Kelola jenis", exact: true }).click();
+    const manager = page.getByRole("dialog", { name: "Kelola jenis kegiatan" });
+    await manager.getByLabel("Nama jenis baru").fill("Belajar");
+    await manager.getByRole("button", { name: "Tambah jenis", exact: true }).click();
+    await expect(manager.getByText("Belajar", { exact: true })).toBeVisible();
+
+    const row = (name: string) => manager.getByRole("listitem").filter({ has: page.getByText(name, { exact: true }) });
+    await row("Trading").getByRole("button", { name: "Ubah nama" }).click();
+    await manager.getByLabel("Nama baru").fill("Analisis pasar");
+    await manager.getByRole("button", { name: "Simpan nama" }).click();
+    await row("Analisis pasar").getByRole("button", { name: "Hapus jenis", exact: true }).click();
+    await manager.getByRole("button", { name: "Konfirmasi hapus jenis" }).click();
+    await expect(row("Analisis pasar")).toHaveCount(0);
+    await manager.getByRole("button", { name: "Tutup", exact: true }).click();
+
+    await expect(activity.getByText("Analisis pasar", { exact: true })).toBeVisible();
+    await expect(activity.getByText("Patuhi kondisi masuk.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Tambah kegiatan" }).click();
+    await expect(kinds.getByRole("option", { name: /Analisis pasar/ })).toHaveCount(0);
+    await expect(kinds.getByRole("option", { name: "Belajar" })).toHaveCount(1);
+    await page.getByRole("button", { name: "Batal", exact: true }).click();
+
+    await activity.getByRole("button", { name: "Edit rencana" }).click();
+    await expect(kinds.locator("option:checked")).toHaveText("Analisis pasar (dihapus)");
+    await kinds.selectOption({ label: "Belajar" });
+    await activity.getByRole("button", { name: "Simpan rencana" }).click();
+    await expect(activity.getByText("Belajar", { exact: true })).toBeVisible();
+    await expect(activity.getByText("Menunggu konfirmasi dan tidak membuka posisi.")).toBeVisible();
+    await expect(activity.getByText("Terlaksana", { exact: true })).toBeVisible();
+  } finally {
+    await prisma.user.delete({ where: { id: user.id } });
   }
 });

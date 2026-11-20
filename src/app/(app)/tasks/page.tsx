@@ -10,6 +10,7 @@ import { addUTCDays, calendarDate, fmtCalendarDateID } from "@/lib/dates";
 import { taskDateSchema } from "@/lib/validation/tasks";
 import { requireUser } from "@/server/auth";
 import { listStrategies } from "@/server/services/journal";
+import { defaultActivityTypeId, listActivityTypes } from "@/server/services/task-types";
 import { getTaskDay } from "@/server/services/tasks";
 import { ActivityList } from "./activity-list";
 import { ReflectionForm } from "./task-forms";
@@ -28,9 +29,10 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
   if (!requestedDate.success) redirect("/tasks");
   const date = requestedDate.data;
 
-  const [{ activities, reflection, previousReflection, history }, strategies] = await Promise.all([
+  const [{ activities, reflection, previousReflection, history }, strategies, types] = await Promise.all([
     getTaskDay(user.id, date),
     listStrategies(user.id),
+    listActivityTypes(user.id),
   ]);
   const total = activities.length;
   const completed = activities.filter((activity) => activity.status === "COMPLETED").length;
@@ -80,6 +82,8 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
           date={date}
           activities={activities}
           strategies={strategies.map(({ id, name }) => ({ id, name }))}
+          types={types}
+          defaultTypeId={defaultActivityTypeId(user.id, "GENERAL")}
         />
         <div className="flex min-w-0 flex-col gap-4">
           <Card>

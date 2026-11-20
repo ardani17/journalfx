@@ -5,6 +5,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, Select, Textarea } from "@/components/ui/field";
 import type { TaskActivity } from "@/server/services/tasks";
+import type { TaskActivityType } from "@/server/services/task-types";
 
 export type TaskStrategy = { id: string; name: string };
 
@@ -45,15 +46,20 @@ export function useTaskMutation() {
   return { save, pending, error };
 }
 
-export function PlanForm({ date, activity, strategies, onClose }: {
+export function PlanForm({ date, activity, strategies, types, defaultTypeId = "", onClose }: {
   date: string;
   activity?: TaskActivity;
   strategies: TaskStrategy[];
+  types: TaskActivityType[];
+  defaultTypeId?: string;
   onClose: () => void;
 }) {
   const id = useId();
   const submissionId = useRef<string>(null);
-  const [trading, setTrading] = useState(activity?.kind === "TRADING");
+  const currentType = activity?.type;
+  const [typeId, setTypeId] = useState(currentType?.id ?? defaultTypeId);
+  const selectedType = types.find((type) => type.id === typeId) ?? (currentType?.id === typeId ? currentType : null);
+  const trading = selectedType?.kind === "TRADING";
   const { save, pending, error } = useTaskMutation();
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -61,7 +67,7 @@ export function PlanForm({ date, activity, strategies, onClose }: {
     const data = new FormData(event.currentTarget);
     const fields = {
       plan: data.get("plan"),
-      kind: trading ? "TRADING" : "GENERAL",
+      typeId: selectedType?.id ?? null,
       strategyId: data.get("strategyId") || null,
       entryConditions: data.get("entryConditions"),
     };
@@ -80,9 +86,10 @@ export function PlanForm({ date, activity, strategies, onClose }: {
           <Textarea id={`${id}-plan`} name="plan" defaultValue={activity?.plan} required maxLength={2000} rows={2} />
         </Field>
         <Field label="Jenis kegiatan" htmlFor={`${id}-kind`}>
-          <Select id={`${id}-kind`} value={trading ? "TRADING" : "GENERAL"} onChange={(event) => setTrading(event.target.value === "TRADING")}>
-            <option value="GENERAL">Umum</option>
-            <option value="TRADING">Trading</option>
+          <Select id={`${id}-kind`} value={selectedType?.id ?? ""} onChange={(event) => setTypeId(event.target.value)}>
+            <option value="">Tanpa jenis</option>
+            {types.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+            {currentType?.archivedAt && <option value={currentType.id}>{currentType.name} (dihapus)</option>}
           </Select>
         </Field>
         {trading && (

@@ -45,6 +45,7 @@ model User {
   financialAllocations FinancialAllocation[]
   periodReviews      PeriodReview[]
   dailyPlans         DailyPlan[]
+  dailyActivityTypes DailyActivityType[]
   notifications      Notification[]
   notificationChannel NotificationChannel?
   economicEvents     EconomicEvent[]
@@ -691,6 +692,19 @@ model DailyPlan {
   @@unique([userId, date])
 }
 
+model DailyActivityType {
+  id         String            @id @default(cuid())
+  userId     String
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  kind       DailyActivityKind
+  archivedAt DateTime?
+
+  activities DailyActivity[]
+
+  @@index([userId, archivedAt])
+}
+
 model DailyActivity {
   id              String              @id @default(uuid())
   dailyPlanId     String
@@ -698,6 +712,8 @@ model DailyActivity {
   requestId       String
   plan            String
   kind            DailyActivityKind
+  typeId          String?
+  type            DailyActivityType?  @relation(fields: [typeId], references: [id], onDelete: SetNull)
   strategyId      String?
   strategy        Strategy?           @relation(fields: [strategyId], references: [id], onDelete: SetNull)
   entryConditions String?
@@ -707,6 +723,7 @@ model DailyActivity {
 
   @@unique([dailyPlanId, requestId])
   @@index([dailyPlanId, createdAt, id])
+  @@index([typeId])
   @@index([strategyId])
 }
 

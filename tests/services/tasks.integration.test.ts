@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createActivitySchema, taskDateSchema, taskReflectionSchema, updateActivitySchema } from "@/lib/validation/tasks";
 import { prisma } from "@/server/db";
 import { createActivity, deleteActivity, getTaskDay, saveTaskReflection, updateActivity } from "@/server/services/tasks";
+import { archiveActivityType, createActivityType, listActivityTypes, renameActivityType } from "@/server/services/task-types";
 
 describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL daily activity plans", () => {
   const userIds: string[] = [];
@@ -108,5 +109,63 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL daily activity pla
     expect((await getTaskDay(owner, date)).activities[0]).toMatchObject({ strategy: null, status: "COMPLETED" });
     await deleteActivity(owner, id);
     expect((await getTaskDay(owner, date)).history).toEqual([{ date, count: 0 }]);
+  });
+
+  it("renames and archives default types without losing old activities or letting another user reassign them", async () => {
+    const [owner, other] = await Promise.all([createUser(), createUser()]);
+    const defaults = await listActivityTypes(owner);
+    const general = defaults.find(({ kind }) => kind === "GENERAL")!;
+    const trading = defaults.find(({ kind }) => kind === "TRADING")!;
+    const work = await createActivityType(owner, { name: "Kerja", kind: "GENERAL" });
+    await expect(renameActivityType(owner, general.id, "kerja")).rejects.toMatchObject({ status: 409 });
+    await expect(renameActivityType(other, trading.id, "Milik pengguna lain")).rejects.toMatchObject({ status: 404 });
+    await expect(archiveActivityType(other, trading.id)).rejects.toMatchObject({ status: 404 });
+    await expect(createActivity(other, createActivitySchema.parse({
+      date: "2028-02-01", requestId: randomUUID(), plan: "Rencana asing", typeId: trading.id,
+    }))).rejects.toMatchObject({ status: 404 });
+
+    const activity = createActivitySchema.parse({
+      date: "2028-02-01", requestId: randomUUID(), plan: "Periksa kondisi", typeId: trading.id,
+      entryConditions: "Tunggu konfirmasi.",
+    });
+    const { id } = await createActivity(owner, activity);
+    await updateActivity(owner, id, updateActivitySchema.parse({
+      section: "realization", status: "COMPLETED", actualNotes: "Lewatkan karena setup belum sesuai.",
+    }));
+    await renameActivityType(owner, trading.id, "Analisis pasar");
+    await archiveActivityType(owner, trading.id);
+
+    expect((await listActivityTypes(owner)).map(({ id }) => id)).not.toContain(trading.id);
+    await expect(createActivity(owner, { ...activity, requestId: randomUUID() })).rejects.toMatchObject({ status: 404 });
+    expect((await getTaskDay(owner, activity.date)).activities[0]).toMatchObject({
+      type: { id: trading.id, name: "Analisis pasar", kind: "TRADING", archivedAt: expect.any(Date) },
+      entryConditions: "Tunggu konfirmasi.",
+      status: "COMPLETED",
+    });
+    await updateActivity(owner, id, updateActivitySchema.parse({
+      section: "plan", typeId: trading.id, plan: "Periksa kondisi sesi pagi", entryConditions: "Tunggu konfirmasi.",
+    }));
+    await updateActivity(owner, id, updateActivitySchema.parse({
+      section: "plan", typeId: work.id, plan: "Periksa kondisi sesi pagi",
+    }));
+    expect((await getTaskDay(owner, activity.date)).activities[0]).toMatchObject({
+      type: { id: work.id, name: "Kerja" },
+      kind: "GENERAL",
+      entryConditions: "Tunggu konfirmasi.",
+      actualNotes: "Lewatkan karena setup belum sesuai.",
+      status: "COMPLETED",
+    });
+
+    await archiveActivityType(owner, general.id);
+    await archiveActivityType(owner, work.id);
+    await expect(listActivityTypes(owner)).resolves.toEqual([]);
+    await expect(listActivityTypes(other)).resolves.toHaveLength(2);
+    const uncategorized = await createActivity(owner, createActivitySchema.parse({
+      date: activity.date, requestId: randomUUID(), plan: "Rencana tanpa jenis", typeId: null,
+    }));
+    expect((await getTaskDay(owner, activity.date)).activities.find(({ id }) => id === uncategorized.id)).toMatchObject({
+      type: null, kind: "GENERAL",
+    });
+    await expect(createActivityType(owner, { name: "kerja", kind: "GENERAL" })).resolves.toMatchObject({ name: "kerja" });
   });
 });

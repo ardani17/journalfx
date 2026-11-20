@@ -3,11 +3,13 @@ import { ApiError } from "@/lib/api";
 import { addUTCDays } from "@/lib/dates";
 import type { CreateActivity, TaskReflection, UpdateActivity } from "@/lib/validation/tasks";
 import { prisma } from "@/server/db";
+import { activityTypeSelect, defaultActivityTypeId, ensureDefaultActivityTypes } from "./task-types";
 
 const activitySelect = {
   id: true,
   plan: true,
   kind: true,
+  type: { select: activityTypeSelect },
   status: true,
   entryConditions: true,
   actualNotes: true,
@@ -58,18 +60,38 @@ export async function getTaskDay(userId: string, dateKey: string) {
 async function validatePlanFields(
   db: Prisma.TransactionClient,
   userId: string,
-  input: Pick<CreateActivity, "plan" | "kind" | "strategyId" | "entryConditions">,
+  input: Pick<CreateActivity, "plan" | "typeId" | "kind" | "strategyId" | "entryConditions">,
+  current?: { typeId: string | null; kind: TaskActivity["kind"] },
 ) {
-  const trading = input.kind === "TRADING";
-  const strategyId = trading ? input.strategyId ?? null : null;
+  let typeId = input.typeId;
+  if (typeId === undefined) {
+    const kind = input.kind ?? "GENERAL";
+    if (current?.kind === kind) {
+      typeId = current.typeId;
+    } else {
+      await ensureDefaultActivityTypes(db, userId);
+      typeId = defaultActivityTypeId(userId, kind);
+    }
+  }
+  const type = typeId ? await db.dailyActivityType.findUnique({
+    where: { id: typeId, userId },
+    select: { kind: true, archivedAt: true },
+  }) : null;
+  if (typeId && (!type || (type.archivedAt && current?.typeId !== typeId))) {
+    throw new ApiError(404, "Jenis kegiatan tidak ditemukan");
+  }
+  const kind = type?.kind ?? (input.typeId === undefined ? input.kind : undefined) ?? "GENERAL";
+  const fields = { plan: input.plan, kind, typeId };
+  if (kind !== "TRADING") return fields;
+
+  const strategyId = input.strategyId ?? null;
   if (strategyId && !await db.strategy.findUnique({ where: { id: strategyId, userId }, select: { id: true } })) {
     throw new ApiError(404, "Strategi tidak ditemukan");
   }
   return {
-    plan: input.plan,
-    kind: input.kind,
+    ...fields,
     strategyId,
-    entryConditions: trading ? input.entryConditions : null,
+    entryConditions: input.entryConditions,
   };
 }
 
@@ -103,12 +125,17 @@ export async function createActivity(userId: string, input: CreateActivity) {
 
 export async function updateActivity(userId: string, id: string, input: UpdateActivity) {
   return prisma.$transaction(async (tx) => {
-    const data = input.section === "plan" ? await validatePlanFields(tx, userId, input) : {
-      status: input.status,
-      actualNotes: input.actualNotes,
-    };
+    const where = { id, dailyPlan: { userId } };
+    let data: Prisma.DailyActivityUncheckedUpdateManyInput;
+    if (input.section === "plan") {
+      const current = await tx.dailyActivity.findUnique({ where, select: { typeId: true, kind: true } });
+      if (!current) throw new ApiError(404, "Kegiatan tidak ditemukan");
+      data = await validatePlanFields(tx, userId, input, current);
+    } else {
+      data = { status: input.status, actualNotes: input.actualNotes };
+    }
     const { count } = await tx.dailyActivity.updateMany({
-      where: { id, dailyPlan: { userId } },
+      where,
       data,
     });
     if (!count) throw new ApiError(404, "Kegiatan tidak ditemukan");
