@@ -143,6 +143,27 @@ for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },
   { name: "mobile", width: 390, height: 844 },
 ]) {
+  test(`opens the correct trade from anywhere in the row on ${viewport.name}`, async ({ page, baseURL }, testInfo) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);
+    const list = `/journal?sort=asc&accountId=${journal.account.id}`;
+    const link = (id: string) => page.locator(`a[href="/journal/${journal.userId}-${id}"]`);
+    const row = (id: string) => page.getByRole("row").filter({ has: link(id) });
+    await page.goto(list);
+    await row("001").getByRole("cell", { name: "EURUSD", exact: true }).click({ force: true });
+    await expect(page).toHaveURL(new RegExp(`/journal/${journal.userId}-001$`));
+    await page.goto(list);
+    await row("002").getByRole("cell").nth(7).click({ force: true, position: { x: 4, y: 4 } });
+    await expect(page).toHaveURL(new RegExp(`/journal/${journal.userId}-002$`));
+    await page.goto(list);
+    await link("001").focus();
+    await page.keyboard.press("Tab");
+    await expect(link("002")).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`journal-rows-${viewport.name}.png`) });
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(new RegExp(`/journal/${journal.userId}-002$`));
+  });
+
   test(`preserves date sorting across filtered pages on ${viewport.name}`, async ({ page, baseURL }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);
