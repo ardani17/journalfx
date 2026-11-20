@@ -86,6 +86,7 @@ export function SimulatorClient({
   defaults,
   saved,
   selected,
+  monteCarloEquity,
 }: {
   defaults: {
     initialCapital: number;
@@ -97,6 +98,7 @@ export function SimulatorClient({
   };
   saved: { id: string; name: string; returnPerCycle: number; wdMode: string; wdRatio: number | null }[];
   selected: (ScenarioFactsData & { id: string; name: string }) | null;
+  monteCarloEquity?: number;
 }) {
   const router = useRouter();
   const [form, setForm] = useState({
@@ -266,7 +268,10 @@ export function SimulatorClient({
       {selected ? <SavedSimulationResult id={selected.id} frequency={selected.frequency} />
         : result ? <SimulationResult result={result.data} frequency={result.frequency} /> : null}
 
-      <TradeMonteCarloPanel key={selected?.id ?? "default"} initialEquity={Number(selected?.initialCapital ?? defaults.initialCapital)} />
+      <TradeMonteCarloPanel
+        key={monteCarloEquity ?? selected?.id ?? "default"}
+        initialEquity={monteCarloEquity ?? Number(selected?.initialCapital ?? defaults.initialCapital)}
+      />
 
       {/* Saved scenarios */}
       <div>

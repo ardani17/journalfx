@@ -4,14 +4,15 @@ import { getScenario, listScenarios, savedScenarioParameters } from "@/server/se
 import { getDefaultProject } from "@/server/services/projects";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { SimulatorClient } from "./simulator-client";
+import { parseMonteCarloEquity } from "@/lib/finance/trading-capital";
 
 export const metadata = { title: "Compounding Plan" };
 
 export default async function SimulatorPage({ searchParams }: {
-  searchParams: Promise<{ scenarioId?: string | string[] }>;
+  searchParams: Promise<{ scenarioId?: string | string[]; monteCarloEquity?: string | string[] }>;
 }) {
   const user = await requireUser();
-  const { scenarioId } = await searchParams;
+  const { scenarioId, monteCarloEquity } = await searchParams;
   if (scenarioId !== undefined && typeof scenarioId !== "string") notFound();
   const [project, scenarios, selected] = await Promise.all([
     getDefaultProject(user.id),
@@ -44,6 +45,7 @@ export default async function SimulatorPage({ searchParams }: {
           wdRatio: s.wdRatio ? Number(s.wdRatio) : null,
         }))}
         selected={selected && { id: selected.id, name: selected.name, ...savedScenarioParameters(selected) }}
+        monteCarloEquity={parseMonteCarloEquity(monteCarloEquity)}
       />
     </PageShell>
   );
