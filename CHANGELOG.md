@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+## [1.4.7] — 2026-11-20
+
 ### Added
 
 - Explore the probability of reaching a balance target, inspect a sample trade path, and switch the chart between cycles, days, and dates. Save exploration scenarios in the current browser.
