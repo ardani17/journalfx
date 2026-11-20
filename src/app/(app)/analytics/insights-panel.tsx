@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MIN_AI_JOURNAL_TRADES, type AiJournalAnalysis } from "@/lib/ai-journal";
 
 export interface InsightDTO {
   id: string;
@@ -17,15 +18,19 @@ export interface InsightDTO {
 export function InsightsPanel({
   insights,
   coverage,
+  closedTrades,
   aiAvailable,
 }: {
   insights: InsightDTO[];
   coverage: { total: number; withJournal: number; complete: number };
+  closedTrades: number;
   aiAvailable: boolean;
 }) {
-  const [findings, setFindings] = useState<{ finding: string; evidence: string }[]>([]);
+  const [analysis, setAnalysis] = useState<AiJournalAnalysis | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const enoughTrades = closedTrades >= MIN_AI_JOURNAL_TRADES;
+  const canGenerate = aiAvailable && enoughTrades;
 
   async function generate() {
     setPending(true);
@@ -37,7 +42,7 @@ export function InsightsPanel({
         setError(result.error ?? "Insight AI gagal dibuat. Silakan coba lagi.");
         return;
       }
-      setFindings(result.data);
+      setAnalysis(result.data);
     } catch {
       setError("Insight AI gagal dibuat. Silakan coba lagi.");
     } finally {
@@ -49,38 +54,50 @@ export function InsightsPanel({
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Brain className="h-4 w-4 text-primary" aria-hidden /> AI Journal Insights (explainable)
+          <Brain className="h-4 w-4 text-primary" aria-hidden /> AI Journal Insights
           <Badge tone="neutral">Analisis retrospektif</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs leading-relaxed text-muted">
-          Cakupan data: {coverage.withJournal}/{coverage.total} trade ber-jurnal, {coverage.complete} lengkap.
+          Seluruh riwayat trade tertutup · {closedTrades} trade dengan P/L tercatat
         </p>
-        {aiAvailable && coverage.withJournal >= 3 ? (
-          <Button type="button" variant="secondary" size="sm" disabled={pending} onClick={generate}>
-            {pending ? "Membuat insight AI…" : "Buat insight AI"}
-          </Button>
+        <Button type="button" variant="secondary" size="sm" disabled={!canGenerate || pending} onClick={generate}>
+          {pending ? "Membuat insight AI…" : error ? "Coba lagi" : "Buat insight AI"}
+        </Button>
+        {!aiAvailable ? <p className="text-xs text-muted">Penyedia AI belum dikonfigurasi.</p> : null}
+        {!enoughTrades ? (
+          <p className="text-xs text-muted">Analisis AI membutuhkan minimal {MIN_AI_JOURNAL_TRADES} trade tertutup dengan P/L tercatat.</p>
         ) : null}
-        {pending ? <p role="status" className="text-xs text-muted">Analisis jurnal sedang diproses.</p> : null}
+        {canGenerate ? (
+          <p className="text-xs text-muted">Saat Anda meminta analisis, ringkasan statistik trade dikirim ke penyedia AI.</p>
+        ) : null}
+        {pending ? <p role="status" className="text-xs text-muted">Analisis trade sedang diproses.</p> : null}
         {error ? <p role="alert" className="text-xs text-loss">{error}</p> : null}
-        {findings.length > 0 ? (
+        {analysis ? (
           <section aria-label="Hasil insight AI" className="space-y-2">
-            <h3 className="text-sm font-semibold">Hasil insight AI</h3>
+            <h3 className="text-sm font-semibold">{pending || error ? "Hasil insight AI terakhir" : "Hasil insight AI"}</h3>
+            <p className="text-xs text-muted">
+              {analysis.coverage.closedTrades} trade dianalisis · {analysis.coverage.disciplineTrades} dengan data kepatuhan atau FOMO
+            </p>
             <ul className="space-y-2">
-              {findings.map((item, index) => (
-                <li key={index} className="rounded-xl border border-line-soft p-3 text-sm">
-                  <p>{item.finding}</p>
-                  <p className="mt-1 text-xs text-muted">{item.evidence}</p>
+              {analysis.findings.map((item) => (
+                <li key={item.id} className="space-y-1.5 rounded-xl border border-line-soft p-3 text-sm">
+                  <p className="font-medium">{item.finding}</p>
+                  <ul className="space-y-1 text-xs text-muted">
+                    {item.evidence.map((line, index) => <li key={index}>{line}</li>)}
+                  </ul>
+                  <p className="text-xs">{item.reviewAction}</p>
                 </li>
               ))}
             </ul>
           </section>
         ) : null}
-        {insights.length > 0 ? <h3 className="text-sm font-semibold">Insight berbasis aturan</h3> : null}
+        <h3 className="text-sm font-semibold">Insight berbasis aturan</h3>
+        <p className="text-xs text-muted">{coverage.withJournal}/{coverage.total} trade memiliki jurnal terisi · {coverage.complete} lengkap</p>
         {insights.length === 0 ? (
           <p className="py-6 text-center text-xs text-faint">
-            Belum cukup data untuk insight (butuh minimal 3 trade ber-jurnal).
+            Insight berbasis aturan belum tersedia untuk data ini.
           </p>
         ) : (
           <ul className="space-y-2.5">

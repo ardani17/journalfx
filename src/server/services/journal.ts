@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
@@ -29,9 +30,12 @@ export async function createStrategy(
   input: { name: string; description?: string; timeframe?: string; rules?: string },
   req?: Request,
 ) {
-  const dup = await prisma.strategy.findFirst({ where: { userId, name: input.name } });
-  if (dup) throw new ApiError(409, "Nama strategi sudah dipakai");
-  const s = await prisma.strategy.create({ data: { userId, ...input } });
+  const s = await prisma.strategy.create({ data: { userId, ...input } }).catch((error: unknown) => {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ApiError(409, "Nama strategi sudah dipakai");
+    }
+    throw error;
+  });
   await audit({ userId, action: "create", entity: "Strategy", entityId: s.id, after: input, req });
   return s;
 }

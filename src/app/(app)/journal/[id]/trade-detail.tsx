@@ -186,6 +186,7 @@ function useTradeActions(trade: TradeDTO, openQty: ReturnType<typeof D>) {
     setError(null);
     setLoading(true);
     const fd = new FormData(e.currentTarget);
+    const compliance = fd.get("compliant");
     const post: Record<string, boolean> = {};
     for (const c of POST_CHECKS) post[c] = fd.get(`post_${c}`) === "on";
     const payload: Record<string, unknown> = {
@@ -200,7 +201,7 @@ function useTradeActions(trade: TradeDTO, openQty: ReturnType<typeof D>) {
       fomo: fd.get("fomo") === "on",
       revenge: fd.get("revenge") === "on",
       overtrading: fd.get("overtrading") === "on",
-      compliant: fd.get("compliant") === null ? undefined : fd.get("compliant") === "on",
+      compliant: compliance ? compliance === "true" : null,
       mistakes: MISTAKE_OPTIONS.filter((m) => fd.get(`mistake_${m}`) === "on"),
       lessons: fd.get("lessons") || undefined,
       improvement: fd.get("improvement") || undefined,
@@ -450,8 +451,14 @@ function JournalForm({ journal: j, loading, saveJournal }: {
             <Check2 name="fomo" label="FOMO" def={j?.fomo} />
             <Check2 name="revenge" label="Revenge Trading" def={j?.revenge} />
             <Check2 name="overtrading" label="Overtrading" def={j?.overtrading} />
-            <Check2 name="compliant" label="Patuh Plan" def={j?.compliant ?? undefined} />
           </div>
+          <Field label="Patuh pada rencana" htmlFor="j-compliant">
+            <Select id="j-compliant" name="compliant" defaultValue={String(j?.compliant ?? "")}>
+              <option value="">Belum dicatat</option>
+              <option value="true">Ya</option>
+              <option value="false">Tidak</option>
+            </Select>
+          </Field>
           <div>
             <p className="mb-1.5 text-xs font-medium text-muted">Kesalahan</p>
             <div className="flex flex-wrap gap-1.5">

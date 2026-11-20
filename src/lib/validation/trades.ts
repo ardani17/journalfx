@@ -62,7 +62,7 @@ export const updateJournalSchema = z.object({
   fomo: z.boolean().optional(),
   revenge: z.boolean().optional(),
   overtrading: z.boolean().optional(),
-  compliant: z.boolean().optional(),
+  compliant: z.boolean().nullish(),
   mistakes: z.array(z.string().trim().max(40)).max(20).optional(),
   lessons: z.string().trim().max(2000).optional(),
   improvement: z.string().trim().max(2000).optional(),

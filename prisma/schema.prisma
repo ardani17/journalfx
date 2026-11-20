@@ -44,6 +44,8 @@ model User {
   financialBuckets   FinancialBucket[]
   financialAllocations FinancialAllocation[]
   periodReviews      PeriodReview[]
+  dailyPlans         DailyPlan[]
+  dailyActivityTypes DailyActivityType[]
   notifications      Notification[]
   notificationChannel NotificationChannel?
   economicEvents     EconomicEvent[]
@@ -144,7 +146,8 @@ model Strategy {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  trades Trade[]
+  trades          Trade[]
+  dailyActivities DailyActivity[]
 
   @@unique([userId, name])
 }
@@ -664,6 +667,64 @@ model PeriodReview {
 
   @@unique([userId, kind, periodStart])
   @@index([userId, status])
+}
+
+enum DailyActivityKind {
+  GENERAL
+  TRADING
+}
+
+enum DailyActivityStatus {
+  PENDING
+  COMPLETED
+  NOT_COMPLETED
+}
+
+model DailyPlan {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date       DateTime @db.Date
+  reflection String?
+
+  activities DailyActivity[]
+
+  @@unique([userId, date])
+}
+
+model DailyActivityType {
+  id         String            @id @default(cuid())
+  userId     String
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  kind       DailyActivityKind
+  archivedAt DateTime?
+
+  activities DailyActivity[]
+
+  @@index([userId, archivedAt])
+}
+
+model DailyActivity {
+  id              String              @id @default(uuid())
+  dailyPlanId     String
+  dailyPlan       DailyPlan           @relation(fields: [dailyPlanId], references: [id], onDelete: Cascade)
+  requestId       String
+  plan            String
+  kind            DailyActivityKind
+  typeId          String?
+  type            DailyActivityType?  @relation(fields: [typeId], references: [id], onDelete: SetNull)
+  strategyId      String?
+  strategy        Strategy?           @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+  entryConditions String?
+  status          DailyActivityStatus @default(PENDING)
+  actualNotes     String?
+  createdAt       DateTime            @default(now())
+
+  @@unique([dailyPlanId, requestId])
+  @@index([dailyPlanId, createdAt, id])
+  @@index([typeId])
+  @@index([strategyId])
 }
 
 enum NotificationSeverity {
