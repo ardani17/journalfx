@@ -3,6 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
 import { fmtUSD } from "../src/lib/money";
+import { zonedPeriod } from "../src/lib/dates";
+import { formatLocalizedNumber } from "../src/lib/number-input";
 
 const prisma = new PrismaClient();
 test.afterAll(() => prisma.$disconnect());
@@ -106,6 +108,48 @@ test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo i
     await sample.getByRole("button", { name: /Siklus 100 · Trade 100/ }).click();
     await expect(sample.getByRole("cell", { name: "Menang", exact: true })).toBeVisible();
   } finally {
+    await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
+  }
+});
+
+test("estimates capital from the active budget and prefills Monte Carlo", async ({ page, baseURL }, testInfo) => {
+  const { owner, other } = await planningFixture();
+  const rateId = `fixture-capital-${randomUUID()}`;
+  try {
+    const { start, end } = zonedPeriod("MONTHLY", new Date(), owner.timezone);
+    await prisma.budget.create({
+      data: {
+        userId: owner.id, periodStart: start, periodEnd: end,
+        categories: { create: { userId: owner.id, name: "Kebutuhan uji", plannedAmount: 5_000_000 } },
+      },
+    });
+    await prisma.exchangeRate.create({ data: { id: rateId, pair: "USDIDR", source: "bi-jisdor", rate: 16_000, at: new Date() } });
+    await page.context().addCookies([{
+      url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
+      value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
+    }]);
+    await page.goto("/expenses");
+    await expect(page.getByLabel("Target dana bulanan (IDR)")).toHaveValue("5.000.000");
+    await page.getByLabel("Imbal hasil bersih per bulan (%)").fill("5");
+    await page.getByLabel("Porsi laba untuk kebutuhan (%)").fill("50");
+    await expect(page.getByText("Rp200.000.000", { exact: false })).toBeVisible();
+    await page.getByLabel("Target dana bulanan (IDR)").fill("2.500.000");
+    await expect(page.getByText("Rp100.000.000", { exact: false })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("capital-estimate-desktop.png") });
+    const jump = page.getByRole("link", { name: "Uji di Monte Carlo" });
+    const href = await jump.getAttribute("href", { timeout: 3000 }).catch(() => null);
+    if (href) {
+      const amount = new URL(href, baseURL).searchParams.get("monteCarloEquity")!;
+      await jump.click();
+      await expect(page.locator("#monte-carlo-initialEquity")).toHaveValue(formatLocalizedNumber(amount));
+    } else {
+      await expect(page.getByText("Kurs USD diperlukan untuk mengisi modal awal Monte Carlo.")).toBeVisible();
+      await page.goto("/simulator?monteCarloEquity=6250.25#monte-carlo");
+      await expect(page.locator("#monte-carlo-initialEquity")).toHaveValue("6.250,25");
+    }
+    await expect(page.getByRole("heading", { name: "Contoh jalur simulasi" })).toHaveCount(0);
+  } finally {
+    await prisma.exchangeRate.deleteMany({ where: { id: rateId } });
     await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
   }
 });

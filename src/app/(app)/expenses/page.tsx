@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/misc";
 import { BudgetClient } from "./budget-client";
+import { TradingCapitalEstimate } from "./trading-capital-estimate";
 import { fmtIDR, fmtNum } from "@/lib/money";
 import { PiggyBank } from "lucide-react";
 import { getJisdorQuote } from "@/server/services/jisdor";
@@ -68,6 +69,7 @@ export default async function ExpensesPage() {
         </Card>
       </div>
 
+      <TradingCapitalEstimate planned={overview.planned.toString()} quote={fx} />
       <BudgetClient
         categories={overview.categories.map((c) => ({
           id: c.id,

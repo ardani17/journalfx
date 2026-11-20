@@ -103,7 +103,7 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
   }
 
   return (
-    <Card>
+    <Card id="monte-carlo" className="scroll-mt-20">
       <CardHeader><CardTitle>Monte Carlo</CardTitle></CardHeader>
       <CardContent className="space-y-4">
         <section aria-label="Contoh Monte Carlo" className="space-y-3 rounded-xl border border-line bg-panel-2/50 p-3">
