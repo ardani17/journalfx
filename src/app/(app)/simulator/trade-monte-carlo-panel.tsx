@@ -173,9 +173,9 @@ function MonteCarloResults({ result }: { result: TradeMonteCarloResult }) {
     ["Median saldo akhir", fmtUSD(result.medianFinal)],
     ["P5 saldo akhir", fmtUSD(result.p5Final)],
     ["Median kas ditarik", fmtUSD(result.medianWithdrawn)],
-    ["Rata-rata max drawdown", pct(result.meanMaxDrawdown)],
-    ["P95 max drawdown", pct(result.p95MaxDrawdown)],
-    ["Risiko kehancuran", pct(result.riskOfRuin)],
+    ["Rata-rata penurunan maksimum", pct(result.meanMaxDrawdown)],
+    ["P95 penurunan maksimum", pct(result.p95MaxDrawdown)],
+    ["Peluang mencapai ambang kerugian", pct(result.riskOfRuin)],
     ["Rata-rata rentetan rugi terpanjang", fmtNum(result.meanLossStreak, 2)],
     ["Rentetan rugi maksimum", fmtNum(result.maxLossStreak, 0)],
   ];
@@ -205,8 +205,8 @@ function ExamplePath({ result }: { result: TradeMonteCarloResult }) {
     <>
       <h3 className="text-sm font-semibold">Contoh jalur simulasi</h3>
       {example.stopped ? <p className="text-xs text-loss">
-        {steps.length ? `Simulasi berhenti setelah trade ${steps.length} karena saldo mencapai batas margin.`
-          : "Simulasi berhenti sebelum trade pertama karena saldo mencapai batas margin."}
+        {steps.length ? `Simulasi berhenti setelah transaksi ${steps.length} karena saldo mencapai batas margin.`
+          : "Simulasi berhenti sebelum transaksi pertama karena saldo mencapai batas margin."}
       </p> : null}
       <CyclePagination count={count} label="Riwayat siklus Monte Carlo">
         {(start, end) => (
@@ -228,13 +228,13 @@ function ExamplePath({ result }: { result: TradeMonteCarloResult }) {
               return (
                 <div className="rounded-lg border border-line p-2" key={index}>
                   <Button variant="ghost" size="sm" aria-expanded={open} onClick={() => setExpanded(open ? null : index)}>
-                    Siklus {index + 1} · Trade {first.trade}–{last.trade} ({cycle.length} trade)
+                    Siklus {index + 1} · Transaksi {first.trade}–{last.trade} ({cycle.length} transaksi)
                   </Button>
                   <p className="px-2 text-xs text-muted">
-                    {totals.wins} menang · {cycle.length - totals.wins} kalah · Drawdown {pct(totals.drawdown)}
+                    {totals.wins} menang · {cycle.length - totals.wins} kalah · Penurunan saldo {pct(totals.drawdown)}
                   </p>
                   <p className="px-2 text-xs text-muted">
-                    Saldo awal {fmtUSD(first.opening)} · Return {pct(100 * totals.net / first.opening)} · L/R kotor {fmtUSD(totals.gross)}
+                    Saldo awal {fmtUSD(first.opening)} · Imbal hasil {pct(100 * totals.net / first.opening)} · L/R kotor {fmtUSD(totals.gross)}
                     {" · "}Biaya {fmtUSD(totals.cost)} · L/R bersih {fmtUSD(totals.net)} · WD {fmtUSD(totals.withdrawal)} · Saldo akhir {fmtUSD(last.closing)}
                   </p>
                   {open ? <TradeDetails steps={cycle} /> : null}
@@ -253,7 +253,7 @@ function TradeDetails({ steps }: { steps: TradeStep[] }) {
     <TableWrap>
       <Table>
         <THead><TR>
-          {["Trade", "Hasil", "Lot", "Risiko efektif", "Biaya", "L/R bersih", "WD", "Saldo", "Penanda"].map((label) => <TH key={label}>{label}</TH>)}
+          {["Transaksi", "Hasil", "Lot", "Risiko efektif", "Biaya", "L/R bersih", "WD", "Saldo", "Penanda"].map((label) => <TH key={label}>{label}</TH>)}
         </TR></THead>
         <TBody>
           {steps.map((step) => (
@@ -261,7 +261,7 @@ function TradeDetails({ steps }: { steps: TradeStep[] }) {
               <TD>{step.trade}</TD><TD>{step.win ? "Menang" : "Kalah"}</TD><TD>{fmtNum(step.lot, 2)}</TD>
               <TD>{pct(step.riskPercent)} · {fmtUSD(step.actualRisk)}</TD><TD>{fmtUSD(step.cost)}</TD>
               <TD>{fmtUSD(step.net)}</TD><TD>{fmtUSD(step.withdrawal)}</TD><TD>{fmtUSD(step.closing)}</TD>
-              <TD>{[step.throttled && "Throttle", step.withdrawal > 0 && "Withdrawal", step.stopped && "Batas margin"].filter(Boolean).join(" · ") || "—"}</TD>
+              <TD>{[step.throttled && "Risiko dikurangi", step.withdrawal > 0 && "Penarikan", step.stopped && "Batas margin"].filter(Boolean).join(" · ") || "—"}</TD>
             </TR>
           ))}
         </TBody>

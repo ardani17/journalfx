@@ -70,7 +70,7 @@ export function BudgetClient({ categories }: { categories: Cat[] }) {
         <CardContent className="p-0">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-line bg-panel-2/60 text-[11px] uppercase tracking-wide text-faint">
-              <tr><th className="px-4 py-2.5 font-medium">Kategori</th><th className="px-4 py-2.5 text-right font-medium">Terencana</th><th className="px-4 py-2.5 text-right font-medium">Terpakai</th><th className="px-4 py-2.5 font-medium">Progress</th><th /></tr>
+              <tr><th className="px-4 py-2.5 font-medium">Kategori</th><th className="px-4 py-2.5 text-right font-medium">Terencana</th><th className="px-4 py-2.5 text-right font-medium">Terpakai</th><th className="px-4 py-2.5 font-medium">Progres</th><th /></tr>
             </thead>
             <tbody className="divide-y divide-line-soft">
               {categories.filter((c) => c.isActive).length === 0 ? (

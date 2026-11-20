@@ -54,7 +54,7 @@ const BalancePlot = dynamic(() => import("recharts").then(({
               fontSize: 12,
             }}
             labelStyle={{ color: "#a8b3c7" }}
-            formatter={(value) => [`$${Number(value).toLocaleString("id-ID", { minimumFractionDigits: 2 })}`, "Balance"]}
+            formatter={(value) => [`$${Number(value).toLocaleString("id-ID", { minimumFractionDigits: 2 })}`, "Saldo"]}
             labelFormatter={(label) => fmtDateLabel(String(label ?? ""))}
           />
           <Area
@@ -86,7 +86,7 @@ const BalancePlot = dynamic(() => import("recharts").then(({
 
 export function BalanceChart({ data, showProjection }: { data: BalancePointDTO[]; showProjection?: boolean }) {
   return (
-    <div className="h-[260px] w-full" role="img" aria-label="Grafik pertumbuhan balance">
+    <div className="h-[260px] w-full" role="img" aria-label="Grafik pertumbuhan saldo">
       <BalancePlot data={data} showProjection={showProjection} />
     </div>
   );

@@ -97,7 +97,7 @@ export function CalculatorClient({
                   ))}
                 </Select>
               </Field>
-              <Field label="Balance (USD)" htmlFor="c-balance">
+              <Field label="Saldo (USD)" htmlFor="c-balance">
                 <Input id="c-balance" type="number" step="0.01" min="1" value={form.balance}
                   onChange={(e) => setForm({ ...form, balance: Number(e.target.value) })} required />
               </Field>
@@ -107,7 +107,7 @@ export function CalculatorClient({
                 <Input id="c-risk" type="number" step="0.01" min="0.01" max="100" value={form.riskPct}
                   onChange={(e) => setForm({ ...form, riskPct: Number(e.target.value) })} required />
               </Field>
-              <Field label="Harga Entry" htmlFor="c-entry">
+              <Field label="Harga Pembukaan" htmlFor="c-entry">
                 <Input id="c-entry" type="number" step={priceStep} min="0"
                   value={form.entry} onChange={(e) => setForm({ ...form, entry: e.target.value })} placeholder="2025.40" required />
               </Field>

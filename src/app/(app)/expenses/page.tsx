@@ -54,7 +54,7 @@ export default async function ExpensesPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              <span>Periode: {budget.periodStart.toLocaleDateString("id-ID", { month: "long", year: "numeric", timeZone: "UTC" })}</span>
+              <span>Periode: {budget.periodStart.toLocaleDateString("id-ID", { month: "long", year: "numeric", timeZone: user.timezone })}</span>
               <Badge tone={overview.coveragePct >= 100 ? "success" : overview.coveragePct > 0 ? "warn" : "neutral"}>
                 {fmtNum(overview.coveragePct, 1)}% terdanai
               </Badge>

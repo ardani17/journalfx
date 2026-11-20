@@ -3,7 +3,7 @@ import { getRecommendation, listWithdrawals, listWithdrawalSourceAccounts } from
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { WithdrawalsClient } from "./withdrawals-client";
 
-export const metadata = { title: "Withdrawal Plan (WD)" };
+export const metadata = { title: "Penarikan Dana" };
 
 export default async function WithdrawalsPage() {
   const user = await requireUser();
@@ -18,7 +18,7 @@ export default async function WithdrawalsPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Withdrawal Plan (WD)"
+        title="Penarikan Dana"
         subtitle="Rencanakan penarikan laba trading dan catat dana yang diterima dari broker."
       />
       <WithdrawalsClient

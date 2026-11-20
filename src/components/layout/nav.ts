@@ -31,21 +31,21 @@ export interface NavGroup {
 export const NAV: NavGroup[] = [
   {
     label: "",
-    items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }],
+    items: [{ label: "Dasbor", href: "/dashboard", icon: LayoutDashboard }],
   },
   {
     label: "",
     items: [
       { label: "Jurnal Trading", href: "/journal", icon: BookOpen },
-      { label: "Task / Jadwal", href: "/tasks", icon: ListTodo },
+      { label: "Tugas / Jadwal", href: "/tasks", icon: ListTodo },
     ],
   },
   {
-    label: "Plan & Strategi",
+    label: "Rencana dan Strategi",
     items: [
-      { label: "Compounding", href: "/simulator", icon: TrendingUp },
-      { label: "Withdrawal (WD)", href: "/withdrawals", icon: Wallet },
-      { label: "Target Project", href: "/roadmap", icon: Target },
+      { label: "Pemajemukan", href: "/simulator", icon: TrendingUp },
+      { label: "Penarikan Dana", href: "/withdrawals", icon: Wallet },
+      { label: "Target Proyek", href: "/roadmap", icon: Target },
     ],
   },
   {
@@ -67,7 +67,7 @@ export const NAV: NavGroup[] = [
 ];
 
 export const MOBILE_NAV: NavLeaf[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Dasbor", href: "/dashboard", icon: LayoutDashboard },
   { label: "Jurnal", href: "/journal", icon: BookOpen },
   { label: "Simulator", href: "/simulator", icon: TrendingUp },
   { label: "WD", href: "/withdrawals", icon: Wallet },

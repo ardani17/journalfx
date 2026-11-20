@@ -23,7 +23,7 @@ export function ScenarioFacts({ scenario, estimate }: { scenario: ScenarioFactsD
     ["Target Akhir", fmtUSD(scenario.targetAmount)],
     ["Return / Siklus", `${fmtDecimal(scenario.returnPerCycle, 0)}%`],
     ["Frekuensi", frequencyDetails[scenario.frequency].name],
-    ["Mode WD", wd],
+    ["Mode Penarikan", wd],
     ["Biaya / Siklus", fmtUSD(scenario.costPerCycle)],
     ...(estimate === undefined ? [] : [["Estimasi Waktu", estimate]]),
   ];

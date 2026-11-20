@@ -76,7 +76,7 @@ export function AllocationClient({ buckets }: { buckets: Bucket[] }) {
     <Card className="panel-gradient">
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <PieChart className="h-4 w-4 text-primary" aria-hidden /> Alokasikan Dana Withdrawal
+          <PieChart className="h-4 w-4 text-primary" aria-hidden /> Alokasikan Dana Penarikan
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -107,7 +107,7 @@ export function AllocationClient({ buckets }: { buckets: Bucket[] }) {
           <p className="text-xs text-warn">Isi persentase bucket hingga total 100%, lalu simpan sebelum mengalokasikan dana.</p>
         )}
         <div className="flex flex-wrap items-end gap-3">
-          <Field label="Jumlah Profit (USD)" htmlFor="al-amt" className="w-44">
+          <Field label="Jumlah Laba (USD)" htmlFor="al-amt" className="w-44">
             <Input id="al-amt" type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="100" />
           </Field>
           <Button onClick={allocate} disabled={loading || !amount || changed || Math.abs(pctSum - 100) > 0.000001}>

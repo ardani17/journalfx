@@ -18,7 +18,7 @@ import { ReflectionForm } from "./task-forms";
 const monthFormatter = new Intl.DateTimeFormat("id-ID", { month: "long", year: "numeric", timeZone: "UTC" });
 const percentFormatter = new Intl.NumberFormat("id-ID", { style: "percent", maximumFractionDigits: 1 });
 
-export const metadata = { title: "Task / Jadwal" };
+export const metadata = { title: "Tugas / Jadwal" };
 
 export default async function TasksPage({ searchParams }: { searchParams: Promise<{ date?: string | string[] }> }) {
   const user = await requireUser();
@@ -40,7 +40,7 @@ export default async function TasksPage({ searchParams }: { searchParams: Promis
 
   return (
     <PageShell>
-      <PageHeader title="Task / Jadwal" />
+      <PageHeader title="Tugas / Jadwal" />
       <Card className="grid gap-5 p-4 md:grid-cols-2 md:items-center md:p-5">
         <div className="space-y-3">
           <form key={date} action="/tasks" className="flex flex-wrap items-end gap-2">

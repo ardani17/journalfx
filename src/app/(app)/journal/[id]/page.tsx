@@ -5,10 +5,11 @@ import { ApiError } from "@/lib/api";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { TradeDetail, type TradeDTO } from "./trade-detail";
-import { fmtDateID } from "@/lib/dates";
+import { fmtDateTimeID } from "@/lib/dates";
 import { D, fmtDecimal, fmtTradingMoney } from "@/lib/money";
+import { tradeDirectionLabel, tradeStatusLabel } from "@/lib/trading-labels";
 
-export const metadata = { title: "Detail Trade" };
+export const metadata = { title: "Detail Transaksi" };
 
 export default async function TradeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireUser();
@@ -25,16 +26,16 @@ export default async function TradeDetailPage({ params }: { params: Promise<{ id
   return (
     <PageShell>
       <PageHeader
-        title={`${t.instrument.symbol} · ${t.direction === "LONG" ? "Buy" : "Sell"} ${fmtDecimal(t.lot)}`}
-        subtitle={`${fmtDateID(t.entryAt, "d MMM yyyy, HH:mm")} · ${t.account.name}${t.ticket ? ` · #${t.ticket}` : ""}`}
+        title={`${t.instrument.symbol} · ${tradeDirectionLabel[t.direction]} ${fmtDecimal(t.lot)}`}
+        subtitle={`${fmtDateTimeID(t.entryAt, user.timezone)} · ${t.account.name}${t.ticket ? ` · #${t.ticket}` : ""}`}
         actions={
           <div className="flex items-center gap-2">
-            <Badge tone={tradeStatusTone[t.status]}>{t.status}</Badge>
+            <Badge tone={tradeStatusTone[t.status]}>{tradeStatusLabel[t.status]}</Badge>
             <RealizedPnlBadge value={t.realizedPnl} currency={t.account.currency} />
           </div>
         }
       />
-      <TradeDetail trade={serializeTrade(t)} />
+      <TradeDetail trade={serializeTrade(t, user.timezone)} />
     </PageShell>
   );
 }
@@ -55,8 +56,9 @@ function decimalNumber(value: SavedTrade["realizedPnl"]) {
   return value === null ? null : Number(value);
 }
 
-function serializeTrade(t: SavedTrade): TradeDTO {
+function serializeTrade(t: SavedTrade, timezone: string): TradeDTO {
   return {
+    timezone,
     id: t.id,
     status: t.status,
     direction: t.direction,

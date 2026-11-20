@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     ],
   },
   description:
-    "Jurnal trading XAUUSD, simulator compounding, withdrawal dinamis, dan manajemen keuangan pribadi.",
+    "Jurnal trading XAUUSD, simulasi pemajemukan, penarikan dana dinamis, dan keuangan pribadi.",
   robots: { index: false, follow: false },
 };
 

@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import "@/lib/validation/indonesian";
 
 const UnreadContext = createContext<number>(0);
 

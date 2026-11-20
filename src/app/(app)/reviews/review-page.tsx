@@ -12,7 +12,7 @@ import { calendarHref, dailyPnlLabel, localDateKey, reviewHref, reviewPeriodLabe
 import { reviewSelectorSchema } from "@/lib/validation/reviews";
 import type { DisciplineResult } from "@/lib/finance/discipline";
 import { dailyPnl } from "@/server/services/analytics";
-import { fmtCalendarDateID } from "@/lib/dates";
+import { fmtCalendarDateID, fmtDateTimeID } from "@/lib/dates";
 import { ReviewClient } from "./review-client";
 
 export type ReviewSearchParams = Promise<{
@@ -28,7 +28,11 @@ type StoredFacts = {
   wdRecommended: string | null;
   compoundedAmount: string;
   discipline: DisciplineResult;
+  winRate: number | null;
+  balance: string;
+  budgetCoveragePct: number | null;
 };
+const labelID = (label: string) => label === "Setup" ? "Strategi" : label === "Stop Loss" ? "SL" : label;
 
 export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; searchParams: ReviewSearchParams }) {
   const user = await requireUser();
@@ -74,9 +78,9 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Card><CardContent className="p-4"><p className="text-xs text-muted">{closed ? "Transaksi / P&L saat ditutup" : "Transaksi / P&L Neto"}</p><p className="tnum text-lg font-bold">{facts.tradesCount} · <span className={D(facts.netPnl).gte(0) ? "text-primary" : "text-loss"}>{fmtUSDdelta(facts.netPnl)}</span></p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted">Penarikan Dana Aktual dan Rekomendasi</p><p className="tnum text-lg font-bold">{fmtUSD(facts.wdActual)} <span className="text-xs font-normal text-faint">/ {facts.wdRecommended === null ? "—" : fmtUSD(facts.wdRecommended)}</span></p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted">Jumlah Compounding</p><p className="tnum text-lg font-bold text-primary">{fmtUSD(facts.compoundedAmount)}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted">Discipline Score</p><p className={`tnum text-lg font-bold ${facts.discipline.total !== null && facts.discipline.total >= 70 ? "text-primary" : "text-warn"}`}>{facts.discipline.total !== null ? fmtNum(facts.discipline.total, 1) : "N/A"}</p>
-          {facts.discipline.missing.length > 0 ? <p className="mt-0.5 text-[10px] text-faint">Data kurang: {facts.discipline.missing.join(", ")}</p> : null}
+        <Card><CardContent className="p-4"><p className="text-xs text-muted">Laba Ditahan</p><p className="tnum text-lg font-bold text-primary">{fmtUSD(facts.compoundedAmount)}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted">Skor Disiplin</p><p className={`tnum text-lg font-bold ${facts.discipline.total !== null && facts.discipline.total >= 70 ? "text-primary" : "text-warn"}`}>{facts.discipline.total !== null ? fmtNum(facts.discipline.total, 1) : "N/A"}</p>
+          {facts.discipline.missing.length > 0 ? <p className="mt-0.5 text-[10px] text-faint">Data kurang: {facts.discipline.missing.map(labelID).join(", ")}</p> : null}
         </CardContent></Card>
       </div>
 
@@ -107,15 +111,15 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
 
       {/* Discipline breakdown */}
       <Card>
-        <CardHeader><CardTitle>Breakdown Disiplin (bobot PRD)</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Rincian Disiplin</CardTitle></CardHeader>
         <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {facts.discipline.components.map((c) => (
             <div key={c.key}>
               <div className="mb-1 flex items-center justify-between text-xs">
-                <span className="text-muted">{c.label} <span className="text-faint">({c.weightPct}%)</span></span>
-                <span className="tnum text-ink">{c.score !== null ? `${c.score}` : "—"}</span>
+                <span className="text-muted">{labelID(c.label)} <span className="text-faint">({fmtNum(c.weightPct, 0)}%)</span></span>
+                <span className="tnum text-ink">{c.score !== null ? fmtNum(c.score, 1) : "—"}</span>
               </div>
-              <Progress value={c.score ?? 0} tone={c.score !== null && c.score < 50 ? "loss" : undefined} label={c.label} />
+              <Progress value={c.score ?? 0} tone={c.score !== null && c.score < 50 ? "loss" : undefined} label={labelID(c.label)} />
               <p className="mt-0.5 text-[10px] text-faint">{c.ratio ?? "belum ada data"}</p>
             </div>
           ))}
@@ -124,11 +128,14 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
 
       {closed && review.snapshot ? (
         <Card className="border-primary/30">
-          <CardHeader><CardTitle>Snapshot Saat Ditutup (immutable)</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Ringkasan Saat Ditutup</CardTitle></CardHeader>
           <CardContent>
-            <pre className="tnum max-h-56 overflow-auto rounded-lg border border-line-soft bg-panel-2/60 p-3 text-[11px] leading-relaxed text-muted">
-{JSON.stringify(review.snapshot, null, 2)}
-            </pre>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+              <div><dt className="text-xs text-muted">Waktu penutupan</dt><dd>{review.closedAt ? fmtDateTimeID(review.closedAt, timezone) : "—"}</dd></div>
+              <div><dt className="text-xs text-muted">Saldo</dt><dd>{fmtUSD(facts.balance)}</dd></div>
+              <div><dt className="text-xs text-muted">Tingkat kemenangan</dt><dd>{facts.winRate === null ? "—" : `${fmtNum(facts.winRate, 1)}%`}</dd></div>
+              <div><dt className="text-xs text-muted">Cakupan anggaran</dt><dd>{facts.budgetCoveragePct === null ? "—" : `${fmtNum(facts.budgetCoveragePct, 1)}%`}</dd></div>
+            </dl>
           </CardContent>
         </Card>
       ) : null}

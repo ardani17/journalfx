@@ -12,7 +12,7 @@ import { CheckCircle2, Circle, Flag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ActiveScenarioForm } from "./active-scenario-form";
 
-export const metadata = { title: "Target Project" };
+export const metadata = { title: "Target Proyek" };
 
 export default async function RoadmapPage() {
   const user = await requireUser();
@@ -33,8 +33,8 @@ export default async function RoadmapPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Target Project"
-        subtitle="Gambaran keseluruhan rencana, target, dan timeline project"
+        title="Target Proyek"
+        subtitle="Lihat rencana, target, dan jadwal proyek."
         actions={<Badge tone={progressPct > 0 ? "success" : "neutral"}>{progressLabel}% tercapai</Badge>}
       />
 
@@ -72,10 +72,10 @@ export default async function RoadmapPage() {
       <div className="grid gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-3">
           <Card>
-            <CardHeader><CardTitle>Milestone Roadmap</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Tonggak Pencapaian</CardTitle></CardHeader>
             <CardContent className="p-0">
               <TableWrap>
-                <Table aria-label="Milestone Roadmap">
+                <Table aria-label="Tonggak Pencapaian">
                   <THead>
                     <TR><TH>Milestone</TH><TH className="text-right">Target</TH><TH>Estimasi dari awal</TH><TH>Status Aktual</TH><TH>Tercapai</TH></TR>
                   </THead>
@@ -100,10 +100,10 @@ export default async function RoadmapPage() {
           </Card>
           {roadmap.history.length > 0 && (
             <Card>
-              <CardHeader><CardTitle>Riwayat Milestone</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Riwayat Pencapaian</CardTitle></CardHeader>
               <CardContent className="p-0">
                 <TableWrap>
-                  <Table aria-label="Riwayat Milestone">
+                  <Table aria-label="Riwayat Pencapaian">
                     <THead><TR><TH>Target tercapai</TH><TH className="text-right">Tanggal</TH></TR></THead>
                     <TBody>
                       {roadmap.history.map(({ amount, achievedAt }) => (
@@ -122,7 +122,7 @@ export default async function RoadmapPage() {
 
         <div className="flex flex-col gap-3">
           <Card className="panel-gradient">
-            <CardHeader><CardTitle>Estimasi Project</CardTitle></CardHeader>
+            <CardHeader><CardTitle>Estimasi Proyek</CardTitle></CardHeader>
             <CardContent>
               <ScenarioFacts scenario={parameters} estimate={describeProjection(roadmap.projection, parameters.frequency)} />
             </CardContent>
@@ -132,7 +132,7 @@ export default async function RoadmapPage() {
             <CardContent className="flex flex-wrap items-center gap-4 p-4">
               <ProgressRing pct={progressPct} label={progressLabel} />
               <div className="min-w-0">
-                <p className="text-xs text-muted">Progress Aktual</p>
+                <p className="text-xs text-muted">Progres Aktual</p>
                 <p className="tnum text-lg font-bold text-primary">{progressLabel}%</p>
                 <p className="tnum text-[11px] text-faint">{fmtUSD(balance)} / {fmtUSD(target)}</p>
                 {next ? (
@@ -170,7 +170,7 @@ function ProgressRing({ pct, label }: { pct: number; label: string }) {
       <text x="55" y="52" textAnchor="middle" fill="#f8fafc" fontSize="15" fontWeight="700" className="tnum">
         {label}%
       </text>
-      <text x="55" y="68" textAnchor="middle" fill="#6b7a93" fontSize="9">Progress</text>
+      <text x="55" y="68" textAnchor="middle" fill="#6b7a93" fontSize="9">Progres</text>
     </svg>
   );
 }

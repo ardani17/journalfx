@@ -77,7 +77,7 @@ async function showSummary(destination: Destination, now: Date) {
   await reply(destination, `Ringkasan Trading\n${period}\n\n${result}`, [appLink("Buka Dasbor", "/dashboard")].filter((row) => row.length));
 }
 
-const taskStatus = { PENDING: "Tertunda", COMPLETED: "Selesai", NOT_COMPLETED: "Tidak selesai" } as const;
+const taskStatus = { PENDING: "Menunggu", COMPLETED: "Selesai", NOT_COMPLETED: "Tidak selesai" } as const;
 
 async function showTasks(destination: Destination, now: Date, page = 0) {
   const date = localDateKey(now, destination.timezone);

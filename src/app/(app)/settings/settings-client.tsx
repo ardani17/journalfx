@@ -79,11 +79,11 @@ export function SettingsClient({ user, project }: Props) {
 
       <Card>
         <CardHeader>
-          <CardTitle>Project</CardTitle>
+          <CardTitle>Proyek</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={(e) => save("project", e)} className="space-y-3">
-            <Field label="Nama Project" htmlFor="p-name">
+            <Field label="Nama Proyek" htmlFor="p-name">
               <Input id="p-name" name="name" defaultValue={project.name} required />
             </Field>
             <div className="grid grid-cols-2 gap-3">
@@ -98,7 +98,7 @@ export function SettingsClient({ user, project }: Props) {
               Perubahan target memengaruhi progress dan milestone. Modal awal hanya metadata — saldo
               ledger tidak berubah otomatis.
             </p>
-            <Button type="submit" disabled={loading}>Simpan Project</Button>
+            <Button type="submit" disabled={loading}>Simpan Proyek</Button>
           </form>
         </CardContent>
       </Card>

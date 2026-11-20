@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import type { WithdrawalStatus } from "@prisma/client";
 import { CheckCircle2, Pencil, Wallet, XCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,6 +15,7 @@ import { fmtDateID } from "@/lib/dates";
 import { formatFxEstimate, parseConversionAmount, type JisdorQuote } from "@/lib/finance/exchange";
 import { JisdorRateNote } from "@/components/finance/jisdor-rate-note";
 import { WithdrawalGuide } from "./withdrawal-guide";
+import { withdrawalStatusLabel } from "@/lib/trading-labels";
 
 interface Props {
   accounts: { id: string; name: string; balanceUsd: string }[];
@@ -35,7 +37,7 @@ interface Props {
   availableCash: string;
   latestFx: JisdorQuote | null;
   history: {
-    id: string; status: string; amountUSD: string; fxRate: string | null;
+    id: string; status: WithdrawalStatus; amountUSD: string; fxRate: string | null;
     receivedAmount: string | null; fees: string | null; note: string | null;
     mt5DealId: string | null;
     createdAt: string; completedAt: string | null;
@@ -135,12 +137,12 @@ export function WithdrawalsClient(props: Props) {
           <CardHeader><CardTitle>Dasar Perhitungan</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
             <Row label="Laba Kumulatif (P&L trading)" value={fmtUSDdelta(props.cumulativePnl)} />
-            <Row label="High-Water Mark" value={fmtUSD(props.hwm)} />
-            <Row label="Profit Eligibel" value={fmtUSD(props.rec.eligible)} strong />
-            <Row label={`Cap Rasio (${fmtNum(Number(props.rule.maxWdRatio), 0)}%)`} value={fmtUSD(props.rec.profitOnlyCap)} />
-            <Row label="Cap Kebutuhan Mingguan" value={props.rec.needsCap !== null ? fmtUSD(props.rec.needsCap) : "— (kurs belum ada)"} />
-            <Row label="Cap Kas di Atas Reserve" value={fmtUSD(props.rec.cashCap)} />
-            <Row label="Profit Minggu Ini" value={fmtUSDdelta(props.periodProfit)} tone={Number(props.periodProfit) >= 0 ? "pos" : "neg"} />
+            <Row label="Puncak Laba Kumulatif (HWM)" value={fmtUSD(props.hwm)} />
+            <Row label="Laba yang Memenuhi Syarat" value={fmtUSD(props.rec.eligible)} strong />
+            <Row label={`Batas Rasio (${fmtNum(Number(props.rule.maxWdRatio), 0)}%)`} value={fmtUSD(props.rec.profitOnlyCap)} />
+            <Row label="Batas Kebutuhan Mingguan" value={props.rec.needsCap !== null ? fmtUSD(props.rec.needsCap) : "— (kurs belum ada)"} />
+            <Row label="Batas Kas di Atas Cadangan" value={fmtUSD(props.rec.cashCap)} />
+            <Row label="Laba Minggu Ini" value={fmtUSDdelta(props.periodProfit)} tone={Number(props.periodProfit) >= 0 ? "pos" : "neg"} />
             <Row label="Jatah WD Terpakai" value={fmtUSD(props.periodTaken)} />
             <Row label="Kas Tersedia" value={fmtUSD(props.availableCash)} />
             <div className="col-span-2 border-t border-line pt-2">
@@ -167,14 +169,14 @@ export function WithdrawalsClient(props: Props) {
           </THead>
           <TBody>
             {props.history.length === 0 ? (
-              <EmptyRow colSpan={7}>Belum ada withdrawal tercatat.</EmptyRow>
+              <EmptyRow colSpan={7}>Belum ada penarikan tercatat.</EmptyRow>
             ) : (
               props.history.map((w) => (
                 <TR key={w.id}>
                   <TD className="tnum text-xs">{fmtDateID(w.createdAt, "d MMM yyyy")}</TD>
                   <TD>
                     <Badge tone={w.status === "COMPLETED" ? "success" : w.status === "REQUESTED" ? "info" : w.status === "CANCELLED" ? "danger" : "warn"}>
-                      {w.status}
+                      {withdrawalStatusLabel[w.status]}
                     </Badge>
                     {w.mt5DealId && <p className="mt-1 text-xs text-muted">MT5 · {w.note ?? w.mt5DealId}</p>}
                   </TD>
@@ -216,13 +218,13 @@ export function WithdrawalsClient(props: Props) {
           }}
           className="space-y-3"
         >
-          <Field label="Cap WD (% dari profit eligibel)" htmlFor="wr-ratio">
+          <Field label="Batas Penarikan (% dari laba yang memenuhi syarat)" htmlFor="wr-ratio">
             <Input id="wr-ratio" name="maxWdRatio" type="number" min="1" max="100" step="0.5" defaultValue={Number(props.rule.maxWdRatio)} required />
           </Field>
           <Field label="Kebutuhan Bulanan (IDR)" htmlFor="wr-needs" hint="Dikonversi mingguan ×12/52 saat rekomendasi">
             <Input id="wr-needs" name="needsTargetIdr" type="number" min="0" step="1000" defaultValue={props.rule.needsTargetIdr ? Number(props.rule.needsTargetIdr) : ""} />
           </Field>
-          <Field label="Reserve Kas (USD)" htmlFor="wr-reserve" hint="Balance minimum yang harus tersisa">
+          <Field label="Cadangan Kas (USD)" htmlFor="wr-reserve" hint="Balance minimum yang harus tersisa">
             <Input id="wr-reserve" name="reserveUsd" type="number" min="0" step="0.01" defaultValue={Number(props.rule.reserveUsd)} required />
           </Field>
           <WithdrawalError error={error} />
@@ -234,7 +236,7 @@ export function WithdrawalsClient(props: Props) {
       </Dialog>
 
       {/* Request dialog */}
-      <Dialog open={wdOpen} onClose={() => setWdOpen(false)} title="Ajukan Withdrawal">
+      <Dialog open={wdOpen} onClose={() => setWdOpen(false)} title="Ajukan Penarikan">
         <MutationForm
           action={async (fd) => {
             const done = await call("/api/withdrawals", "POST", {

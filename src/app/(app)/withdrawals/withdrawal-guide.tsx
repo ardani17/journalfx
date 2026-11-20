@@ -7,7 +7,7 @@ export function WithdrawalGuide() {
     <section id="panduan-wd" aria-labelledby="panduan-wd-title" className="scroll-mt-20">
       <Card>
         <CardHeader>
-          <h2 id="panduan-wd-title" className="text-sm font-semibold text-ink">Panduan Withdrawal (WD)</h2>
+          <h2 id="panduan-wd-title" className="text-sm font-semibold text-ink">Panduan Penarikan Dana</h2>
         </CardHeader>
         <CardContent className="divide-y divide-line-soft text-sm leading-relaxed text-muted">
           <details open>
@@ -16,7 +16,7 @@ export function WithdrawalGuide() {
               <li>
                 <strong className="text-ink">Ajukan di Horizon Journal.</strong> Saat rekomendasi positif, klik <strong>Ajukan WD</strong>,
                 pilih akun trading aktif sebagai sumber, lalu masukkan nominal USD. Batasnya adalah yang lebih kecil antara rekomendasi dan saldo sumber setelah pengajuan yang masih menunggu.
-                Pengajuan masuk ke riwayat dengan status <strong>REQUESTED</strong>.
+                Pengajuan masuk ke riwayat dengan status <strong>Diajukan</strong>.
               </li>
               <li>
                 <strong className="text-ink">Tarik dana secara manual di broker.</strong> Gunakan akun sumber yang dipilih.
@@ -33,22 +33,22 @@ export function WithdrawalGuide() {
             <summary className={summaryClassName}>Cara membaca rekomendasi WD</summary>
             <div className="space-y-2 pb-3">
               <p>
-                <strong>Profit Minggu Ini</strong> harus positif. Perhitungan memakai laba atau rugi yang sudah direalisasikan
+                <strong>Laba Minggu Ini</strong> harus positif. Perhitungan memakai laba atau rugi yang sudah direalisasikan
                 dari posisi yang ditutup sebagian atau penuh, setelah biaya trading yang tercatat. Deposit dan laba mengambang
                 berada di luar perhitungan.
               </p>
               <p>
-                <strong>Profit Eligibel</strong> adalah bagian laba kumulatif yang melampaui <strong>High-Water Mark</strong>,
+                <strong>Laba yang Memenuhi Syarat</strong> adalah bagian laba kumulatif yang melampaui <strong>Puncak Laba Kumulatif (HWM)</strong>,
                 yaitu puncak laba kumulatif dari minggu yang sudah ditutup. Jika laba kumulatif masih di bawah puncak itu,
                 laba baru digunakan untuk memulihkan selisihnya dulu.
               </p>
               <p>
-                Rekomendasi mengikuti batas terkecil antara <strong>Cap Rasio</strong>, <strong>Cap Kebutuhan Mingguan</strong>,
-                dan <strong>Cap Kas di Atas Reserve</strong>. Pengajuan yang masih menunggu penyelesaian dan WD yang selesai minggu ini
+                Rekomendasi mengikuti batas terkecil antara <strong>Batas Rasio</strong>, <strong>Batas Kebutuhan Mingguan</strong>,
+                dan <strong>Batas Kas di Atas Cadangan</strong>. Pengajuan yang masih menunggu penyelesaian dan WD yang selesai minggu ini
                 mengurangi sisa batas rasio dan kebutuhan. Pengajuan yang masih menunggu juga mengurangi kas di atas cadangan dan saldo sumber.
               </p>
               <p>
-                Contoh, jika profit eligibel $100, rasio 50%, batas kebutuhan $40, dan kas di atas reserve $80,
+                Contoh, jika laba yang memenuhi syarat $100, rasio 50%, batas kebutuhan $40, dan kas di atas cadangan $80,
                 rekomendasinya $40. Jika sudah ada pengajuan $10, rekomendasinya tinggal $30.
               </p>
             </div>
@@ -61,7 +61,7 @@ export function WithdrawalGuide() {
               </li>
               <li>
                 Buka <strong>Edit Aturan</strong> untuk meninjau persentase <strong>Cap WD</strong>,
-                target <strong>Kebutuhan Bulanan (IDR)</strong>, dan <strong>Reserve Kas (USD)</strong> yang harus tersisa.
+                target <strong>Kebutuhan Bulanan (IDR)</strong>, dan <strong>Cadangan Kas (USD)</strong> yang harus tersisa.
                 Batas kebutuhan mingguan juga memperhitungkan anggaran, cicilan berkala, dan kebutuhan yang sudah didanai.
               </li>
               <li>

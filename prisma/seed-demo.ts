@@ -95,6 +95,12 @@ async function seedDemo(tx: Prisma.TransactionClient) {
   }
 
   const now = new Date();
+  // A fresh fixture makes browser tests independent of live JISDOR availability.
+  await tx.exchangeRate.upsert({
+    where: { id: "horizon-demo-jisdor" },
+    create: { id: "horizon-demo-jisdor", pair: "USDIDR", rate: FX_RATE, at: now, source: "bi-jisdor" },
+    update: { rate: FX_RATE, at: now },
+  });
   const start = daysAgo(now, 45);
   const instruments = await seedInstruments(tx);
   const { id: userId } = await tx.user.create({ data: {

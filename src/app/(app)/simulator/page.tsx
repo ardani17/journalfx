@@ -6,7 +6,7 @@ import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { SimulatorClient } from "./simulator-client";
 import { parseMonteCarloEquity } from "@/lib/finance/trading-capital";
 
-export const metadata = { title: "Compounding Plan" };
+export const metadata = { title: "Simulasi Pemajemukan" };
 
 export default async function SimulatorPage({ searchParams }: {
   searchParams: Promise<{ scenarioId?: string | string[]; monteCarloEquity?: string | string[] }>;
@@ -24,7 +24,7 @@ export default async function SimulatorPage({ searchParams }: {
   return (
     <PageShell>
       <PageHeader
-        title="Compounding Plan"
+        title="Simulasi Pemajemukan"
         subtitle="Atur parameter lalu simulasikan target — hasil adalah proyeksi ilustratif, bukan janji imbal hasil."
       />
       <SimulatorClient

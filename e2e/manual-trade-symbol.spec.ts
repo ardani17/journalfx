@@ -30,8 +30,8 @@ for (const viewport of [
       const instruments = page.getByLabel("Instrumen", { exact: true });
       if (!hasSharedOptions) await expect(instruments).toHaveValue("");
       await page.getByLabel("Lot", { exact: true }).fill("0.10");
-      await page.getByLabel("Harga Entry", { exact: true }).fill("1.245678");
-      await page.getByLabel("Alasan Entry", { exact: true }).fill("Catatan QA");
+      await page.getByLabel("Harga Pembukaan", { exact: true }).fill("1.245678");
+      await page.getByLabel("Alasan Membuka Posisi", { exact: true }).fill("Catatan QA");
 
       const open = page.getByRole("button", { name: "Tambah simbol", exact: true });
       await open.click();
@@ -43,7 +43,7 @@ for (const viewport of [
       await expect(dialog.getByRole("alert")).toHaveText("Kode simbol wajib diisi");
       await dialog.getByRole("button", { name: "Batal" }).click();
       await expect(dialog).toBeHidden();
-      await expect(page.getByLabel("Alasan Entry", { exact: true })).toHaveValue("Catatan QA");
+      await expect(page.getByLabel("Alasan Membuka Posisi", { exact: true })).toHaveValue("Catatan QA");
 
       await open.click();
       await code.fill(` ${symbol.toLowerCase()} `);
@@ -53,7 +53,7 @@ for (const viewport of [
       await expect(instruments.locator("option:checked")).toHaveText(symbol);
       const selectedId = await instruments.inputValue();
       await expect(page.getByLabel("Lot", { exact: true })).toHaveValue("0.10");
-      await expect(page.getByLabel("Harga Entry", { exact: true })).toHaveValue("1.245678");
+      await expect(page.getByLabel("Harga Pembukaan", { exact: true })).toHaveValue("1.245678");
 
       await open.click();
       await code.fill(symbol);
@@ -62,7 +62,7 @@ for (const viewport of [
       await expect(instruments.getByRole("option", { name: symbol, exact: true })).toHaveCount(1);
       await expect(instruments).toHaveValue(selectedId);
 
-      await page.getByRole("button", { name: "Simpan Trade", exact: true }).click();
+      await page.getByRole("button", { name: "Simpan Transaksi", exact: true }).click();
       await expect(page).toHaveURL(/\/journal\/(?!new$)[^/]+$/);
       const trade = await prisma.trade.findFirstOrThrow({ where: { userId: user.id }, include: { journal: true, instrument: true } });
       expect(trade).toMatchObject({ accountId: account.id, instrumentId: selectedId, journal: { entryReason: "Catatan QA" } });

@@ -31,15 +31,15 @@ test("creates and selects a strategy without losing the trade draft", async ({ p
     }]);
 
     await page.goto("/journal/new");
-    const strategies = page.getByLabel("Strategi / Setup", { exact: true });
+    const strategies = page.getByLabel("Strategi", { exact: true });
     const open = page.getByRole("button", { name: "Tambah strategi", exact: true });
     const dialog = page.getByRole("dialog", { name: "Tambah strategi" });
     const name = dialog.getByLabel("Nama strategi");
     const save = dialog.getByRole("button", { name: /^(Simpan strategi|Menyimpan…)$/ });
     const cancel = dialog.getByRole("button", { name: "Batal", exact: true });
     const lot = page.getByLabel("Lot", { exact: true });
-    const entry = page.getByLabel("Harga Entry", { exact: true });
-    const reason = page.getByLabel("Alasan Entry", { exact: true });
+    const entry = page.getByLabel("Harga Pembukaan", { exact: true });
+    const reason = page.getByLabel("Alasan Membuka Posisi", { exact: true });
     const strategyName = "Breakout sesi London";
 
     await expect(strategies.getByRole("option")).toHaveCount(1);
@@ -97,7 +97,7 @@ test("creates and selects a strategy without losing the trade draft", async ({ p
     await expect(strategies).toHaveValue(strategyId);
     await expect(strategies.getByRole("option", { name: strategyName, exact: true })).toHaveCount(1);
 
-    await page.getByRole("button", { name: "Simpan Trade", exact: true }).click();
+    await page.getByRole("button", { name: "Simpan Transaksi", exact: true }).click();
     await expect(page).toHaveURL(/\/journal\/(?!new$)[^/]+$/);
     const trade = await prisma.trade.findFirstOrThrow({ where: { userId: user.id }, include: { journal: true } });
     expect(trade).toMatchObject({ accountId: account.id, strategyId, journal: { entryReason: "Catatan QA" } });
