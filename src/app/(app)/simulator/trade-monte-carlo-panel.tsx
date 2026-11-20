@@ -7,17 +7,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, Input } from "@/components/ui/field";
 import { Table, TableWrap, TBody, TD, THead, TH, TR } from "@/components/ui/table";
 import { fmtNum, fmtUSD } from "@/lib/money";
-import { simulateTradeMonteCarlo, tradeSimulationFields, tradeSimulationSchema, type TradeMonteCarloResult, type TradeStep } from "@/lib/finance/trade-monte-carlo";
+import { simulateTradeMonteCarlo, tradeSimulationFields, tradeSimulationSchema, type TradeMonteCarloResult, type TradeSimulationField, type TradeStep } from "@/lib/finance/trade-monte-carlo";
 import { CyclePagination } from "./cycle-pagination";
+import { formatTarget, parseSimulationNumber } from "./simulator-input";
 
 const Chart = dynamic(() => import("./trade-monte-carlo-chart"), { ssr: false });
 const pct = (value: number) => `${fmtNum(value, 2)}%`;
 const failureMessage = "Simulasi Monte Carlo gagal. Periksa parameter dan coba lagi.";
+const numericFields = Object.keys(tradeSimulationFields) as TradeSimulationField[];
+
+function initialNumericFields(initialEquity: number): Record<TradeSimulationField, string> {
+  const { min, max } = tradeSimulationFields.initialEquity;
+  return Object.fromEntries(numericFields.map((name) => [
+    name, formatTarget(name === "initialEquity" && initialEquity >= min && initialEquity <= max
+      ? Math.round(initialEquity * 100) / 100 : tradeSimulationFields[name].initial),
+  ])) as Record<TradeSimulationField, string>;
+}
 
 export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number }) {
+  const [form, setForm] = useState(() => initialNumericFields(initialEquity));
   const [result, setResult] = useState<TradeMonteCarloResult | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [invalidField, setInvalidField] = useState<string>();
   const worker = useRef<Worker | null>(null);
   useEffect(() => () => worker.current?.terminate(), []);
 
@@ -25,21 +37,25 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
     event.preventDefault();
     if (pending) return;
     const data = new FormData(event.currentTarget);
-    const numbers = Object.fromEntries(Object.keys(tradeSimulationFields).map((key) => {
-      const value = data.get(key);
-      return [key, value === "" || value === null ? Number.NaN : Number(value)];
-    }));
+    const numbers = Object.fromEntries(numericFields.map((key) => [key, parseSimulationNumber(form[key], true)]));
     const input = tradeSimulationSchema.safeParse({
       ...numbers,
       enableDrawdownThrottle: data.has("enableDrawdownThrottle"),
       enableWithdrawal: data.has("enableWithdrawal"),
     });
     if (!input.success) {
-      setError("Masukkan angka dalam rentang yang valid untuk setiap parameter.");
+      const key = input.error.issues[0]?.path[0] as TradeSimulationField | undefined;
+      const field = key && tradeSimulationFields[key];
+      setInvalidField(key);
+      if (key) document.getElementById(`monte-carlo-${key}`)?.focus();
+      setError(field
+        ? `${field.label} harus berupa ${field.step === 1 ? "bilangan bulat" : "angka"} antara ${formatTarget(field.min)} dan ${formatTarget(field.max)}.`
+        : "Masukkan angka dalam rentang yang valid untuk setiap parameter.");
       return;
     }
     setPending(true);
     setError("");
+    setInvalidField(undefined);
 
     function finish(message: { result?: TradeMonteCarloResult; error?: string }) {
       worker.current?.terminate();
@@ -68,16 +84,24 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
     <Card>
       <CardHeader><CardTitle>Monte Carlo</CardTitle></CardHeader>
       <CardContent className="space-y-4">
-        <form aria-label="Parameter Monte Carlo" onSubmit={run} className="space-y-3">
+        <form aria-label="Parameter Monte Carlo" noValidate onSubmit={run} className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {Object.entries(tradeSimulationFields).map(([name, field]) => (
-              <Field key={name} label={field.label} htmlFor={`monte-carlo-${name}`}>
-                <Input id={`monte-carlo-${name}`} name={name} type="number" required
-                  min={field.min} max={field.max} step={field.step}
-                  defaultValue={name === "initialEquity" && initialEquity >= field.min && initialEquity <= field.max
-                    ? Math.round(initialEquity * 100) / 100 : field.initial} />
-              </Field>
-            ))}
+            {numericFields.map((name) => {
+              const field = tradeSimulationFields[name];
+              return (
+                <Field key={name} label={field.label} htmlFor={`monte-carlo-${name}`}>
+                  <Input id={`monte-carlo-${name}`} name={name} type="text" inputMode={field.step === 1 ? "numeric" : "decimal"} required
+                    value={form[name]}
+                    aria-invalid={invalidField === name || undefined}
+                    aria-describedby={invalidField === name ? "monte-carlo-error" : undefined}
+                    onChange={(event) => setForm({ ...form, [name]: event.target.value })}
+                    onBlur={() => {
+                      const number = parseSimulationNumber(form[name], true);
+                      if (number !== undefined) setForm((current) => ({ ...current, [name]: formatTarget(number) }));
+                    }} />
+                </Field>
+              );
+            })}
           </div>
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <label className="flex items-center gap-2"><input type="checkbox" name="enableDrawdownThrottle" defaultChecked /> Kurangi risiko saat drawdown</label>
@@ -87,7 +111,7 @@ export function TradeMonteCarloPanel({ initialEquity }: { initialEquity: number 
           <p className="text-xs text-muted">Withdrawal dihitung dari laba bersih di atas saldo setelah withdrawal terakhir, atau modal awal untuk withdrawal pertama.</p>
         </form>
         {pending ? <p role="status" className="text-xs text-muted">Menghitung jalur Monte Carlo…</p> : null}
-        {error ? <p role="alert" className="text-xs text-loss">{error}</p> : null}
+        {error ? <p id="monte-carlo-error" role="alert" className="text-xs text-loss">{error}</p> : null}
         {result ? <MonteCarloResults result={result} /> : null}
       </CardContent>
     </Card>

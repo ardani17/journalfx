@@ -117,6 +117,36 @@ for (const viewport of [
   test.describe(viewport.name, () => {
     test.use({ isMobile: viewport.name === "mobile", hasTouch: viewport.name === "mobile" });
 
+    test("runs Monte Carlo with localized numbers and validates integer fields", async ({ page, baseURL }, testInfo) => {
+      const { owner, other } = await planningFixture();
+      try {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.context().addCookies([{
+          url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
+          value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
+        }]);
+        await page.goto("/simulator");
+        const funds = page.getByLabel("Modal awal Monte Carlo (USD)", { exact: true });
+        const iterations = page.getByLabel("Iterasi Monte Carlo");
+        const run = page.getByRole("button", { name: "Simulasikan Monte Carlo" });
+        await expect(iterations).toHaveValue("1.000");
+        await funds.fill("1000000");
+        await iterations.focus();
+        await expect(funds).toHaveValue("1.000.000");
+        await funds.fill("1.000.000,50");
+        await iterations.fill("1,5");
+        await run.click();
+        await expect(page.locator("#monte-carlo-error")).toContainText("bilangan bulat");
+        await iterations.fill("5");
+        await page.locator("#monte-carlo-totalTrades").fill("1");
+        await run.click();
+        await expect(page.getByText(`Saldo awal ${fmtUSD(1_000_000.50)}`, { exact: false })).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath(`monte-carlo-input-${viewport.name}.png`) });
+      } finally {
+        await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
+      }
+    });
+
     test(`edits, reopens, and applies private compounding plans on ${viewport.name}`, async ({ page, baseURL }) => {
       const { owner, other, project, saved, elsewhere, foreign, immediate, values } = await planningFixture();
       try {
