@@ -8,6 +8,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+### Added
+
+- Explore the probability of reaching a balance target, inspect a sample trade path, and switch the chart between cycles, days, and dates. Save exploration scenarios in the current browser.
+- Open trading summaries and daily tasks with inline Telegram buttons and return with Menu Utama. The Telegram settings include a button to reopen the bot menu.
+
+### Changed
+
+- Keep saved Compounding plans and advanced Monte Carlo tools on the same Simulasi Compounding page. Open the active plan directly from Roadmap.
+
+### Fixed
+
+- Count target hits using decimal balances and accept the same capital range in the monthly expense estimate and simulator.
+- Show a retry message when a Telegram reply fails. A blocked recipient no longer stalls subsequent updates, and the local poller detects older app versions before it forwards messages.
+
 ## [1.4.6] — 2026-11-20
 
 ### Added
