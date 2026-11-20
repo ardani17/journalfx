@@ -233,19 +233,21 @@ export function tradeFilterWhere(userId: string, filter: Omit<ListTradesFilter, 
 export async function listTrades(userId: string, filter: ListTradesFilter, { includeJournalCompletion = false } = {}) {
   const sort = filter.sort ?? "desc";
   const where = tradeFilterWhere(userId, filter);
+  const page = {
+    where,
+    orderBy: [{ entryAt: sort }, { createdAt: sort }, { id: sort }],
+    take: filter.limit,
+    skip: filter.offset,
+  } satisfies Prisma.TradeFindManyArgs;
+  const relations = {
+    instrument: { select: { symbol: true, pricePrecision: true } },
+    account: { select: { currency: true } },
+    strategy: { select: { name: true } },
+  } satisfies Prisma.TradeInclude;
   const [items, total] = await Promise.all([
-    prisma.trade.findMany({
-      where,
-      orderBy: [{ entryAt: sort }, { createdAt: sort }, { id: sort }],
-      take: filter.limit,
-      skip: filter.offset,
-      include: {
-        instrument: { select: { symbol: true, pricePrecision: true } },
-        account: { select: { currency: true } },
-        strategy: { select: { name: true } },
-        journal: { select: includeJournalCompletion ? journalCompletionSelect : { tags: true, mistakes: true } },
-      },
-    }),
+    includeJournalCompletion
+      ? prisma.trade.findMany({ ...page, include: { ...relations, journal: { select: journalCompletionSelect } } })
+      : prisma.trade.findMany({ ...page, include: { ...relations, journal: { select: { tags: true, mistakes: true } } } }),
     prisma.trade.count({ where }),
   ]);
   const checkedItems = includeJournalCompletion && items.length ? await prisma.$queryRaw<{ tradeId: string }[]>`
