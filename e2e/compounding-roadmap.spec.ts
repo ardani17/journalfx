@@ -163,8 +163,9 @@ for (const viewport of [
         await page.keyboard.press("Escape");
 
         await page.getByRole("button", { name: "Simpan skenario", exact: true }).click();
-        await page.getByLabel("Nama skenario").fill("Eksplorasi uji");
-        await page.getByRole("button", { name: "Simpan", exact: true }).click();
+        const save = page.getByRole("dialog", { name: "Simpan skenario" });
+        await save.getByLabel("Nama skenario").fill("Eksplorasi uji");
+        await save.getByRole("button", { name: "Simpan", exact: true }).click();
         await page.reload();
         await page.getByRole("button", { name: "Skenario", exact: true }).click();
         await page.getByRole("button", { name: "Gunakan Eksplorasi uji" }).click();
