@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ListFilter, Plus } from "lucide-react";
+import type { StrategyOption } from "@/components/journal/new-strategy-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -11,14 +12,14 @@ import { fmtCalendarDateID } from "@/lib/dates";
 import type { TaskActivity } from "@/server/services/tasks";
 import type { TaskActivityType } from "@/server/services/task-types";
 import { ActivityTypeManager } from "./activity-type-manager";
-import { PlanForm, RealizationForm, statusLabels, useTaskMutation, type TaskStrategy } from "./task-forms";
+import { PlanForm, RealizationForm, statusLabels, useTaskMutation } from "./task-forms";
 
 const statusTones = { PENDING: "neutral", COMPLETED: "success", NOT_COMPLETED: "danger" } as const;
 
 export function ActivityList({ date, activities, strategies, types, defaultTypeId }: {
   date: string;
   activities: TaskActivity[];
-  strategies: TaskStrategy[];
+  strategies: StrategyOption[];
   types: TaskActivityType[];
   defaultTypeId: string;
 }) {
@@ -61,7 +62,7 @@ export function ActivityList({ date, activities, strategies, types, defaultTypeI
 function ActivityRow({ date, activity, strategies, types }: {
   date: string;
   activity: TaskActivity;
-  strategies: TaskStrategy[];
+  strategies: StrategyOption[];
   types: TaskActivityType[];
 }) {
   const [mode, setMode] = useState<"edit" | "realization" | "delete" | null>(null);

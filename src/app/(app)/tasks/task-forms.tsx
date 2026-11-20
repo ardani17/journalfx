@@ -2,12 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState, type FormEvent } from "react";
+import { NewStrategyDialog, type StrategyOption } from "@/components/journal/new-strategy-dialog";
 import { Button } from "@/components/ui/button";
 import { Field, FieldError, Select, Textarea } from "@/components/ui/field";
 import type { TaskActivity } from "@/server/services/tasks";
 import type { TaskActivityType } from "@/server/services/task-types";
-
-export type TaskStrategy = { id: string; name: string };
 
 export const statusLabels = {
   PENDING: "Menunggu",
@@ -49,17 +48,23 @@ export function useTaskMutation() {
 export function PlanForm({ date, activity, strategies, types, defaultTypeId = "", onClose }: {
   date: string;
   activity?: TaskActivity;
-  strategies: TaskStrategy[];
+  strategies: StrategyOption[];
   types: TaskActivityType[];
   defaultTypeId?: string;
   onClose: () => void;
 }) {
   const id = useId();
+  const router = useRouter();
   const submissionId = useRef<string>(null);
   const currentType = activity?.type;
   const [typeId, setTypeId] = useState(currentType?.id ?? defaultTypeId);
+  const [strategyOpen, setStrategyOpen] = useState(false);
+  const [strategyId, setStrategyId] = useState(activity?.strategy?.id ?? "");
+  const [addedStrategies, setAddedStrategies] = useState<StrategyOption[]>([]);
   const selectedType = types.find((type) => type.id === typeId) ?? (currentType?.id === typeId ? currentType : null);
   const trading = selectedType?.kind === "TRADING";
+  const storedStrategyIds = new Set(strategies.map((strategy) => strategy.id));
+  const strategyOptions = [...strategies, ...addedStrategies.filter((strategy) => !storedStrategyIds.has(strategy.id))];
   const { save, pending, error } = useTaskMutation();
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -80,38 +85,53 @@ export function PlanForm({ date, activity, strategies, types, defaultTypeId = ""
   }
 
   return (
-    <form onSubmit={submit} className="space-y-3 rounded-xl border border-line bg-panel-2/45 p-3">
-      <fieldset disabled={pending} className="space-y-3">
-        <Field label="Rencana kegiatan" htmlFor={`${id}-plan`}>
-          <Textarea id={`${id}-plan`} name="plan" defaultValue={activity?.plan} required maxLength={2000} rows={2} />
-        </Field>
-        <Field label="Jenis kegiatan" htmlFor={`${id}-kind`}>
-          <Select id={`${id}-kind`} value={selectedType?.id ?? ""} onChange={(event) => setTypeId(event.target.value)}>
-            <option value="">Tanpa jenis</option>
-            {types.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
-            {currentType?.archivedAt && <option value={currentType.id}>{currentType.name} (dihapus)</option>}
-          </Select>
-        </Field>
-        {trading && (
-          <>
-            <Field label="Strategi (opsional)" htmlFor={`${id}-strategy`}>
-              <Select id={`${id}-strategy`} name="strategyId" defaultValue={activity?.strategy?.id ?? ""}>
-                <option value="">Pilih strategi</option>
-                {strategies.map((strategy) => <option key={strategy.id} value={strategy.id}>{strategy.name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Kondisi masuk (opsional)" htmlFor={`${id}-entry`}>
-              <Textarea id={`${id}-entry`} name="entryConditions" defaultValue={activity?.entryConditions ?? ""} maxLength={2000} rows={2} />
-            </Field>
-          </>
-        )}
-      </fieldset>
-      <FieldError message={error} />
-      <div className="flex flex-wrap justify-end gap-2">
-        <Button variant="ghost" onClick={onClose} disabled={pending}>Batal</Button>
-        <Button type="submit" disabled={pending}>Simpan rencana</Button>
-      </div>
-    </form>
+    <>
+      <form onSubmit={submit} className="space-y-3 rounded-xl border border-line bg-panel-2/45 p-3">
+        <fieldset disabled={pending} className="space-y-3">
+          <Field label="Rencana kegiatan" htmlFor={`${id}-plan`}>
+            <Textarea id={`${id}-plan`} name="plan" defaultValue={activity?.plan} required maxLength={2000} rows={2} />
+          </Field>
+          <Field label="Jenis kegiatan" htmlFor={`${id}-kind`}>
+            <Select id={`${id}-kind`} value={selectedType?.id ?? ""} onChange={(event) => setTypeId(event.target.value)}>
+              <option value="">Tanpa jenis</option>
+              {types.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+              {currentType?.archivedAt && <option value={currentType.id}>{currentType.name} (dihapus)</option>}
+            </Select>
+          </Field>
+          {trading && (
+            <>
+              <Field label="Strategi (opsional)" htmlFor={`${id}-strategy`}>
+                <Select id={`${id}-strategy`} name="strategyId" value={strategyId} onChange={(event) => setStrategyId(event.target.value)}>
+                  <option value="">{strategyOptions.length ? "Tanpa strategi" : "Belum ada strategi"}</option>
+                  {strategyOptions.map((strategy) => <option key={strategy.id} value={strategy.id}>{strategy.name}</option>)}
+                </Select>
+                <Button variant="ghost" size="sm" className="self-start text-primary" aria-haspopup="dialog" onClick={() => setStrategyOpen(true)}>
+                  Tambah strategi
+                </Button>
+              </Field>
+              <Field label="Kondisi masuk (opsional)" htmlFor={`${id}-entry`}>
+                <Textarea id={`${id}-entry`} name="entryConditions" defaultValue={activity?.entryConditions ?? ""} maxLength={2000} rows={2} />
+              </Field>
+            </>
+          )}
+        </fieldset>
+        <FieldError message={error} />
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={onClose} disabled={pending}>Batal</Button>
+          <Button type="submit" disabled={pending}>Simpan rencana</Button>
+        </div>
+      </form>
+      {strategyOpen && (
+        <NewStrategyDialog
+          onClose={() => setStrategyOpen(false)}
+          onCreated={(strategy) => {
+            setAddedStrategies((options) => [...options, strategy]);
+            setStrategyId(strategy.id);
+            router.refresh();
+          }}
+        />
+      )}
+    </>
   );
 }
 

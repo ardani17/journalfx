@@ -221,3 +221,43 @@ test("manages activity types on mobile and changes an existing activity without 
     await prisma.user.delete({ where: { id: user.id } });
   }
 });
+
+test("adds the first strategy from a trading activity without losing the plan", async ({ page, baseURL }) => {
+  const user = await createUser();
+  const plan = "Periksa setup sebelum membuka posisi";
+  const conditions = "Tunggu candle selesai.";
+  const name = "Konfirmasi sesi pagi";
+
+  try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signIn(page.context(), baseURL!, user);
+    await page.goto("/tasks?date=2028-03-06");
+    await page.getByRole("button", { name: "Tambah kegiatan" }).click();
+    await page.getByLabel("Rencana kegiatan", { exact: true }).fill(plan);
+    await page.getByLabel("Jenis kegiatan").selectOption({ label: "Trading" });
+    await page.getByLabel("Kondisi masuk (opsional)").fill(conditions);
+    const strategy = page.getByLabel("Strategi (opsional)");
+    await expect(strategy.getByRole("option")).toHaveCount(1);
+
+    const addStrategy = page.getByRole("button", { name: "Tambah strategi", exact: true });
+    await expect(addStrategy).toBeVisible({ timeout: 3000 });
+    await addStrategy.click();
+    const dialog = page.getByRole("dialog", { name: "Tambah strategi" });
+    await dialog.getByLabel("Nama strategi").fill(name);
+    await dialog.getByRole("button", { name: "Simpan strategi", exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(strategy.locator("option:checked")).toHaveText(name);
+    await expect(page.getByLabel("Rencana kegiatan", { exact: true })).toHaveValue(plan);
+    await expect(page.getByLabel("Kondisi masuk (opsional)")).toHaveValue(conditions);
+
+    await page.getByRole("button", { name: "Simpan rencana", exact: true }).click();
+    const saved = page.getByRole("listitem").filter({ has: page.getByText(plan, { exact: true }) });
+    await expect(saved.getByText(name, { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(saved.getByText(name, { exact: true })).toBeVisible();
+    await page.goto("/journal/new");
+    await expect(page.getByLabel("Strategi / Setup").getByRole("option", { name, exact: true })).toHaveCount(1);
+  } finally {
+    await prisma.user.delete({ where: { id: user.id } });
+  }
+});
