@@ -110,6 +110,32 @@ test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo i
   }
 });
 
+test("runs all three editable US$200 templates", async ({ page, baseURL }, testInfo) => {
+  const { owner, other } = await planningFixture();
+  try {
+    await page.context().addCookies([{
+      url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
+      value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
+    }]);
+    await page.goto("/simulator");
+    await page.getByRole("button", { name: "Coba contoh US$200" }).click();
+    await expect(page.getByRole("button", { name: "Santai", exact: true })).toHaveAttribute("aria-pressed", "true");
+    for (const [name, percent, value] of [["Konservatif", "0,5", "$1,00"], ["Santai", "1", "$2,00"], ["Agresif", "2", "$4,00"]] as const) {
+      await page.getByRole("button", { name, exact: true }).click();
+      await expect(page.locator("#monte-carlo-initialEquity")).toHaveValue("200");
+      await expect(page.locator("#monte-carlo-baseRiskPercent")).toHaveValue(percent);
+      await expect(page.getByText(`= ${value} per transaksi.`, { exact: false })).toBeVisible();
+      await page.getByRole("button", { name: "Simulasikan Monte Carlo" }).click();
+      await expect(page.getByRole("heading", { name: "Contoh jalur simulasi" })).toBeVisible();
+    }
+    await page.locator("#monte-carlo-initialEquity").fill("250");
+    await expect(page.getByText("= $5,00 per transaksi.", { exact: false })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("monte-carlo-examples.png") });
+  } finally {
+    await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
+  }
+});
+
 for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },
   { name: "mobile", width: 390, height: 844 },
