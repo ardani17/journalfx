@@ -8,6 +8,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+### Added
+
+- Plan daily activities in Task / Jadwal, record outcomes and completion, and carry one improvement into the next day.
+
 ### Security
 
 - Verify Cloudflare Turnstile before starting Google sign-in. Deployments that offer Google sign-in require both Turnstile keys.
