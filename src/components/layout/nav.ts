@@ -4,6 +4,7 @@ import {
   CalendarRange,
   BookOpen,
   CalendarDays,
+  ListTodo,
   CreditCard,
   LayoutDashboard,
   PiggyBank,
@@ -34,7 +35,10 @@ export const NAV: NavGroup[] = [
   },
   {
     label: "",
-    items: [{ label: "Jurnal Trading", href: "/journal", icon: BookOpen },],
+    items: [
+      { label: "Jurnal Trading", href: "/journal", icon: BookOpen },
+      { label: "Task / Jadwal", href: "/tasks", icon: ListTodo },
+    ],
   },
   {
     label: "Plan & Strategi",
