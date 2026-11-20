@@ -144,11 +144,16 @@ export default async function JournalPage({
             ) : (
               items.map((t) => {
                 const pnl = t.realizedPnl !== null ? D(t.realizedPnl) : null;
+                const entryDate = dateFormatter.format(t.entryAt);
                 return (
-                  <TR key={t.id}>
+                  <TR key={t.id} className="relative hover:bg-panel-2/80 focus-within:bg-panel-2/80">
                     <TD className="tnum whitespace-nowrap text-xs">
-                      <Link href={`/journal/${t.id}`} className="hover:text-primary">
-                        {dateFormatter.format(t.entryAt)}
+                      <Link
+                        href={`/journal/${t.id}`}
+                        aria-label={`Lihat transaksi ${t.instrument.symbol}, ${entryDate}`}
+                        className="after:absolute after:inset-0 after:cursor-pointer hover:text-primary focus-visible:after:ring-2 focus-visible:after:ring-inset focus-visible:after:ring-primary"
+                      >
+                        {entryDate}
                       </Link>
                     </TD>
                     <TD className="text-xs font-medium">{t.instrument.symbol}</TD>
