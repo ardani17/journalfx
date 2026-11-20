@@ -63,7 +63,7 @@ export default async function JournalPage({
   const page = Number.isSafeInteger((requestedPage - 1) * pageSize) ? requestedPage : 1;
   const offset = (page - 1) * pageSize;
   const [{ items, total }, metrics, accounts, strategies] = await Promise.all([
-    listTrades(user.id, { ...tradeFilters, limit: pageSize, offset }),
+    listTrades(user.id, { ...tradeFilters, limit: pageSize, offset }, true),
     coreMetrics(user.id, { accountId: filters.accountId, journal: hasDateRange ? tradeFilters : undefined }),
     listAccounts(user.id),
     listStrategies(user.id),
@@ -131,7 +131,7 @@ export default async function JournalPage({
               <TH className="text-right">R</TH>
               <TH className="text-right">P/L</TH>
               <TH>Setup</TH>
-              <TH>Catatan</TH>
+              <TH>Psikologi dan Jurnal</TH>
             </TR>
           </THead>
           <TBody>
@@ -183,8 +183,10 @@ export default async function JournalPage({
                       {pnl === null ? "—" : fmtTradingDelta(pnl, t.account.currency)}
                     </TD>
                     <TD className="text-xs text-muted">{t.strategy?.name ?? "—"}</TD>
-                    <TD className="max-w-40 truncate text-xs text-faint">
-                      {t.journal?.tags?.length ? t.journal.tags.join(", ") : "—"}
+                    <TD>
+                      <Badge tone={t.journalComplete ? "success" : "neutral"}>
+                        {t.journalComplete ? "Sudah diisi" : "Belum diisi"}
+                      </Badge>
                     </TD>
                   </TR>
                 );
