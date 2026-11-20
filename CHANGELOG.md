@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+## [1.4.5] — 2026-11-20
+
 ### Added
 
 - Plan daily activities in Task / Jadwal, record outcomes and completion, and carry one improvement into the next day.
