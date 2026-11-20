@@ -8,6 +8,7 @@ import {
   startOfWeek,
   subDays,
 } from "date-fns";
+import { id } from "date-fns/locale/id";
 
 /** All storage is UTC; formatting uses the user's timezone (default Asia/Jakarta). */
 export const DEFAULT_TZ = "Asia/Jakarta";
@@ -92,18 +93,13 @@ export function fmtDate(d: Date | string | null | undefined, pattern = "d MMM yy
 export function fmtDateID(d: Date | string | null | undefined, pattern = "d MMM yyyy"): string {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;
-  const months = [
-    "Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
-  ];
-  return format(date, pattern).replace(
-    /\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/g,
-    (m) => {
-      const idx = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].indexOf(m);
-      return idx >= 0 ? (months[idx] ?? m) : m;
-    },
-  );
+  return format(date, pattern, { locale: id });
 }
 
+export function fmtDateTimeID(date: Date | string, timezone: string) {
+  return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: timezone })
+    .format(typeof date === "string" ? new Date(date) : date);
+}
 const calendarDateFormatterID = new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeZone: "UTC" });
 
 export function fmtCalendarDateID(date: string): string {

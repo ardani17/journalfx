@@ -60,13 +60,13 @@ export function RiskSettingsForm({
             <Field label="Risiko / Trade (%)" htmlFor="rs-trade">
               <Input id="rs-trade" name="riskPerTrade" type="number" step="0.01" min="0.01" max="100" defaultValue={initial.riskPerTrade} required />
             </Field>
-            <Field label="Batas Loss Harian (%)" htmlFor="rs-day">
+            <Field label="Batas Rugi Harian (%)" htmlFor="rs-day">
               <Input id="rs-day" name="dailyLossLimit" type="number" step="0.01" min="0.01" max="100" defaultValue={initial.dailyLossLimit} required />
             </Field>
-            <Field label="Batas Loss Mingguan (%)" htmlFor="rs-week">
+            <Field label="Batas Rugi Mingguan (%)" htmlFor="rs-week">
               <Input id="rs-week" name="weeklyLossLimit" type="number" step="0.01" min="0.01" max="100" defaultValue={initial.weeklyLossLimit} required />
             </Field>
-            <Field label="Ambang Review DD (%)" htmlFor="rs-dd">
+            <Field label="Ambang Evaluasi Penurunan Saldo (%)" htmlFor="rs-dd">
               <Input id="rs-dd" name="ddReview" type="number" step="0.01" min="0.01" max="100" defaultValue={initial.ddReview} required />
             </Field>
             <Field label="Risiko Terbuka Maks (%)" htmlFor="rs-open">
@@ -74,8 +74,8 @@ export function RiskSettingsForm({
             </Field>
             <Field label="Dasar Perhitungan" htmlFor="rs-mode">
               <Select id="rs-mode" name="equityMode" defaultValue={initial.equityMode}>
-                <option value="balance">Balance</option>
-                <option value="equity">Equity</option>
+                <option value="balance">Saldo</option>
+                <option value="equity">Ekuitas</option>
               </Select>
             </Field>
           </div>

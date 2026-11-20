@@ -3,6 +3,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
 import { fmtUSD } from "../src/lib/money";
+import { zonedPeriod } from "../src/lib/dates";
+import { monteCarloEquityStorageKey } from "../src/lib/finance/trading-capital";
 
 const prisma = new PrismaClient();
 test.afterAll(() => prisma.$disconnect());
@@ -64,10 +66,10 @@ test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo i
       value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
     }]);
     await page.goto("/simulator");
-    await page.getByLabel("Return / Siklus (%)", { exact: true }).fill("5");
+    await page.getByLabel("Imbal Hasil per Siklus (%)", { exact: true }).fill("5");
     await page.getByLabel("Biaya / Siklus (USD)", { exact: true }).fill("1");
-    await page.getByLabel("Mode WD", { exact: true }).selectOption("FIXED");
-    await page.getByLabel("Nominal WD (USD)", { exact: true }).fill("2");
+    await page.getByLabel("Mode Penarikan", { exact: true }).selectOption("FIXED");
+    await page.getByLabel("Nominal Penarikan (USD)", { exact: true }).fill("2");
     const { data } = await runAndRead(page, "Simulasikan", "/api/simulator/run");
     expect(data.cycles.length).toBeGreaterThan(100);
     const history = page.getByRole("region", { name: "Riwayat siklus deterministik" });
@@ -93,9 +95,9 @@ test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo i
     }
 
     await page.getByLabel("Iterasi Monte Carlo").fill("2000");
-    await page.getByLabel("Jumlah trade", { exact: true }).fill("110");
-    await page.getByLabel("Trade per siklus", { exact: true }).fill("1");
-    await page.getByLabel("Win rate (%)", { exact: true }).fill("100");
+    await page.getByLabel("Jumlah transaksi", { exact: true }).fill("110");
+    await page.getByLabel("Transaksi per siklus", { exact: true }).fill("1");
+    await page.getByLabel("Tingkat kemenangan (%)", { exact: true }).fill("100");
     const worker = page.waitForEvent("worker");
     await page.getByRole("button", { name: "Simulasikan Monte Carlo" }).click();
     await worker;
@@ -103,8 +105,88 @@ test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo i
     const sample = page.getByRole("region", { name: "Riwayat siklus Monte Carlo" });
     await sample.getByLabel("Nomor siklus").fill("100");
     await sample.getByRole("button", { name: "Ke siklus" }).click();
-    await sample.getByRole("button", { name: /Siklus 100 · Trade 100/ }).click();
+    await sample.getByRole("button", { name: /Siklus 100 · Transaksi 100/ }).click();
     await expect(sample.getByRole("cell", { name: "Menang", exact: true })).toBeVisible();
+  } finally {
+    await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
+  }
+});
+
+test("estimates capital from the active budget and prefills Monte Carlo", async ({ page, baseURL }, testInfo) => {
+  const { owner, other } = await planningFixture();
+  const rateId = `fixture-capital-${randomUUID()}`;
+  try {
+    const { start, end } = zonedPeriod("MONTHLY", new Date(), owner.timezone);
+    await prisma.budget.create({
+      data: {
+        userId: owner.id, periodStart: start, periodEnd: end,
+        categories: { create: { userId: owner.id, name: "Kebutuhan uji", plannedAmount: 5_000_000 } },
+      },
+    });
+    await prisma.exchangeRate.create({ data: { id: rateId, pair: "USDIDR", source: "bi-jisdor", rate: 16_000, at: new Date() } });
+    await page.context().addCookies([{
+      url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
+      value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
+    }]);
+    await page.goto("/expenses");
+    const month = start.toLocaleDateString("id-ID", { month: "long", year: "numeric", timeZone: owner.timezone });
+    await expect(page.getByText(`Periode: ${month}`, { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Target dana bulanan (IDR)")).toHaveValue("5.000.000");
+    await page.getByLabel("Imbal hasil bersih per bulan (%)").fill("5");
+    await page.getByLabel("Porsi laba untuk kebutuhan (%)").fill("50");
+    await expect(page.getByText("Rp200.000.000", { exact: false })).toBeVisible();
+    await page.getByLabel("Target dana bulanan (IDR)").fill("2.500.000");
+    await expect(page.getByText("Rp100.000.000", { exact: false })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("capital-estimate-desktop.png") });
+    const jump = page.getByRole("link", { name: "Uji di Monte Carlo" });
+    const href = await jump.getAttribute("href", { timeout: 3000 }).catch(() => null);
+    const storageKey = monteCarloEquityStorageKey(owner!.id);
+    if (href) {
+      expect(href).toBe("/simulator#monte-carlo");
+      await jump.click();
+      await expect(page.locator("#monte-carlo-initialEquity")).not.toHaveValue("200");
+    } else {
+      await expect(page.getByText("Kurs USD diperlukan untuk mengisi modal awal Monte Carlo.")).toBeVisible();
+      await page.evaluate(([key, amount]) => sessionStorage.setItem(key!, amount!), [storageKey, "6250.25"]);
+      await page.goto("/simulator#monte-carlo");
+      await expect(page.locator("#monte-carlo-initialEquity")).toHaveValue("6.250,25");
+    }
+    await expect(page).toHaveURL(/\/simulator#monte-carlo$/);
+    const equity = page.locator("#monte-carlo-initialEquity");
+    const transferred = await equity.inputValue();
+    await page.getByRole("button", { name: "Konservatif", exact: true }).click();
+    await expect(equity).toHaveValue(transferred);
+    expect(await page.evaluate((key) => sessionStorage.getItem(key), storageKey)).toBeNull();
+    await page.reload();
+    await expect(equity).toHaveValue("200");
+    await expect(page.getByRole("heading", { name: "Contoh jalur simulasi" })).toHaveCount(0);
+  } finally {
+    await prisma.exchangeRate.deleteMany({ where: { id: rateId } });
+    await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
+  }
+});
+
+test("runs all three editable US$200 templates", async ({ page, baseURL }, testInfo) => {
+  const { owner, other } = await planningFixture();
+  try {
+    await page.context().addCookies([{
+      url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
+      value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
+    }]);
+    await page.goto("/simulator");
+    await page.getByRole("button", { name: "Coba contoh US$200" }).click();
+    await expect(page.getByRole("button", { name: "Santai", exact: true })).toHaveAttribute("aria-pressed", "true");
+    for (const [name, percent, value] of [["Konservatif", "0,5", "$1,00"], ["Santai", "1", "$2,00"], ["Agresif", "2", "$4,00"]] as const) {
+      await page.getByRole("button", { name, exact: true }).click();
+      await expect(page.locator("#monte-carlo-initialEquity")).toHaveValue("200");
+      await expect(page.locator("#monte-carlo-baseRiskPercent")).toHaveValue(percent);
+      await expect(page.getByText(`= ${value} per transaksi.`, { exact: false })).toBeVisible();
+      await page.getByRole("button", { name: "Simulasikan Monte Carlo" }).click();
+      await expect(page.getByRole("heading", { name: "Contoh jalur simulasi" })).toBeVisible();
+    }
+    await page.locator("#monte-carlo-initialEquity").fill("250");
+    await expect(page.getByText("= $5,00 per transaksi.", { exact: false })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath("monte-carlo-examples.png") });
   } finally {
     await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
   }
@@ -116,6 +198,36 @@ for (const viewport of [
 ]) {
   test.describe(viewport.name, () => {
     test.use({ isMobile: viewport.name === "mobile", hasTouch: viewport.name === "mobile" });
+
+    test("runs Monte Carlo with localized numbers and validates integer fields", async ({ page, baseURL }, testInfo) => {
+      const { owner, other } = await planningFixture();
+      try {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        await page.context().addCookies([{
+          url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
+          value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
+        }]);
+        await page.goto("/simulator");
+        const funds = page.getByLabel("Modal awal Monte Carlo (USD)", { exact: true });
+        const iterations = page.getByLabel("Iterasi Monte Carlo");
+        const run = page.getByRole("button", { name: "Simulasikan Monte Carlo" });
+        await expect(iterations).toHaveValue("1.000");
+        await funds.fill("1000000");
+        await iterations.focus();
+        await expect(funds).toHaveValue("1.000.000");
+        await funds.fill("1.000.000,50");
+        await iterations.fill("1,5");
+        await run.click();
+        await expect(page.locator("#monte-carlo-error")).toContainText("bilangan bulat");
+        await iterations.fill("5");
+        await page.locator("#monte-carlo-totalTrades").fill("1");
+        await run.click();
+        await expect(page.getByText(`Saldo awal ${fmtUSD(1_000_000.50)}`, { exact: false })).toBeVisible();
+        await page.screenshot({ path: testInfo.outputPath(`monte-carlo-input-${viewport.name}.png`) });
+      } finally {
+        await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
+      }
+    });
 
     test(`edits, reopens, and applies private compounding plans on ${viewport.name}`, async ({ page, baseURL }) => {
       const { owner, other, project, saved, elsewhere, foreign, immediate, values } = await planningFixture();
@@ -130,7 +242,7 @@ for (const viewport of [
         const saveEndpoint = "/api/scenarios";
         const target = page.getByLabel("Target (USD)", { exact: true });
         const start = page.getByLabel("Modal Awal (USD)", { exact: true });
-        const returns = page.getByLabel("Return / Siklus (%)", { exact: true });
+        const returns = page.getByLabel("Imbal Hasil per Siklus (%)", { exact: true });
         const cost = page.getByLabel("Biaya / Siklus (USD)", { exact: true });
         await expect(target).toHaveValue("1.000.000");
         await expect(cost).toHaveAttribute("inputmode", "decimal");
@@ -202,10 +314,10 @@ for (const viewport of [
         }
 
         await page.goto("/roadmap");
-        const select = page.getByLabel("Skenario Compounding");
+        const select = page.getByLabel("Skenario Pemajemukan");
         const apply = page.getByRole("button", { name: "Terapkan", exact: true });
-        const milestones = page.getByRole("table", { name: "Milestone Roadmap" });
-        const history = page.getByRole("table", { name: "Riwayat Milestone" });
+        const milestones = page.getByRole("table", { name: "Tonggak Pencapaian" });
+        const history = page.getByRole("table", { name: "Riwayat Pencapaian" });
         await expect(select).toHaveValue("");
         await expect(page.getByText("Pengaturan project", { exact: true })).toBeVisible();
         await expect(select.locator("option", { hasText: "Skenario project lain" })).toHaveCount(0);

@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import type { AttachmentKind, ExecutionKind, TradeDirection, TradeStatus } from "@prisma/client";
 import { Camera, Check, Plus, Trash2, Undo2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,12 +11,13 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/misc";
 import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/components/ui/table";
 import { D, fmtDecimal, fmtNum, fmtTradingDelta, fmtTradingMoney, fmtUSD } from "@/lib/money";
-import { fmtDateID } from "@/lib/dates";
+import { fmtDateTimeID } from "@/lib/dates";
 import { cn } from "@/lib/utils";
+import { attachmentKindLabel, executionKindLabel, tradeDirectionLabel, tradingSessionLabel } from "@/lib/trading-labels";
 
 interface Exec {
   id: string;
-  kind: string;
+  kind: ExecutionKind;
   quantity: string;
   price: string;
   commission: number;
@@ -27,8 +29,9 @@ interface Exec {
 
 export interface TradeDTO {
   id: string;
-  status: string;
-  direction: "LONG" | "SHORT";
+  status: TradeStatus;
+  direction: TradeDirection;
+  timezone: string;
   symbol: string;
   currency: string;
   pricePrecision: number;
@@ -71,15 +74,45 @@ export interface TradeDTO {
     preChecklist: Record<string, boolean> | null;
     postChecklist: Record<string, boolean> | null;
   } | null;
-  attachments: { id: string; kind: string; fileName: string; createdAt: string }[];
+  attachments: { id: string; kind: AttachmentKind; fileName: string; createdAt: string }[];
 }
 
-const MISTAKE_OPTIONS = [
-  "Entry dini", "Terlambat entry", "SL digeser", "Tanpa SL", "Overlot",
-  "Cut profit dini", "Hold terlalu lama", "Balas dendam", "FOMO", "Impulsif",
-];
+const MISTAKE_LABELS = {
+  "Entry dini": "Masuk terlalu cepat",
+  "Terlambat entry": "Masuk terlambat",
+  "SL digeser": "SL digeser",
+  "Tanpa SL": "Tanpa SL",
+  Overlot: "Ukuran lot berlebihan",
+  "Cut profit dini": "Ambil laba terlalu cepat",
+  "Hold terlalu lama": "Menahan posisi terlalu lama",
+  "Balas dendam": "Balas dendam",
+  FOMO: "FOMO",
+  Impulsif: "Impulsif",
+};
 
-const POST_CHECKS = ["Sesuai plan", "SL disiplin", "Manajemen emosi baik", "Eksekusi sesuai checklist"];
+const POST_CHECK_LABELS = {
+  "Sesuai plan": "Sesuai rencana",
+  "SL disiplin": "Disiplin mengikuti SL",
+  "Manajemen emosi baik": "Emosi terkendali",
+  "Eksekusi sesuai checklist": "Eksekusi sesuai daftar periksa",
+};
+
+const emotionLabels: Record<string, string> = {
+  calm: "Tenang", anxious: "Cemas", excited: "Bersemangat", fomo: "Takut tertinggal (FOMO)",
+  angry: "Marah", bored: "Bosan", satisfied: "Puas", regret: "Menyesal", frustrated: "Frustrasi",
+};
+const emotionsWhileTrading = ["calm", "anxious", "excited", "fomo", "angry", "bored"];
+const emotionsAfterTrading = ["calm", "anxious", "excited", "satisfied", "regret", "frustrated"];
+
+function EmotionOptions({ options, value }: { options: string[]; value?: string | null }) {
+  const available = value && !options.includes(value) ? [...options, value] : options;
+  return (
+    <>
+      <option value="">Belum dicatat</option>
+      {available.map((key) => <option key={key} value={key}>{Object.hasOwn(emotionLabels, key) ? emotionLabels[key] : "Pilihan tersimpan"}</option>)}
+    </>
+  );
+}
 
 export function TradeDetail({ trade }: { trade: TradeDTO }) {
   const [tab, setTab] = useState("ringkasan");
@@ -99,8 +132,8 @@ export function TradeDetail({ trade }: { trade: TradeDTO }) {
         items={[
           { value: "ringkasan", label: "Ringkasan" },
           { value: "eksekusi", label: `Eksekusi (${trade.executions.length})` },
-          { value: "psikologi", label: "Psikologi & Jurnal" },
-          { value: "screenshot", label: `Screenshot (${trade.attachments.length})` },
+          { value: "psikologi", label: "Psikologi dan Jurnal" },
+          { value: "screenshot", label: `Lampiran (${trade.attachments.length})` },
         ]}
         value={tab}
         onChange={setTab}
@@ -112,7 +145,7 @@ export function TradeDetail({ trade }: { trade: TradeDTO }) {
 
       {tab === "psikologi" ? <JournalForm journal={trade.journal} loading={loading} saveJournal={saveJournal} /> : null}
 
-      {tab === "screenshot" ? <TradeScreenshots attachments={trade.attachments} uploadScreenshot={uploadScreenshot} deleteAttachment={deleteAttachment} /> : null}
+      {tab === "screenshot" ? <TradeScreenshots attachments={trade.attachments} timezone={trade.timezone} uploadScreenshot={uploadScreenshot} deleteAttachment={deleteAttachment} /> : null}
     </>
   );
 }
@@ -160,7 +193,7 @@ function useTradeActions(trade: TradeDTO, openQty: ReturnType<typeof D>) {
   }
 
   async function cancelTrade() {
-    const reason = window.prompt("Alasan pembatalan trade:");
+    const reason = window.prompt("Alasan pembatalan transaksi:");
     if (!reason || reason.trim().length < 3) return;
     setError(null);
     setLoading(true);
@@ -187,24 +220,25 @@ function useTradeActions(trade: TradeDTO, openQty: ReturnType<typeof D>) {
     setLoading(true);
     const fd = new FormData(e.currentTarget);
     const compliance = fd.get("compliant");
-    const post: Record<string, boolean> = {};
-    for (const c of POST_CHECKS) post[c] = fd.get(`post_${c}`) === "on";
+    const post = { ...trade.journal?.postChecklist };
+    for (const key of Object.keys(POST_CHECK_LABELS)) post[key] = fd.get(`post_${key}`) === "on";
+    const savedMistakes = trade.journal?.mistakes.filter((key) => !Object.hasOwn(MISTAKE_LABELS, key)) ?? [];
     const payload: Record<string, unknown> = {
-      marketContext: fd.get("marketContext") || undefined,
-      entryReason: fd.get("entryReason") || undefined,
-      exitReason: fd.get("exitReason") || undefined,
-      emotionBefore: fd.get("emotionBefore") || undefined,
-      emotionDuring: fd.get("emotionDuring") || undefined,
-      emotionAfter: fd.get("emotionAfter") || undefined,
-      confidence: fd.get("confidence") || undefined,
-      stressLevel: fd.get("stressLevel") || undefined,
+      marketContext: fd.get("marketContext") || null,
+      entryReason: fd.get("entryReason") || null,
+      exitReason: fd.get("exitReason") || null,
+      emotionBefore: fd.get("emotionBefore") || null,
+      emotionDuring: fd.get("emotionDuring") || null,
+      emotionAfter: fd.get("emotionAfter") || null,
+      confidence: fd.get("confidence") || null,
+      stressLevel: fd.get("stressLevel") || null,
       fomo: fd.get("fomo") === "on",
       revenge: fd.get("revenge") === "on",
       overtrading: fd.get("overtrading") === "on",
       compliant: compliance ? compliance === "true" : null,
-      mistakes: MISTAKE_OPTIONS.filter((m) => fd.get(`mistake_${m}`) === "on"),
-      lessons: fd.get("lessons") || undefined,
-      improvement: fd.get("improvement") || undefined,
+      mistakes: [...savedMistakes, ...Object.keys(MISTAKE_LABELS).filter((key) => fd.get(`mistake_${key}`) === "on")],
+      lessons: fd.get("lessons") || null,
+      improvement: fd.get("improvement") || null,
       tags: String(fd.get("tags") ?? "")
         .split(",")
         .map((s) => s.trim())
@@ -239,7 +273,7 @@ function useTradeActions(trade: TradeDTO, openQty: ReturnType<typeof D>) {
     const res = await fetch(`/api/trades/${trade.id}/attachments`, { method: "POST", body: fd });
     const body = await res.json();
     if (!res.ok || !body.ok) {
-      setError(body.error ?? "Upload gagal");
+      setError(body.error ?? "Tangkapan layar gagal diunggah.");
       return;
     }
     e.target.value = "";
@@ -262,20 +296,21 @@ function TradeSummary({ trade, openQty, loading, addClose, cancelTrade }: {
   cancelTrade: TradeActions["cancelTrade"];
 }) {
   const canClose = openQty.gt(0) && trade.status !== "CANCELLED";
+  const session = trade.session && (Object.hasOwn(tradingSessionLabel, trade.session) ? tradingSessionLabel[trade.session] : trade.session);
   return (
     <div className="grid gap-3 lg:grid-cols-2">
       <Card>
         <CardHeader><CardTitle>Posisi</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <Row label="Instrumen" value={trade.symbol} />
-          <Row label="Arah" value={trade.direction === "LONG" ? "Buy" : "Sell"} />
+          <Row label="Arah" value={tradeDirectionLabel[trade.direction]} />
           <Row label="Lot" value={fmtDecimal(trade.lot)} />
-          <Row label="Qty Terbuka" value={fmtDecimal(openQty.gt(0) ? openQty : 0)} />
-          <Row label="Entry" value={fmtDecimal(trade.entryPrice, trade.pricePrecision)} />
-          <Row label="Exit" value={trade.exitPrice !== null ? fmtDecimal(trade.exitPrice, trade.pricePrecision) : "—"} />
+          <Row label="Jumlah Terbuka" value={fmtDecimal(openQty.gt(0) ? openQty : 0)} />
+          <Row label="Pembukaan" value={fmtDecimal(trade.entryPrice, trade.pricePrecision)} />
+          <Row label="Penutupan" value={trade.exitPrice !== null ? fmtDecimal(trade.exitPrice, trade.pricePrecision) : "—"} />
           <Row label="SL Awal" value={trade.initialStopLoss !== null ? fmtDecimal(trade.initialStopLoss, trade.pricePrecision) : "—"} />
           <Row label="TP Awal" value={trade.initialTakeProfit !== null ? fmtDecimal(trade.initialTakeProfit, trade.pricePrecision) : "—"} />
-          <Row label="Sesi / TF" value={[trade.session, trade.timeframe].filter(Boolean).join(" / ") || "—"} />
+          <Row label="Sesi / Kerangka Waktu" value={[session, trade.timeframe].filter(Boolean).join(" / ") || "—"} />
           <Row label="Strategi" value={trade.strategy ?? "—"} />
         </CardContent>
       </Card>
@@ -286,10 +321,10 @@ function TradeSummary({ trade, openQty, loading, addClose, cancelTrade }: {
           <CardHeader><CardTitle>Tutup Posisi (penuh / parsial)</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={addClose} className="flex flex-wrap items-end gap-3">
-              <Field label={`Quantity (maks ${fmtDecimal(openQty)})`} htmlFor="c-qty" className="w-32">
+              <Field label={`Jumlah (maks ${fmtDecimal(openQty)})`} htmlFor="c-qty" className="w-32">
                 <Input id="c-qty" name="quantity" type="number" step="0.00000001" min="0.00000001" max={openQty.toString()} required defaultValue={openQty.toString()} />
               </Field>
-              <Field label="Harga Close" htmlFor="c-price" className="w-36">
+              <Field label="Harga Penutupan" htmlFor="c-price" className="w-36">
                 <Input id="c-price" name="price" type="number" step="0.000001" min="0.000001" required />
               </Field>
               {trade.requiresReportedPnl && (
@@ -307,11 +342,11 @@ function TradeSummary({ trade, openQty, loading, addClose, cancelTrade }: {
                 <Check className="h-4 w-4" aria-hidden /> {loading ? "Memproses…" : "Tutup Posisi"}
               </Button>
               <Button variant="danger" type="button" onClick={cancelTrade} disabled={loading}>
-                <Undo2 className="h-4 w-4" aria-hidden /> Batalkan Trade
+                <Undo2 className="h-4 w-4" aria-hidden /> Batalkan Transaksi
               </Button>
             </form>
             <p className="mt-2 text-[11px] text-faint">
-              Tutup parsial otomatis mengenali P&L porsi tertutup saja dan mempostingnya ke ledger.
+              Penutupan sebagian mencatat laba atau rugi untuk bagian posisi yang ditutup.
             </p>
           </CardContent>
         </Card>
@@ -326,17 +361,17 @@ function TradeOutcome({ trade }: { trade: TradeDTO }) {
       <CardHeader><CardTitle>Hasil & Risiko</CardTitle></CardHeader>
       <CardContent className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
         <Row label="Risiko Awal" value={trade.initialRisk !== null ? fmtUSD(trade.initialRisk) : "—"} />
-        <Row label="Planned R:R" value={trade.plannedRR !== null ? `1 : ${fmtNum(trade.plannedRR, 1)}` : "—"} />
-        <Row label="Actual R" value={trade.actualR !== null ? `${fmtNum(trade.actualR, 2)}R` : "—"} />
+        <Row label="R:R Rencana" value={trade.plannedRR !== null ? `1 : ${fmtNum(trade.plannedRR, 1)}` : "—"} />
+        <Row label="R Aktual" value={trade.actualR !== null ? `${fmtNum(trade.actualR, 2)}R` : "—"} />
         <Row
-          label="P/L Realisasi"
+          label="P&L Terealisasi"
           value={trade.realizedPnl !== null ? fmtTradingDelta(trade.realizedPnl, trade.currency) : "—"}
           tone={trade.realizedPnl !== null ? (trade.realizedPnl > 0 ? "pos" : trade.realizedPnl < 0 ? "neg" : undefined) : undefined}
         />
         <Row label="Komisi" value={fmtTradingMoney(trade.commission, trade.currency)} />
         <Row label="Swap" value={fmtTradingMoney(trade.swap, trade.currency)} />
-        <Row label="Fee" value={fmtTradingMoney(trade.fees, trade.currency)} />
-        <Row label="Waktu Exit" value={trade.exitAt ? fmtDateID(trade.exitAt, "d MMM, HH:mm") : "—"} />
+        <Row label="Biaya" value={fmtTradingMoney(trade.fees, trade.currency)} />
+        <Row label="Waktu Penutupan" value={trade.exitAt ? fmtDateTimeID(trade.exitAt, trade.timezone) : "—"} />
       </CardContent>
     </Card>
   );
@@ -348,7 +383,7 @@ function ExecutionTable({ trade }: { trade: TradeDTO }) {
       <Table>
         <THead>
           <TR>
-            <TH>Waktu</TH><TH>Jenis</TH><TH className="text-right">Qty</TH>
+            <TH>Waktu</TH><TH>Jenis</TH><TH className="text-right">Jumlah</TH>
             <TH className="text-right">Harga</TH><TH className="text-right">Komisi</TH>
             <TH className="text-right">P/L</TH>
           </TR>
@@ -359,10 +394,10 @@ function ExecutionTable({ trade }: { trade: TradeDTO }) {
           ) : (
             trade.executions.map((e) => (
               <TR key={e.id}>
-                <TD className="tnum text-xs">{fmtDateID(e.executedAt, "d MMM yyyy, HH:mm")}</TD>
+                <TD className="tnum text-xs">{fmtDateTimeID(e.executedAt, trade.timezone)}</TD>
                 <TD>
                   <Badge tone={e.kind.includes("ENTRY") ? "info" : e.kind.includes("PARTIAL") ? "warn" : "success"}>
-                    {e.kind.replace("_", " ")}
+                    {executionKindLabel[e.kind]}
                   </Badge>
                 </TD>
                 <TD className="tnum text-right text-xs">{fmtDecimal(e.quantity)}</TD>
@@ -388,15 +423,15 @@ function JournalForm({ journal: j, loading, saveJournal }: {
   return (
     <form onSubmit={saveJournal} className="grid gap-4 lg:grid-cols-2">
       <Card>
-        <CardHeader><CardTitle>Konteks & Refleksi</CardTitle></CardHeader>
+        <CardHeader><CardTitle>Konteks dan Refleksi</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <Field label="Konteks Market" htmlFor="j-ctx">
+          <Field label="Konteks Pasar" htmlFor="j-ctx">
             <Textarea id="j-ctx" name="marketContext" rows={2} defaultValue={j?.marketContext ?? ""} />
           </Field>
-          <Field label="Alasan Entry" htmlFor="j-entry">
+          <Field label="Alasan Membuka Posisi" htmlFor="j-entry">
             <Textarea id="j-entry" name="entryReason" rows={2} defaultValue={j?.entryReason ?? ""} />
           </Field>
-          <Field label="Alasan Exit" htmlFor="j-exit">
+          <Field label="Alasan Menutup Posisi" htmlFor="j-exit">
             <Textarea id="j-exit" name="exitReason" rows={2} defaultValue={j?.exitReason ?? ""} />
           </Field>
           <Field label="Pelajaran" htmlFor="j-lessons">
@@ -405,7 +440,7 @@ function JournalForm({ journal: j, loading, saveJournal }: {
           <Field label="Perbaikan Berikutnya" htmlFor="j-improve">
             <Textarea id="j-improve" name="improvement" rows={2} defaultValue={j?.improvement ?? ""} />
           </Field>
-          <Field label="Tags (pisahkan koma)" htmlFor="j-tags">
+          <Field label="Tag (pisahkan dengan koma)" htmlFor="j-tags">
             <Input id="j-tags" name="tags" defaultValue={(j?.tags ?? []).join(", ")} placeholder="breakout, sesi-london" />
           </Field>
         </CardContent>
@@ -413,44 +448,35 @@ function JournalForm({ journal: j, loading, saveJournal }: {
       <Card>
         <CardHeader><CardTitle>Psikologi</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid gap-3 sm:grid-cols-3">
             <Field label="Emosi Sebelum" htmlFor="j-eb">
               <Select id="j-eb" name="emotionBefore" defaultValue={j?.emotionBefore ?? ""}>
-                <option value="">—</option>
-                {["calm", "anxious", "excited", "fomo", "angry", "bored"].map((x) => (
-                  <option key={x} value={x}>{x}</option>
-                ))}
+                <EmotionOptions options={emotionsWhileTrading} value={j?.emotionBefore} />
               </Select>
             </Field>
             <Field label="Emosi Saat" htmlFor="j-ed">
               <Select id="j-ed" name="emotionDuring" defaultValue={j?.emotionDuring ?? ""}>
-                <option value="">—</option>
-                {["calm", "anxious", "excited", "fomo", "angry", "bored"].map((x) => (
-                  <option key={x} value={x}>{x}</option>
-                ))}
+                <EmotionOptions options={emotionsWhileTrading} value={j?.emotionDuring} />
               </Select>
             </Field>
             <Field label="Emosi Setelah" htmlFor="j-ea">
               <Select id="j-ea" name="emotionAfter" defaultValue={j?.emotionAfter ?? ""}>
-                <option value="">—</option>
-                {["calm", "anxious", "excited", "satisfied", "regret", "frustrated"].map((x) => (
-                  <option key={x} value={x}>{x}</option>
-                ))}
+                <EmotionOptions options={emotionsAfterTrading} value={j?.emotionAfter} />
               </Select>
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Confidence (1-5)" htmlFor="j-conf">
+            <Field label="Kepercayaan Diri (1–5)" htmlFor="j-conf">
               <Input id="j-conf" name="confidence" type="number" min="1" max="5" defaultValue={j?.confidence ?? ""} />
             </Field>
-            <Field label="Stress (1-5)" htmlFor="j-stress">
+            <Field label="Stres (1–5)" htmlFor="j-stress">
               <Input id="j-stress" name="stressLevel" type="number" min="1" max="5" defaultValue={j?.stressLevel ?? ""} />
             </Field>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <Check2 name="fomo" label="FOMO" def={j?.fomo} />
-            <Check2 name="revenge" label="Revenge Trading" def={j?.revenge} />
-            <Check2 name="overtrading" label="Overtrading" def={j?.overtrading} />
+            <Check2 name="revenge" label="Transaksi balas dendam" def={j?.revenge} />
+            <Check2 name="overtrading" label="Transaksi berlebihan" def={j?.overtrading} />
           </div>
           <Field label="Patuh pada rencana" htmlFor="j-compliant">
             <Select id="j-compliant" name="compliant" defaultValue={String(j?.compliant ?? "")}>
@@ -462,22 +488,22 @@ function JournalForm({ journal: j, loading, saveJournal }: {
           <div>
             <p className="mb-1.5 text-xs font-medium text-muted">Kesalahan</p>
             <div className="flex flex-wrap gap-1.5">
-              {MISTAKE_OPTIONS.map((m) => (
+              {Object.entries(MISTAKE_LABELS).map(([m, label]) => (
                 <label key={m} className={cn(
                   "flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]",
                   j?.mistakes?.includes(m) ? "border-loss/50 bg-loss/10 text-loss" : "border-line text-muted hover:border-line",
                 )}>
                   <input type="checkbox" name={`mistake_${m}`} defaultChecked={j?.mistakes?.includes(m)} className="h-3 w-3 accent-[#f87171]" />
-                  {m}
+                  {label}
                 </label>
               ))}
             </div>
           </div>
           <div>
-            <p className="mb-1.5 text-xs font-medium text-muted">Checklist Post-Trade</p>
+            <p className="mb-1.5 text-xs font-medium text-muted">Daftar Periksa Setelah Transaksi</p>
             <div className="space-y-1.5">
-              {POST_CHECKS.map((c) => (
-                <Check2 key={c} name={`post_${c}`} label={c} def={j?.postChecklist?.[c]} />
+              {Object.entries(POST_CHECK_LABELS).map(([key, label]) => (
+                <Check2 key={key} name={`post_${key}`} label={label} def={j?.postChecklist?.[key]} />
               ))}
             </div>
           </div>
@@ -490,8 +516,9 @@ function JournalForm({ journal: j, loading, saveJournal }: {
   );
 }
 
-function TradeScreenshots({ attachments, uploadScreenshot, deleteAttachment }: {
+function TradeScreenshots({ attachments, timezone, uploadScreenshot, deleteAttachment }: {
   attachments: TradeDTO["attachments"];
+  timezone: string;
   uploadScreenshot: TradeActions["uploadScreenshot"];
   deleteAttachment: TradeActions["deleteAttachment"];
 }) {
@@ -499,7 +526,7 @@ function TradeScreenshots({ attachments, uploadScreenshot, deleteAttachment }: {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Camera className="h-4 w-4" aria-hidden /> Chart Screenshots (privat, hanya Anda)
+          <Camera className="h-4 w-4" aria-hidden /> Tangkapan Layar Grafik
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -508,24 +535,24 @@ function TradeScreenshots({ attachments, uploadScreenshot, deleteAttachment }: {
             <label key={k} className="cursor-pointer">
               <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" data-kind={k} onChange={uploadScreenshot} />
               <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-panel-2 px-3 text-xs text-muted border border-line hover:border-primary/50 hover:text-primary">
-                <Plus className="h-3.5 w-3.5" aria-hidden /> {k}
+                <Plus className="h-3.5 w-3.5" aria-hidden /> {attachmentKindLabel[k]}
               </span>
             </label>
           ))}
         </div>
         {attachments.length === 0 ? (
           <p className="py-8 text-center text-xs text-faint">
-            Belum ada screenshot. Unggah chart sebelum/entry/saat/exit untuk dokumentasi visual.
+            Belum ada tangkapan layar. Unggah gambar grafik untuk mendokumentasikan transaksi.
           </p>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {attachments.map((a) => (
               <figure key={a.id} className="overflow-hidden rounded-xl border border-line">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/api/attachments/${a.id}`} alt={`Screenshot ${a.kind} — ${a.fileName}`} className="aspect-video w-full object-cover" loading="lazy" />
+                <img src={`/api/attachments/${a.id}`} alt={`${attachmentKindLabel[a.kind]} · ${a.fileName}`} className="aspect-video w-full object-cover" loading="lazy" />
                 <figcaption className="flex items-center justify-between px-2.5 py-1.5 text-[11px] text-muted">
-                  <span>{a.kind} · {fmtDateID(a.createdAt, "d MMM HH:mm")}</span>
-                  <button onClick={() => deleteAttachment(a.id)} aria-label={`Hapus ${a.kind}`} className="text-faint hover:text-loss">
+                  <span>{attachmentKindLabel[a.kind]} · {fmtDateTimeID(a.createdAt, timezone)}</span>
+                  <button onClick={() => deleteAttachment(a.id)} aria-label={`Hapus lampiran ${attachmentKindLabel[a.kind]}`} className="text-faint hover:text-loss">
                     <Trash2 className="h-3.5 w-3.5" aria-hidden />
                   </button>
                 </figcaption>

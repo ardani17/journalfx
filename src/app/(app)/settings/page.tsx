@@ -20,7 +20,7 @@ export default async function SettingsPage() {
   ]);
   return (
     <PageShell>
-      <PageHeader title="Pengaturan" subtitle="Profil, preferensi tampilan, integrasi, dan konfigurasi project." />
+      <PageHeader title="Pengaturan" subtitle="Atur profil, preferensi tampilan, integrasi, dan proyek." />
       <SettingsClient
         user={{ name: user.name, email: user.email, timezone: user.timezone, locale: user.locale }}
         project={{
@@ -38,7 +38,7 @@ export default async function SettingsPage() {
           staleHours: syncStatus.staleHours,
         }}
       />
-      <NotifyChannelSection initial={channels} />
+      <NotifyChannelSection key={user.id} userId={user.id} initial={channels} />
     </PageShell>
   );
 }

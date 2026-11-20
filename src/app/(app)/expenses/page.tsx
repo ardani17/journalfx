@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/misc";
 import { BudgetClient } from "./budget-client";
+import { TradingCapitalEstimate } from "./trading-capital-estimate";
 import { fmtIDR, fmtNum } from "@/lib/money";
 import { PiggyBank } from "lucide-react";
 import { getJisdorQuote } from "@/server/services/jisdor";
@@ -53,14 +54,14 @@ export default async function ExpensesPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center justify-between">
-              <span>Periode: {budget.periodStart.toLocaleDateString("id-ID", { month: "long", year: "numeric", timeZone: "UTC" })}</span>
+              <span>Periode: {budget.periodStart.toLocaleDateString("id-ID", { month: "long", year: "numeric", timeZone: user.timezone })}</span>
               <Badge tone={overview.coveragePct >= 100 ? "success" : overview.coveragePct > 0 ? "warn" : "neutral"}>
                 {fmtNum(overview.coveragePct, 1)}% terdanai
               </Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            <Progress value={Math.min(overview.coveragePct, 100)} label="Terndanai" />
+            <Progress value={Math.min(overview.coveragePct, 100)} label="Terdanai" />
             <p className="tnum text-[11px] text-faint">
               Terdanai {fmtIDR(overview.funded)} · Terpakai {fmtIDR(overview.totalSpent)} · Target {fmtIDR(overview.planned)}
             </p>
@@ -68,6 +69,7 @@ export default async function ExpensesPage() {
         </Card>
       </div>
 
+      <TradingCapitalEstimate userId={user.id} planned={overview.planned.toString()} quote={fx} />
       <BudgetClient
         categories={overview.categories.map((c) => ({
           id: c.id,

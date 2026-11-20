@@ -32,7 +32,7 @@ export default async function AnalyticsPage() {
     <PageShell>
       <PageHeader
         title="Laporan & Analisis"
-        subtitle="Evaluasi performa trading dan perkembangan project"
+        subtitle="Evaluasi performa trading dan perkembangan proyek."
         actions={<Badge tone="neutral">30 hari terakhir</Badge>}
       />
 
@@ -43,15 +43,15 @@ export default async function AnalyticsPage() {
           tone={core.netPnl.isPositive() ? "primary" : "loss"}
           icon={TrendingUp}
         />
-        <StatCard label="Win Rate" value={core.winRate !== null ? `${fmtNum(core.winRate, 1)}%` : "N/A"} icon={Percent} sub={`${core.wins}W / ${core.losses}L`} />
+        <StatCard label="Tingkat Kemenangan" value={core.winRate !== null ? `${fmtNum(core.winRate, 1)}%` : "N/A"} icon={Percent} sub={`${core.wins}W / ${core.losses}L`} />
         <StatCard
-          label="Profit Factor"
+          label="Faktor Laba"
           value={core.profitFactor !== null ? fmtNum(core.profitFactor, 2) : "N/A"}
           icon={Scale}
           sub={core.avgWin && core.avgLoss ? `AvgW ${fmtUSD(core.avgWin)} / AvgL ${fmtUSD(core.avgLoss)}` : undefined}
         />
         <StatCard
-          label="Expectancy / Trade"
+          label="Ekspektasi / Trade"
           value={core.expectancy !== null ? fmtUSDdelta(core.expectancy) : "N/A"}
           icon={Target}
           sub={core.avgR !== null ? `Avg ${fmtNum(core.avgR, 2)}R` : undefined}
@@ -67,7 +67,7 @@ export default async function AnalyticsPage() {
         <CardHeader><CardTitle>P/L Harian (30 hari)</CardTitle></CardHeader>
         <CardContent>
           {days.some((d) => d.trades > 0) ? (
-            <DailyPnlChart data={days} />
+            <DailyPnlChart data={days.map(({ date, pnl, trades }) => ({ date, pnl: pnl.toNumber(), trades }))} />
           ) : (
             <p className="py-10 text-center text-xs text-faint">Belum ada trade tertutup — grafik P/L harian akan muncul di sini.</p>
           )}
@@ -77,7 +77,7 @@ export default async function AnalyticsPage() {
       <div className="grid gap-3 lg:grid-cols-2">
         <TableWrap>
           <Table>
-            <THead><TR><TH>Strategi</TH><TH className="text-right">Trade</TH><TH className="text-right">Win Rate</TH><TH className="text-right">Net P/L</TH></TR></THead>
+            <THead><TR><TH>Strategi</TH><TH className="text-right">Transaksi</TH><TH className="text-right">Tingkat Kemenangan</TH><TH className="text-right">Net P/L</TH></TR></THead>
             <TBody>
               {strategies.length === 0 ? (
                 <EmptyRow colSpan={4}>Belum ada data strategi</EmptyRow>
@@ -100,13 +100,13 @@ export default async function AnalyticsPage() {
         <Card>
           <CardHeader><CardTitle className="flex items-center gap-2"><Activity className="h-4 w-4 text-primary" aria-hidden /> Statistik Lanjutan</CardTitle></CardHeader>
           <CardContent className="grid grid-cols-2 gap-x-4 text-xs">
-            <StatRow label="Win Streak Maks" value={`${core.maxWinStreak}`} />
-            <StatRow label="Loss Streak Maks" value={`${core.maxLossStreak}`} />
+            <StatRow label="Rentetan Untung Terpanjang" value={`${core.maxWinStreak}`} />
+            <StatRow label="Rentetan Rugi Terpanjang" value={`${core.maxLossStreak}`} />
             <StatRow label="Trade Terbaik" value={fmtUSDdelta(core.bestTrade)} tone="pos" />
             <StatRow label="Trade Terburuk" value={fmtUSDdelta(core.worstTrade)} tone="neg" />
             <StatRow label="Durasi Rata-rata" value={core.avgHoldMinutes !== null ? `${core.avgHoldMinutes} mnt` : "N/A"} />
-            <StatRow label="Gross Win" value={fmtUSD(core.grossWin)} />
-            <StatRow label="Gross Loss" value={fmtUSD(core.grossLoss)} />
+            <StatRow label="Laba Kotor" value={fmtUSD(core.grossWin)} />
+            <StatRow label="Rugi Kotor" value={fmtUSD(core.grossLoss)} />
             <StatRow label="Break Even" value={`${core.breakEven}`} />
           </CardContent>
         </Card>
@@ -125,7 +125,7 @@ export default async function AnalyticsPage() {
         <TableWrap>
           <Table>
             <THead>
-              <TR><TH>Akun</TH><TH>Tipe</TH><TH className="text-right">Balance</TH><TH className="text-right">P&L Realisasi</TH><TH className="text-right">Win Rate</TH><TH className="text-right">Trade</TH>{portfolio.some((p) => p.isProp) ? <TH>Challenge</TH> : null}</TR>
+              <TR><TH>Akun</TH><TH>Jenis</TH><TH className="text-right">Saldo</TH><TH className="text-right">P&L Terealisasi</TH><TH className="text-right">Tingkat Kemenangan</TH><TH className="text-right">Transaksi</TH>{portfolio.some((p) => p.isProp) ? <TH>Tantangan</TH> : null}</TR>
             </THead>
             <TBody>
               {portfolio.map((p) => (

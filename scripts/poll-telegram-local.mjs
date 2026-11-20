@@ -27,11 +27,11 @@ async function start() {
 
   const webhook = await telegram("getWebhookInfo");
   if (webhook.url) throw new Error("A Telegram webhook is already registered. Local polling stopped.");
-  console.log("Listening for Telegram messages locally.");
+  console.log("Listening for Telegram messages and button callbacks locally.");
   let offset = 0;
   while (true) {
     try {
-      const updates = await telegram("getUpdates", { offset, timeout: 25, allowed_updates: ["message"] });
+      const updates = await telegram("getUpdates", { offset, timeout: 25, allowed_updates: ["message", "callback_query"] });
       for (const update of updates) {
         const response = await fetch(endpoint, {
           method: "POST",

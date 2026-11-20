@@ -82,6 +82,8 @@ node --env-file=.env scripts/register-telegram-webhook.mjs
 
 Di **Pengaturan → Notifikasi Telegram**, pilih **Temukan Chat ID**, kirim `/id` di chat pribadi bot, masukkan angka yang diberikan, lalu pilih **Hubungkan Telegram** dan tekan **Start** di chat yang sama. Setelah terhubung, gunakan pesan tes untuk memeriksa pengiriman. Jam tenang mengikuti zona waktu profil.
 
+Bot menampilkan menu setelah akun terhubung. Gunakan `/menu`, `/ringkasan`, atau `/tugas` untuk melihat ringkasan transaksi mingguan dan agenda hari ini. Tombol **Tandai selesai** menyimpan status tugas di aplikasi. Jalankan ulang skrip pendaftaran webhook setelah memasang versi dengan menu Telegram agar klik tombol diterima.
+
 Untuk pengujian lokal, jalankan `node --env-file=.env scripts/poll-telegram-local.mjs` bersama aplikasi dengan `APP_ORIGIN` loopback. Gunakan satu poller per bot dan hentikan poller sebelum mendaftarkan webhook HTTPS.
 
 ### AI Journal Insights

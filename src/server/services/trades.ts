@@ -13,6 +13,7 @@ import {
   rollupExecutions,
 } from "@/lib/finance/trades";
 import type { CreateTradeInput, AddExecutionInput } from "@/lib/validation/trades";
+import { isTradeJournalComplete, journalCompletionSelect } from "@/lib/trade-journal-completion";
 import { requireActiveAccount } from "./accounts";
 
 /**
@@ -42,7 +43,7 @@ async function resolveInstrument(userId: string, input: CreateTradeInput) {
     return inst;
   }
   const symbol = input.symbol?.toUpperCase();
-  if (!symbol) throw new ApiError(400, "instrumentId atau symbol wajib diisi");
+  if (!symbol) throw new ApiError(400, "Pilih atau masukkan simbol instrumen.");
   const inst = await findInstrumentBySymbol(prisma, userId, symbol);
   if (!inst) throw new ApiError(404, `Instrumen ${symbol} belum terdaftar`);
   return inst;
@@ -94,7 +95,7 @@ export async function createTrade(userId: string, input: CreateTradeInput, req?:
     const account = await requireActiveAccount(userId, input.accountId, tx);
     if (input.ticket) {
       const dup = await tx.trade.findUnique({ where: { accountId_ticket: { accountId: account.id, ticket: input.ticket } } });
-      if (dup) throw new ApiError(409, `Trade dengan ticket ${input.ticket} sudah ada`);
+      if (dup) throw new ApiError(409, `Transaksi dengan nomor tiket ${input.ticket} sudah ada`);
     }
     const pricePrecision = Math.max(...[input.entryPrice, input.initialStopLoss, input.initialTakeProfit]
       .map((price) => D(price).toDecimalPlaces(6).decimalPlaces()));
@@ -177,7 +178,7 @@ export async function getTrade(userId: string, id: string) {
       attachments: { orderBy: { createdAt: "asc" } },
     },
   });
-  if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
+  if (!trade) throw new ApiError(404, "Transaksi tidak ditemukan");
   return trade;
 }
 
@@ -229,25 +230,49 @@ export function tradeFilterWhere(userId: string, filter: Omit<ListTradesFilter, 
   };
 }
 
-export async function listTrades(userId: string, filter: ListTradesFilter) {
+export async function listTrades(userId: string, filter: ListTradesFilter, { includeJournalCompletion = false } = {}) {
   const sort = filter.sort ?? "desc";
   const where = tradeFilterWhere(userId, filter);
+  const page = {
+    where,
+    orderBy: [{ entryAt: sort }, { createdAt: sort }, { id: sort }],
+    take: filter.limit,
+    skip: filter.offset,
+  } satisfies Prisma.TradeFindManyArgs;
+  const relations = {
+    instrument: { select: { symbol: true, pricePrecision: true } },
+    account: { select: { currency: true } },
+    strategy: { select: { name: true } },
+  } satisfies Prisma.TradeInclude;
   const [items, total] = await Promise.all([
-    prisma.trade.findMany({
-      where,
-      orderBy: [{ entryAt: sort }, { createdAt: sort }, { id: sort }],
-      take: filter.limit,
-      skip: filter.offset,
-      include: {
-        instrument: { select: { symbol: true, pricePrecision: true } },
-        account: { select: { currency: true } },
-        strategy: { select: { name: true } },
-        journal: { select: { tags: true, mistakes: true } },
-      },
-    }),
+    includeJournalCompletion
+      ? prisma.trade.findMany({ ...page, include: { ...relations, journal: { select: journalCompletionSelect } } })
+      : prisma.trade.findMany({ ...page, include: { ...relations, journal: { select: { tags: true, mistakes: true } } } }),
     prisma.trade.count({ where }),
   ]);
-  return { items, total };
+  const checkedItems = includeJournalCompletion && items.length ? await prisma.$queryRaw<{ tradeId: string }[]>`
+    SELECT j."tradeId"
+    FROM "TradeJournal" j
+    JOIN "Trade" t ON t."id" = j."tradeId"
+    WHERE t."userId" = ${userId}
+      AND j."tradeId" IN (${Prisma.join(items.map(({ id }) => id))})
+      AND jsonb_typeof(j."postChecklist") = 'object'
+      AND jsonb_path_exists(j."postChecklist", '$.* ? (@.type() == "boolean" && @ == true)')
+  ` : [];
+  const checkedTradeIds = new Set(checkedItems.map(({ tradeId }) => tradeId));
+  return {
+    items: items.map(({ journal, ...trade }) => ({
+      ...trade,
+      journal: journal ? { tags: journal.tags, mistakes: journal.mistakes } : null,
+      ...(includeJournalCompletion ? {
+        journalComplete: isTradeJournalComplete(
+          journal as Parameters<typeof isTradeJournalComplete>[0],
+          checkedTradeIds.has(trade.id),
+        ),
+      } : {}),
+    })),
+    total,
+  };
 }
 
 /** Add an execution; CLOSE/PARTIAL_CLOSE posts realized P&L to the ledger atomically. */
@@ -283,9 +308,9 @@ export async function recordTradeExecution(
     where: { id: tradeId, userId },
     include: { executions: true, instrument: true, account: { select: { currency: true } } },
   });
-  if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
-  if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
-  if (trade.status === "CLOSED") throw new ApiError(400, "Trade sudah ditutup");
+  if (!trade) throw new ApiError(404, "Transaksi tidak ditemukan");
+  if (trade.status === "CANCELLED") throw new ApiError(400, "Transaksi sudah dibatalkan");
+  if (trade.status === "CLOSED") throw new ApiError(400, "Transaksi sudah ditutup");
 
   if (input.externalId) {
     const dup = await tx.tradeExecution.findUnique({ where: { userId_externalId: { userId, externalId: input.externalId } } });
@@ -307,7 +332,7 @@ export async function recordTradeExecution(
   let closeNet: Decimal | null = null;
   if (isClose) {
     if (qty.gt(rollupBefore.openQty)) {
-      throw new ApiError(400, `Quantity close (${qty}) melebihi posisi terbuka (${rollupBefore.openQty})`);
+      throw new ApiError(400, `Jumlah penutupan (${qty}) melebihi posisi terbuka (${rollupBefore.openQty})`);
     }
     if (brokerNetPnl !== undefined) {
       closeNet = brokerNetPnl;
@@ -322,7 +347,7 @@ export async function recordTradeExecution(
       throw new ApiError(400, "Masukkan P&L bersih dari broker untuk menutup posisi ini");
     }
   } else if (enteredBefore.add(qty).gt(D(trade.lot))) {
-    throw new ApiError(400, `Total entry (${enteredBefore.add(qty)}) melebihi lot trade (${trade.lot})`);
+    throw new ApiError(400, `Jumlah pembukaan (${enteredBefore.add(qty)}) melebihi lot transaksi (${trade.lot})`);
   }
 
   const execution = await tx.tradeExecution.create({
@@ -385,10 +410,10 @@ export async function cancelTrade(userId: string, tradeId: string, reason: strin
   const { trade, updated } = await prisma.$transaction(async (tx) => {
     await lockTradeWrites(tx, userId);
     const trade = await tx.trade.findFirst({ where: { id: tradeId, userId } });
-    if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
-    if (trade.status === "CANCELLED") throw new ApiError(400, "Trade sudah dibatalkan");
+    if (!trade) throw new ApiError(404, "Transaksi tidak ditemukan");
+    if (trade.status === "CANCELLED") throw new ApiError(400, "Transaksi sudah dibatalkan");
     if (trade.status === "PARTIAL" || trade.status === "CLOSED" || trade.realizedPnl != null) {
-      throw new ApiError(400, "Trade terealisasi tidak dapat dibatalkan — gunakan koreksi ledger yang diaudit");
+      throw new ApiError(400, "Gunakan koreksi buku besar untuk transaksi yang sudah terealisasi.");
     }
     const updated = await tx.trade.update({
       where: { id: tradeId },

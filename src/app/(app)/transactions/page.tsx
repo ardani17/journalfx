@@ -25,7 +25,7 @@ export default async function TransactionsPage({
     <PageShell>
       <PageHeader
         title="Transaksi Ledger"
-        subtitle="Sumber kebenaran saldo: deposit, withdrawal, P&L realisasi, dan adjustment."
+        subtitle="Periksa setoran, penarikan, laba atau rugi terealisasi, dan penyesuaian saldo."
       />
       <TransactionsClient
         accounts={accounts.map(({ id, name, currency }) => ({ id, name, currency }))}

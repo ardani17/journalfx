@@ -1,17 +1,20 @@
 import { userTimezone } from "./time";
+import { Prisma, type PeriodReview } from "@prisma/client";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { audit } from "@/server/audit";
-import { D, Decimal } from "@/lib/money";
+import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import { disciplineScore, type DisciplineResult } from "@/lib/finance/discipline";
 import { debtDateKey, debtSchedule, scheduledDebtDate } from "@/lib/finance/debt";
-import { coreMetrics } from "./analytics";
+import { coreMetrics, realizedTradingRows } from "./analytics";
 import { computeBalance } from "./ledger";
 import { getRecommendation } from "./withdrawals";
 import { budgetOverview } from "./finance";
 import { addUTCDays, calendarDate, fmtCalendarDateID, zonedPeriod, DEFAULT_TZ } from "@/lib/dates";
+import { localDateKey, reviewPeriodForDate, type ReviewKind, type ReviewWindow } from "@/lib/review-period";
+import { reviewSelectorSchema } from "@/lib/validation/reviews";
 
-export type ReviewKind = "DAILY" | "WEEKLY" | "MONTHLY";
+type ReviewSelection = { date?: string; reviewId?: string };
 
 export function periodFor(kind: ReviewKind, at = new Date(), timezone = DEFAULT_TZ): { start: Date; end: Date } {
   return zonedPeriod(kind, at, timezone);
@@ -22,7 +25,7 @@ export interface PeriodFacts {
   netPnl: Decimal;
   winRate: number | null;
   discipline: DisciplineResult;
-  wdRecommended: Decimal;
+  wdRecommended: Decimal | null;
   wdActual: Decimal;
   compoundedAmount: Decimal; // profit retained (not withdrawn) in period
   budgetCoveragePct: number | null;
@@ -30,18 +33,19 @@ export interface PeriodFacts {
 }
 
 /** Facts assembled from the ledger/analytics — captured immutably at close. */
-export async function collectFacts(userId: string, kind: ReviewKind): Promise<PeriodFacts> {
-  const { start, end } = periodFor(kind, new Date(), await userTimezone(userId));
+export async function collectFacts(userId: string, window: ReviewWindow): Promise<PeriodFacts> {
+  const { start, end } = window;
+  const historical = end <= new Date();
   const [metrics, balances, wdRec, budget, trades, riskSettings, wdActualAgg] = await Promise.all([
     coreMetrics(userId, { from: start, to: end }),
-    computeBalance(userId),
-    getRecommendation(userId),
-    budgetOverview(userId).catch(() => null),
+    computeBalance(userId, undefined, historical ? end : undefined),
+    historical ? null : getRecommendation(userId),
+    historical ? null : budgetOverview(userId).catch(() => null),
     prisma.trade.findMany({
       where: { userId, entryAt: { gte: start, lt: end } },
       include: { journal: true },
     }),
-    prisma.riskSettings.findUnique({ where: { userId } }),
+    historical ? null : prisma.riskSettings.findUnique({ where: { userId } }),
     prisma.withdrawal.aggregate({
       where: { userId, status: "COMPLETED", completedAt: { gte: start, lt: end } },
       _sum: { amountUSD: true },
@@ -56,7 +60,7 @@ export async function collectFacts(userId: string, kind: ReviewKind): Promise<Pe
   let freqOk = 0;
   for (const t of trades) {
     const balanceBase = balances.balance.gt(0) ? balances.balance : D(1);
-    if (!t.initialRisk || D(t.initialRisk).lte(balanceBase.times(riskPct / 100).times(1.05))) riskOk++;
+    if (!historical && (!t.initialRisk || D(t.initialRisk).lte(balanceBase.times(riskPct / 100).times(1.05)))) riskOk++;
     if (t.strategyId) setupOk++;
     if (t.initialStopLoss) slOk++;
     const j = t.journal;
@@ -67,7 +71,7 @@ export async function collectFacts(userId: string, kind: ReviewKind): Promise<Pe
   }
   const n = trades.length;
   const discipline = disciplineScore({
-    riskRespected: n > 0 ? { ok: riskOk, total: n } : undefined,
+    riskRespected: !historical && n > 0 ? { ok: riskOk, total: n } : undefined,
     setupFollowed: n > 0 ? { ok: setupOk, total: n } : undefined,
     slPresent: n > 0 ? { ok: slOk, total: n } : undefined,
     emotionsClean: n > 0 ? { ok: emoOk, total: n } : undefined,
@@ -84,7 +88,7 @@ export async function collectFacts(userId: string, kind: ReviewKind): Promise<Pe
     netPnl: periodProfit,
     winRate: metrics.winRate,
     discipline,
-    wdRecommended: wdRec.recommendation.recommended,
+    wdRecommended: wdRec?.recommendation.recommended ?? null,
     wdActual,
     compoundedAmount,
     budgetCoveragePct: budget ? budget.coveragePct : null,
@@ -92,22 +96,64 @@ export async function collectFacts(userId: string, kind: ReviewKind): Promise<Pe
   };
 }
 
-export async function getOrCreateReview(userId: string, kind: ReviewKind) {
-  const { start, end } = periodFor(kind, new Date(), await userTimezone(userId));
+const reviewProject = { project: { select: { name: true } } } satisfies Prisma.PeriodReviewInclude;
+
+async function reviewWindowForRevision(review: PeriodReview): Promise<ReviewWindow> {
+  let original = review;
+  while (original.correctionOfId) {
+    original = await prisma.periodReview.findUniqueOrThrow({
+      where: { id: original.correctionOfId, userId: review.userId, kind: review.kind },
+    });
+  }
+  return { start: original.periodStart, end: original.periodEnd };
+}
+
+export async function resolveReview(userId: string, kind: ReviewKind, selection: ReviewSelection = {}) {
+  const validated = reviewSelectorSchema.parse({ kind, ...selection });
+  const timezone = await userTimezone(userId);
+  if (validated.reviewId) {
+    const review = await prisma.periodReview.findUnique({
+      where: { id: validated.reviewId, userId, kind }, include: reviewProject,
+    });
+    if (!review) throw new ApiError(404, "Review tidak ditemukan.");
+    return { review, timezone, window: await reviewWindowForRevision(review), date: undefined };
+  }
+
+  const today = localDateKey(new Date(), timezone);
+  const date = validated.date ?? today;
+  if (date > today) throw new ApiError(400, "Pilih tanggal hari ini atau tanggal lampau.");
+  const window = reviewPeriodForDate(kind, date, timezone);
+  const { start, end } = window;
   const latest = await prisma.periodReview.findFirst({
-    where: { userId, kind, periodStart: { gte: start, lt: end } },
-    orderBy: { periodStart: "desc" }, include: { project: { select: { name: true } } },
+    where: { userId, kind, periodStart: { gte: start, lt: end }, periodEnd: end },
+    orderBy: { periodStart: "desc" }, include: reviewProject,
   });
-  if (latest) return latest;
+  if (latest) return { review: latest, timezone, window: await reviewWindowForRevision(latest), date };
+  const existing = await prisma.periodReview.findUnique({
+    where: { userId_kind_periodStart: { userId, kind, periodStart: start } },
+    include: reviewProject,
+  });
+  return { review: existing, timezone, window: existing ? await reviewWindowForRevision(existing) : window, date };
+}
+
+async function resolveOrCreateReview(userId: string, kind: ReviewKind, selection?: ReviewSelection) {
+  const resolved = await resolveReview(userId, kind, selection);
+  if (resolved.review) return { ...resolved, review: resolved.review };
+  const { start, end } = resolved.window;
   const project = await prisma.project.findFirst({ where: { userId, isActive: true } });
-  if (!project) throw new ApiError(404, "Project belum ada");
+  if (!project) throw new ApiError(404, "Proyek belum tersedia.");
   const projectId = project.id;
-  return prisma.periodReview.upsert({
+  const review = await prisma.periodReview.upsert({
     where: { userId_kind_periodStart: { userId, kind, periodStart: start } },
     create: { userId, projectId, kind, periodStart: start, periodEnd: end },
     update: {},
-    include: { project: { select: { name: true } } },
+    include: reviewProject,
   });
+  return { ...resolved, review, window: await reviewWindowForRevision(review) };
+}
+
+export async function getOrCreateReview(userId: string, kind: ReviewKind, selection?: ReviewSelection) {
+  return (await resolveOrCreateReview(userId, kind, selection)).review;
 }
 
 export async function saveReviewFields(
@@ -115,24 +161,25 @@ export async function saveReviewFields(
   kind: ReviewKind,
   fields: { performance?: string; riskNotes?: string; reflections?: string; nextPlan?: string },
   req?: Request,
+  selection?: ReviewSelection,
 ) {
-  const review = await getOrCreateReview(userId, kind);
+  const review = await getOrCreateReview(userId, kind, selection);
   if (review.status === "CLOSED") {
-    throw new ApiError(400, "Review sudah ditutup (snapshot immutable) — buat koreksi melalui tombol koreksi");
+    throw new ApiError(400, "Review sudah ditutup. Pilih Buat Koreksi untuk membuat revisi.");
   }
   const [updated] = await prisma.periodReview.updateManyAndReturn({
-    where: { id: review.id, status: "OPEN" },
+    where: { id: review.id, userId, status: "OPEN" },
     data: fields,
   });
-  if (!updated) throw new ApiError(400, "Review sudah ditutup (snapshot immutable)");
+  if (!updated) throw new ApiError(400, "Review sudah ditutup.");
   await audit({ userId, action: "update", entity: "PeriodReview", entityId: review.id, after: fields, req });
   return updated;
 }
 
-export async function closeReview(userId: string, kind: ReviewKind, req?: Request) {
-  const review = await getOrCreateReview(userId, kind);
+export async function closeReview(userId: string, kind: ReviewKind, req?: Request, selection?: ReviewSelection) {
+  const { review, window } = await resolveOrCreateReview(userId, kind, selection);
   if (review.status === "CLOSED") throw new ApiError(400, "Review sudah ditutup");
-  const facts = await collectFacts(userId, kind);
+  const facts = await collectFacts(userId, window);
   const closedAt = new Date();
   const snapshot = {
     closedAt: closedAt.toISOString(),
@@ -140,14 +187,14 @@ export async function closeReview(userId: string, kind: ReviewKind, req?: Reques
     netPnl: facts.netPnl.toString(),
     winRate: facts.winRate,
     balance: facts.balance.toString(),
-    wdRecommended: facts.wdRecommended.toString(),
+    wdRecommended: facts.wdRecommended?.toString() ?? null,
     wdActual: facts.wdActual.toString(),
     compoundedAmount: facts.compoundedAmount.toString(),
     budgetCoveragePct: facts.budgetCoveragePct,
     discipline: facts.discipline,
   };
   const [updated] = await prisma.periodReview.updateManyAndReturn({
-    where: { id: review.id, status: "OPEN" },
+    where: { id: review.id, userId, status: "OPEN" },
     data: {
       status: "CLOSED",
       closedAt,
@@ -165,9 +212,9 @@ export async function closeReview(userId: string, kind: ReviewKind, req?: Reques
 }
 
 /** Audited correction: the closed review stays immutable; a correction copy is opened. */
-export async function correctReview(userId: string, kind: ReviewKind, req?: Request) {
-  const review = await getOrCreateReview(userId, kind);
-  if (review.status !== "CLOSED") throw new ApiError(400, "Review belum ditutup");
+export async function correctReview(userId: string, kind: ReviewKind, req?: Request, selection?: ReviewSelection) {
+  const { review } = await resolveReview(userId, kind, selection);
+  if (review?.status !== "CLOSED") throw new ApiError(400, "Review belum ditutup");
   const projectId = review.projectId;
   const correction = await prisma.periodReview.create({
     data: {
@@ -183,6 +230,11 @@ export async function correctReview(userId: string, kind: ReviewKind, req?: Requ
       reflections: review.reflections,
       nextPlan: review.nextPlan,
     },
+  }).catch((error: unknown) => {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ApiError(409, "Revisi untuk review ini sudah dibuat. Buka kembali periodenya untuk melanjutkan.");
+    }
+    throw error;
   });
   await audit({ userId, action: "correct", entity: "PeriodReview", entityId: review.id, after: { correctionId: correction.id }, req });
   return correction;
@@ -194,6 +246,41 @@ export async function listReviews(userId: string, kind?: ReviewKind) {
     orderBy: { periodStart: "desc" },
     take: 60,
   });
+}
+
+export async function listReviewsWithPnl(userId: string) {
+  const reviews = await listReviews(userId);
+  if (!reviews.length) return [];
+  const periods = await Promise.all(reviews.map(reviewWindowForRevision));
+  const from = new Date(Math.min(...periods.map(({ start }) => start.getTime())));
+  const to = new Date(Math.max(...periods.map(({ end }) => end.getTime())));
+  const rows = await realizedTradingRows(userId, { from, to });
+  return reviews.map((review, index) => {
+    const window = periods[index]!;
+    const livePnl = rows.reduce((sum, row) => row.occurredAt >= window.start && row.occurredAt < window.end
+      ? sum.plus(tradingAmountToUsd(row.amount, row.currency)) : sum, D(0));
+    const snapshot = review.snapshot;
+    const snapshotPnl = snapshot && typeof snapshot === "object" && !Array.isArray(snapshot) &&
+      typeof snapshot.netPnl === "string" ? snapshot.netPnl : null;
+    return { ...review, window, livePnl, snapshotPnl };
+  });
+}
+
+export async function dailyReviewStatuses(userId: string, window: ReviewWindow, timezone: string) {
+  const reviews = await prisma.periodReview.findMany({
+    where: { userId, kind: "DAILY", periodStart: { gte: window.start, lt: window.end } },
+    orderBy: { periodStart: "asc" },
+    select: { periodStart: true, periodEnd: true, status: true },
+  });
+  const statuses = new Map<string, PeriodReview["status"]>();
+  for (const review of reviews) {
+    const date = localDateKey(review.periodStart, timezone);
+    const day = reviewPeriodForDate("DAILY", date, timezone);
+    if (review.periodStart.getTime() === day.start.getTime() || review.periodEnd.getTime() === day.end.getTime()) {
+      statuses.set(date, review.status);
+    }
+  }
+  return statuses;
 }
 
 /* ───────────────── Notifications ───────────────── */

@@ -53,7 +53,7 @@ for (const viewport of [
       await page.reload();
       await expect(request).toBeEnabled();
       await request.click();
-      const form = page.getByRole("dialog", { name: "Ajukan Withdrawal" });
+      const form = page.getByRole("dialog", { name: "Ajukan Penarikan" });
       const source = form.getByLabel("Akun Sumber");
       const amount = form.getByLabel("Jumlah (USD)");
       await expect(source.getByRole("option")).toHaveCount(2);
@@ -78,15 +78,17 @@ for (const viewport of [
       await form.getByRole("button", { name: "Ajukan", exact: true }).click();
       await expect(form).toBeHidden();
       const history = page.getByRole("table");
-      await expect(history.getByText("REQUESTED", { exact: true })).toBeVisible();
+      await expect(history.getByText("Diajukan", { exact: true })).toBeVisible();
 
       await history.getByRole("button", { name: "Selesai", exact: true }).click();
       const reconciliation = page.getByRole("dialog", { name: /Selesaikan WD/ });
       await reconciliation.getByLabel("Kurs USDIDR").fill("18001.2345");
       await reconciliation.getByLabel("Dana Diterima (IDR)").fill("89555.55");
       await reconciliation.getByLabel("Biaya Transfer (IDR)").fill("123.45");
+      const completed = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/complete"));
       await reconciliation.getByRole("button", { name: "Selesaikan" }).click();
-      await expect(history.getByText("COMPLETED", { exact: true })).toBeVisible();
+      expect((await completed).ok()).toBeTruthy();
+      await expect(history.getByRole("cell", { name: "Selesai", exact: true })).toBeVisible();
       const withdrawal = await prisma.withdrawal.findFirstOrThrow({ where: { userId: user.id }, include: { transactions: true } });
       expect(withdrawal.accountId).toBe(cent.id);
       expect([withdrawal.amountUSD, withdrawal.fxRate, withdrawal.receivedAmount, withdrawal.fees].map(String))

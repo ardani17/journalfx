@@ -6,7 +6,7 @@ import type { UpdateJournalInput } from "@/lib/validation/trades";
 
 export async function upsertJournal(userId: string, tradeId: string, input: UpdateJournalInput, req?: Request) {
   const trade = await prisma.trade.findFirst({ where: { id: tradeId, userId } });
-  if (!trade) throw new ApiError(404, "Trade tidak ditemukan");
+  if (!trade) throw new ApiError(404, "Transaksi tidak ditemukan");
   const journal = await prisma.tradeJournal.upsert({
     where: { tradeId },
     create: { tradeId, ...input },

@@ -40,7 +40,7 @@ export async function mt5Sync(
 ) {
   const report = await importStatement(userId, accountId, bytes, req);
   const newEntries = report.imported + report.reconciled + report.depositsImported + report.withdrawalsImported + report.feesImported;
-  const summary = `${report.imported} posisi baru, ${report.reconciled} posisi terbuka ditutup, ${report.duplicates} duplikat posisi. ${report.depositsImported} deposit, ${report.withdrawalsImported} withdrawal, ${report.cashflowDuplicates} duplikat arus kas. ${report.feesImported} fee, ${report.feeDuplicates} duplikat fee. ${report.skipped} baris bermasalah.`;
+  const summary = `${report.imported} posisi baru, ${report.reconciled} posisi terbuka ditutup, ${report.duplicates} duplikat posisi. ${report.depositsImported} setoran, ${report.withdrawalsImported} penarikan, ${report.cashflowDuplicates} duplikat arus kas. ${report.feesImported} biaya baru, ${report.feeDuplicates} duplikat biaya. ${report.skipped} baris bermasalah.`;
   if (newEntries + report.duplicates + report.cashflowDuplicates + report.feeDuplicates === 0) return { ...report, summary };
   await prisma.auditLog.create({
     data: {

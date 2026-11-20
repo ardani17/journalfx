@@ -3,7 +3,6 @@ import {
   BarChart3,
   CalendarRange,
   BookOpen,
-  CalendarDays,
   ListTodo,
   CreditCard,
   LayoutDashboard,
@@ -19,6 +18,7 @@ export interface NavLeaf {
   label: string;
   href: string;
   icon: LucideIcon;
+  relatedPaths?: readonly string[];
   /** release that fills this page — placeholder until then */
   since?: string;
 }
@@ -31,21 +31,21 @@ export interface NavGroup {
 export const NAV: NavGroup[] = [
   {
     label: "",
-    items: [{ label: "Dashboard", href: "/dashboard", icon: LayoutDashboard }],
+    items: [{ label: "Dasbor", href: "/dashboard", icon: LayoutDashboard }],
   },
   {
     label: "",
     items: [
       { label: "Jurnal Trading", href: "/journal", icon: BookOpen },
-      { label: "Task / Jadwal", href: "/tasks", icon: ListTodo },
+      { label: "Tugas / Jadwal", href: "/tasks", icon: ListTodo },
     ],
   },
   {
-    label: "Plan & Strategi",
+    label: "Rencana dan Strategi",
     items: [
-      { label: "Compounding", href: "/simulator", icon: TrendingUp },
-      { label: "Withdrawal (WD)", href: "/withdrawals", icon: Wallet },
-      { label: "Target Project", href: "/roadmap", icon: Target },
+      { label: "Pemajemukan", href: "/simulator", icon: TrendingUp },
+      { label: "Penarikan Dana", href: "/withdrawals", icon: Wallet },
+      { label: "Target Proyek", href: "/roadmap", icon: Target },
     ],
   },
   {
@@ -60,15 +60,14 @@ export const NAV: NavGroup[] = [
     label: "",
     items: [
       { label: "Laporan & Analisis", href: "/analytics", icon: BarChart3 },
-      { label: "Kalender", href: "/calendar", icon: CalendarDays },
-      { label: "Review Periodik", href: "/reports", icon: CalendarRange },
+      { label: "Kalender & Review", href: "/calendar", icon: CalendarRange, relatedPaths: ["/reports", "/reviews"] },
       { label: "Pengaturan", href: "/settings", icon: Settings },
     ],
   },
 ];
 
 export const MOBILE_NAV: NavLeaf[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Dasbor", href: "/dashboard", icon: LayoutDashboard },
   { label: "Jurnal", href: "/journal", icon: BookOpen },
   { label: "Simulator", href: "/simulator", icon: TrendingUp },
   { label: "WD", href: "/withdrawals", icon: Wallet },

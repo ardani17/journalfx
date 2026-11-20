@@ -34,7 +34,7 @@ interface Row {
 
 const TYPE_LABELS: Record<string, string> = {
   DEPOSIT: "Deposit",
-  WITHDRAWAL: "Withdrawal",
+  WITHDRAWAL: "Penarikan Dana",
   REALIZED_PNL: "P&L Realisasi",
   ADJUSTMENT: "Adjustment",
   FEE: "Fee",
@@ -225,10 +225,10 @@ export function TransactionsClient({
             </Select>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Tipe" htmlFor="tx-type">
+            <Field label="Jenis" htmlFor="tx-type">
               <Select id="tx-type" name="type" required value={transactionType} onChange={(event) => setTransactionType(event.target.value)}>
-                <option value="DEPOSIT">Deposit</option>
-                <option value="WITHDRAWAL">Withdrawal</option>
+                <option value="DEPOSIT">Setoran</option>
+                <option value="WITHDRAWAL">Penarikan</option>
                 <option value="ADJUSTMENT">Adjustment</option>
               </Select>
             </Field>
@@ -254,7 +254,7 @@ export function TransactionsClient({
       <Dialog open={reverseId !== null} onClose={() => setReverseId(null)} title="Batalkan Transaksi">
         <form onSubmit={reverse} className="space-y-3">
           <p className="text-xs leading-relaxed text-muted">
-            Pembatalan menambah baris <strong>REVERSAL</strong> di ledger — transaksi asli tidak
+            Pembatalan menambah baris <strong>Koreksi</strong> di ledger — transaksi asli tidak
             pernah diubah, agar jejak audit tetap utuh.
           </p>
           <Field label="Alasan" htmlFor="rv-reason">
@@ -278,16 +278,16 @@ function TypeBadge({ type }: { type: string }) {
     case "DEPOSIT":
       return <Badge tone="info"><ArrowDownLeft className="h-3 w-3" /> Deposit</Badge>;
     case "WITHDRAWAL":
-      return <Badge tone="warn"><ArrowUpRight className="h-3 w-3" /> Withdrawal</Badge>;
+      return <Badge tone="warn"><ArrowUpRight className="h-3 w-3" /> Penarikan Dana</Badge>;
     case "REALIZED_PNL":
       return <Badge tone="success">P&L</Badge>;
     case "ADJUSTMENT":
       return <Badge tone="neutral">Adj</Badge>;
     case "FEE":
-      return <Badge tone="neutral">Fee</Badge>;
+      return <Badge tone="neutral">Biaya</Badge>;
     case "REVERSAL":
       return <Badge tone="danger">Pembatalan</Badge>;
     default:
-      return <Badge>{type}</Badge>;
+      return <Badge>Jenis lain</Badge>;
   }
 }

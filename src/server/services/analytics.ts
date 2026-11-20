@@ -1,6 +1,6 @@
 import { prisma } from "@/server/db";
+import type { LedgerEntryType } from "@prisma/client";
 import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
-import { attributedLedger } from "./ledger";
 import { calendarDate, startOfUTCDay, addUTCDays } from "@/lib/dates";
 import { userTimezone } from "./time";
 import { tradeFilterWhere, type ListTradesFilter } from "./trades";
@@ -107,10 +107,7 @@ export async function coreMetrics(
   const n = closed.length;
   const journalTradeIds = journal ? new Set(trades.map((trade) => trade.id)) : null;
   const hasTradeSpecificFilter = journal?.status || journal?.result || journal?.strategyId;
-  const periodLedger = (await attributedLedger(userId)).filter((r) => {
-    if (r.type !== "REALIZED_PNL" && r.type !== "FEE") return false;
-    if (filter?.accountId && r.accountId !== filter.accountId) return false;
-    if ((filter?.from && r.occurredAt < filter.from) || (filter?.to && r.occurredAt >= filter.to)) return false;
+  const periodLedger = (await realizedTradingRows(userId, filter)).filter((r) => {
     if (!journalTradeIds) return true;
     if (r.sourceTradeId) return journalTradeIds.has(r.sourceTradeId);
 
@@ -178,11 +175,33 @@ export async function byStrategy(userId: string): Promise<StrategyBreakdown[]> {
 
 export interface DayPnl {
   date: string; // yyyy-MM-dd
-  pnl: number;
+  pnl: Decimal;
   trades: number;
+  hasActivity: boolean;
+  hasRealizedPnl: boolean;
 }
 
-/** Daily realized P&L by UTC close date — powers calendar & P/L bars. */
+export async function realizedTradingRows(userId: string, filter?: { from?: Date; to?: Date; accountId?: string }) {
+  const pnlTypes: LedgerEntryType[] = ["REALIZED_PNL", "FEE"];
+  const rows = await prisma.accountTransaction.findMany({
+    where: {
+      userId,
+      accountId: filter?.accountId,
+      occurredAt: { gte: filter?.from, lt: filter?.to },
+      OR: [
+        { type: { in: pnlTypes }, reversalOfId: null },
+        { reversalOf: { userId, type: { in: pnlTypes } } },
+      ],
+    },
+    select: {
+      occurredAt: true, currency: true, amount: true, type: true, sourceTradeId: true,
+      reversalOf: { select: { type: true, sourceTradeId: true } },
+    },
+  });
+  return rows.map(({ reversalOf, ...row }) => reversalOf ? { ...row, ...reversalOf } : row);
+}
+
+/** Daily realized P&L grouped by ledger date in the user's local time. */
 export async function dailyPnl(
   userId: string,
   from: Date,
@@ -190,10 +209,15 @@ export async function dailyPnl(
   accountId?: string,
 ): Promise<DayPnl[]> {
   const timezone = await userTimezone(userId);
-  const ledger = (await attributedLedger(userId)).filter((r) =>
-    (r.type === "REALIZED_PNL" || r.type === "FEE") && r.occurredAt >= from && r.occurredAt < to &&
-    (!accountId || r.accountId === accountId));
+  const [ledger, entries] = await Promise.all([
+    realizedTradingRows(userId, { from, to, accountId }),
+    prisma.trade.findMany({
+      where: { userId, accountId, entryAt: { gte: from, lt: to } },
+      select: { entryAt: true },
+    }),
+  ]);
   const map = new Map<string, { pnl: Decimal; ids: Set<string> }>();
+  const entryDates = new Set(entries.map(({ entryAt }) => calendarDate(entryAt, timezone).toISOString().slice(0, 10)));
   for (const row of ledger) {
     const key = calendarDate(row.occurredAt, timezone).toISOString().slice(0, 10);
     const cur = map.get(key) ?? { pnl: D(0), ids: new Set<string>() };
@@ -207,7 +231,10 @@ export async function dailyPnl(
   for (let d = startOfUTCDay(calendarDate(from, timezone)); d.toISOString().slice(0, 10) <= lastDay; d = addUTCDays(d, 1)) {
     const key = d.toISOString().slice(0, 10);
     const v = map.get(key);
-    out.push({ date: key, pnl: v ? Number(v.pnl.toFixed(2)) : 0, trades: v?.ids.size ?? 0 });
+    out.push({
+      date: key, pnl: v?.pnl ?? D(0), trades: v?.ids.size ?? 0,
+      hasActivity: v !== undefined || entryDates.has(key), hasRealizedPnl: v !== undefined,
+    });
   }
   return out;
 }

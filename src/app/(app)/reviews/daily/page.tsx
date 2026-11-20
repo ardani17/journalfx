@@ -1,7 +1,7 @@
-import { ReviewPage } from "../review-page";
+import { ReviewPage, type ReviewSearchParams } from "../review-page";
 
 export const metadata = { title: "Review Harian" };
 
-export default function Page() {
-  return <ReviewPage kind="DAILY" />;
+export default function Page({ searchParams }: { searchParams: ReviewSearchParams }) {
+  return <ReviewPage kind="DAILY" searchParams={searchParams} />;
 }

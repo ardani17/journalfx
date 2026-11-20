@@ -111,7 +111,7 @@ test("records an explicit noncompliant trade and clears a prior journal answer",
   const userId = await openReports(page, [{ pnl: 30 }]);
   const { id } = await db.trade.findFirstOrThrow({ where: { userId }, select: { id: true } });
   await page.goto(`/journal/${id}`);
-  await page.getByRole("tab", { name: "Psikologi & Jurnal" }).click();
+  await page.getByRole("tab", { name: "Psikologi dan Jurnal" }).click();
   const compliant = page.getByLabel("Patuh pada rencana");
   await expect(compliant).toHaveValue("");
 
@@ -173,7 +173,7 @@ test("shows a timeout, explains quota, and allows retry", async ({ page }) => {
   const key = `user:${userId}`;
   stallProvider = true;
   const timedOut = generate(page);
-  await expect(page.getByText("Analisis trade sedang diproses.")).toBeVisible();
+  await expect(page.getByText("Analisis transaksi sedang diproses.")).toBeVisible();
   expect((await timedOut).status()).toBe(504);
   await expect(page.getByRole("alert").filter({ hasText: "Penyedia AI terlalu lama merespons." })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Insight berbasis aturan" })).toBeVisible();

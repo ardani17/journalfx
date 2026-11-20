@@ -24,7 +24,7 @@ const testMessages: Record<string, string> = {
   "not-configured": "Hubungkan Telegram sebelum mengirim tes.",
 };
 
-export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
+export function NotifyChannelSection({ userId, initial }: { userId: string; initial: ChannelConfig }) {
   const [cfg, setCfg] = useState(initial);
   const [chatId, setChatId] = useState(initial.telegramChatId ?? "");
   const [link, setLink] = useState<{ url: string; expiresAt: string; chatId: string } | null>(null);
@@ -41,20 +41,22 @@ export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
   }, [link]);
 
   const connection = useQuery({
-    queryKey: ["telegram-connection", link?.expiresAt],
+    queryKey: ["telegram-connection", userId],
     queryFn: ({ signal }) => channelRequest<ChannelConfig>(CHANNEL_ENDPOINT, { signal, cache: "no-store" }),
-    enabled: link !== null && !linkExpired,
+    initialData: initial,
+    staleTime: 0,
     gcTime: 0,
     refetchOnWindowFocus: true,
     refetchIntervalInBackground: true,
     refetchInterval: (query) => {
-      if (linkExpired || query.state.data?.telegramChatId === link?.chatId) return false;
+      if (!link || linkExpired || query.state.data?.telegramChatId === link.chatId) return false;
       return 2000;
     },
   });
-  const verifiedChatId = connection.data?.telegramChatId ?? cfg.telegramChatId;
+  const { telegramChatId: verifiedChatId, telegramAvailable } = connection.data;
   const enteredChatId = chatId.trim();
-  const connected = verifiedChatId !== null && verifiedChatId === enteredChatId;
+  const connected = verifiedChatId !== null;
+  const canLink = telegramAvailable && enteredChatId !== "" && enteredChatId !== verifiedChatId;
   const awaitingConfirmation = link && verifiedChatId !== link.chatId;
 
   async function openTelegram(chatId?: string) {
@@ -136,21 +138,22 @@ export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
       <CardContent className="space-y-3">
         <form aria-label="Hubungkan Chat ID Telegram" className="space-y-2" onSubmit={(event) => {
           event.preventDefault();
-          if (enteredChatId) void openTelegram(enteredChatId);
+          if (canLink) void openTelegram(enteredChatId);
         }}>
           <Field label="Chat ID Telegram" htmlFor="nc-chat-id">
             <Input id="nc-chat-id" autoComplete="off" inputMode="numeric" required
               aria-describedby="nc-chat-id-hint" value={chatId} onChange={(event) => setChatId(event.target.value)} />
           </Field>
           <p id="nc-chat-id-hint" className="text-xs text-muted">Di chat pribadi bot, kirim <strong>/id</strong>, lalu masukkan angka yang dikirim bot.</p>
-          {!cfg.telegramAvailable ? (
+          {verifiedChatId ? <p className="text-xs text-muted">Chat ID aktif {verifiedChatId}</p> : null}
+          {!telegramAvailable ? (
             <p className="text-xs text-muted">Bot Telegram belum tersedia.</p>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="secondary" onClick={() => openTelegram()} disabled={pending !== null}>
                 {pending === "bot" ? "Membuka bot…" : "Temukan Chat ID"}
               </Button>
-              <Button type="submit" variant="secondary" disabled={pending !== null || connected || !enteredChatId}>
+              <Button type="submit" variant="secondary" disabled={pending !== null || !canLink}>
                 {pending === "link" ? "Membuat tautan…" : linkExpired && awaitingConfirmation ? "Buat Tautan Baru" : "Hubungkan Telegram"}
               </Button>
               {botUrl ? <a className="text-xs text-primary underline" href={botUrl} target="_blank" rel="noreferrer">Buka chat bot</a> : null}
@@ -182,7 +185,7 @@ export function NotifyChannelSection({ initial }: { initial: ChannelConfig }) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={pending !== null}>{pending === "save" ? "Menyimpan…" : "Simpan Pengaturan"}</Button>
-            <Button variant="secondary" type="button" onClick={test} disabled={pending !== null || !connected || !cfg.telegramAvailable}>
+            <Button variant="secondary" type="button" onClick={test} disabled={pending !== null || !connected || !telegramAvailable}>
               <Send className="h-4 w-4" aria-hidden /> {pending === "test" ? "Mengirim…" : "Kirim Tes"}
             </Button>
           </div>

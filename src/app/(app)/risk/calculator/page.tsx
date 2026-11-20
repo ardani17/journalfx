@@ -5,7 +5,7 @@ import { getRiskSettings } from "@/server/services/risk";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { CalculatorClient } from "./calculator-client";
 
-export const metadata = { title: "Kalkulator Position Size" };
+export const metadata = { title: "Kalkulator Ukuran Posisi" };
 
 export default async function CalculatorPage() {
   const user = await requireUser();
@@ -17,7 +17,7 @@ export default async function CalculatorPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Kalkulator Position Size"
+        title="Kalkulator Ukuran Posisi"
         subtitle="Lot = risiko / (jarak SL × contract size + biaya/lot), dibulatkan ke bawah ke lot step broker"
       />
       <CalculatorClient

@@ -9,6 +9,7 @@ import { dailyPnl, coreMetrics } from "@/server/services/analytics";
 import { allocateProfit, budgetOverview, payDebt } from "@/server/services/finance";
 import { cancelWithdrawal, completeWithdrawal, getRecommendation, listWithdrawalSourceAccounts, listWithdrawals, requestWithdrawal } from "@/server/services/withdrawals";
 import { closeReview, correctReview, getOrCreateReview, saveReviewFields } from "@/server/services/reviews";
+import { reviewPeriodForDate } from "@/lib/review-period";
 import { importStatement } from "@/server/services/imports";
 import { mt5Sync, mt5SyncStatus } from "@/server/services/mt5-sync";
 import { findOrCreateGoogleUser } from "@/server/services/users";
@@ -43,6 +44,47 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     await prisma.accountTransaction.create({ data: { userId: user.id, accountId: account.id, type: "DEPOSIT", amount: 200, occurredAt: new Date("2026-01-01") } });
     return { userId: user.id, projectId: project.id, accountId: account.id };
   }
+
+  it("captures historical review facts and isolates revisions by period and owner", async () => {
+    const owner = await fixture();
+    const other = await fixture();
+    const first = { date: "2026-11-04" };
+    const second = { date: "2026-11-09" };
+    const boundary = reviewPeriodForDate("WEEKLY", first.date, "Asia/Jakarta");
+    expect(boundary.start.toISOString()).toBe("2026-11-01T17:00:00.000Z");
+    expect(boundary.end.toISOString()).toBe("2026-11-08T17:00:00.000Z");
+    const { id } = await prisma.trade.create({
+      data: {
+        userId: owner.userId, accountId: owner.accountId, instrumentId,
+        direction: "LONG", status: "CLOSED", lot: 0.01, entryPrice: 2000, exitPrice: 2001,
+        realizedPnl: 12, entryAt: boundary.start, exitAt: new Date("2026-11-03T02:00:00Z"),
+      },
+    });
+    await prisma.accountTransaction.createMany({ data: [
+      { userId: owner.userId, accountId: owner.accountId, type: "REALIZED_PNL", amount: 12, occurredAt: boundary.start, sourceTradeId: id },
+      { userId: owner.userId, accountId: owner.accountId, type: "FEE", amount: -2, occurredAt: boundary.start, sourceTradeId: id },
+      { userId: owner.userId, accountId: owner.accountId, type: "REALIZED_PNL", amount: 40, occurredAt: boundary.end },
+    ] });
+
+    const draft = await getOrCreateReview(owner.userId, "WEEKLY", first);
+    await saveReviewFields(owner.userId, "WEEKLY", { reflections: "Minggu pertama" }, undefined, first);
+    expect(await getOrCreateReview(owner.userId, "WEEKLY", { date: "2026-11-07" }))
+      .toMatchObject({ id: draft.id, reflections: "Minggu pertama" });
+    const closed = await closeReview(owner.userId, "WEEKLY", undefined, first);
+    expect(closed.snapshot).toMatchObject({ tradesCount: 1, netPnl: "10", balance: "210" });
+    expect(closed.snapshot).toMatchObject({ discipline: { missing: expect.arrayContaining(["Risiko"]) } });
+    expect((await closeReview(owner.userId, "WEEKLY", undefined, second)).snapshot)
+      .toMatchObject({ tradesCount: 0, netPnl: "40" });
+    const correction = await correctReview(owner.userId, "WEEKLY", undefined, { reviewId: closed.id });
+    expect(await getOrCreateReview(owner.userId, "WEEKLY", first)).toMatchObject({ id: correction.id, status: "OPEN" });
+    expect((await getOrCreateReview(owner.userId, "WEEKLY", { reviewId: closed.id })).snapshot).toEqual(closed.snapshot);
+    expect((await closeReview(owner.userId, "WEEKLY", undefined, { reviewId: correction.id })).snapshot)
+      .toMatchObject({ tradesCount: 1, netPnl: "10" });
+    await expect(getOrCreateReview(other.userId, "WEEKLY", { reviewId: closed.id })).rejects.toMatchObject({ status: 404 });
+    for (const kind of ["DAILY", "MONTHLY"] as const) {
+      expect(await getOrCreateReview(owner.userId, kind, first)).toMatchObject({ status: "OPEN", kind });
+    }
+  });
 
   it("provisions one empty private journal per Google subject even with concurrent sign-ins or shared email text", async () => {
     const identity = { subject: `google-${randomUUID()}`, name: "OAuth Tester", email: "same@example.com" };
@@ -153,9 +195,38 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
       commission: 0, swap: 0, fees: 0, executedAt: "2026-11-03T00:00:00Z" });
     expect((await computeBalance(f.userId)).balance.toNumber()).toBe(215.5);
     const days = await dailyPnl(f.userId, new Date("2026-11-01T17:00:00Z"), new Date("2026-11-03T17:00:00Z"));
-    expect(days.map((d) => d.pnl)).toEqual([3.8, 11.7]);
+    expect(days.map((d) => d.pnl.toString())).toEqual(["3.8", "11.7"]);
     const firstDay = await coreMetrics(f.userId, { from: new Date("2026-11-02"), to: new Date("2026-11-03") });
     expect(firstDay.netPnl.toNumber()).toBe(3.8);
+  });
+
+  it("distinguishes an open trade from no activity and retains ledger precision", async () => {
+    const f = await fixture();
+    const trade = await createTrade(f.userId, {
+      accountId: f.accountId, instrumentId, direction: "LONG", lot: 0.1,
+      entryPrice: 2000, entryAt: "2026-11-02T00:00:00Z", commission: 0, swap: 0, fees: 0,
+    });
+    await prisma.accountTransaction.create({
+      data: {
+        userId: f.userId, accountId: f.accountId, type: "REALIZED_PNL",
+        amount: "900719925474099.01", occurredAt: new Date("2026-11-03T10:00:00Z"),
+      },
+    });
+    const days = await dailyPnl(f.userId, new Date("2026-11-01T17:00:00Z"), new Date("2026-11-04T17:00:00Z"));
+    expect(days.map(({ hasActivity, hasRealizedPnl }) => [hasActivity, hasRealizedPnl]))
+      .toEqual([[true, false], [true, true], [false, false]]);
+    expect(days[1]?.pnl.toString()).toBe("900719925474099.01");
+
+    await prisma.tradeJournal.update({
+      where: { tradeId: trade.id },
+      data: { entryReason: "Alasan masuk", postChecklist: { plan: true } },
+    });
+    const filter = { limit: 10, offset: 0 };
+    const publicRow = (await listTrades(f.userId, filter)).items[0];
+    expect(publicRow?.journal).toEqual({ tags: [], mistakes: [] });
+    expect(publicRow).not.toHaveProperty("journalComplete");
+    expect((await listTrades(f.userId, filter, { includeJournalCompletion: true })).items[0])
+      .toMatchObject({ id: trade.id, journalComplete: true });
   });
 
   it("completes a withdrawal once and prevents concurrent/overlapping double allocations", async () => {

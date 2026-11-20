@@ -57,6 +57,22 @@ export async function getTaskDay(userId: string, dateKey: string) {
   };
 }
 
+export async function getTaskDayPage(userId: string, dateKey: string, page: number, pageSize: number) {
+  const where = { dailyPlan: { userId, date: new Date(dateKey) } };
+  const total = await prisma.dailyActivity.count({ where });
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.max(0, Math.min(totalPages - 1, page));
+  const start = currentPage * pageSize;
+  const activities = total > 0 ? await prisma.dailyActivity.findMany({
+    where,
+    select: { id: true, plan: true, status: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    skip: start,
+    take: pageSize,
+  }) : [];
+  return { activities, currentPage, totalPages, start };
+}
+
 async function validatePlanFields(
   db: Prisma.TransactionClient,
   userId: string,
@@ -148,6 +164,22 @@ export async function updateActivity(userId: string, id: string, input: UpdateAc
     }
     return { id };
   });
+}
+
+export async function completePendingActivity(userId: string, id: string, dateKey: string, db: Prisma.TransactionClient) {
+  const where = { id, dailyPlan: { userId, date: new Date(dateKey) } };
+  const { count } = await db.dailyActivity.updateMany({
+    where: { ...where, status: "PENDING" },
+    data: { status: "COMPLETED" },
+  });
+  if (count) {
+    await db.auditLog.create({
+      data: { userId, action: "update", entity: "DailyActivity", entityId: id, after: { status: "COMPLETED" } },
+    });
+    return "completed";
+  }
+  const current = await db.dailyActivity.findUnique({ where, select: { status: true } });
+  return current?.status === "COMPLETED" ? "already-completed" : "not-available";
 }
 
 export async function deleteActivity(userId: string, id: string) {

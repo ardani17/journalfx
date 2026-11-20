@@ -22,7 +22,7 @@ export function PlanCards({ data }: { data: PlanCardsData }) {
         <div className="plan-green rounded-[14px] border border-primary/20 p-4">
           <div className="flex items-center gap-2 text-primary">
             <Target className="h-4 w-4" aria-hidden />
-            <span className="text-xs font-medium">Target Balance Berikutnya</span>
+            <span className="text-xs font-medium">Target Saldo Berikutnya</span>
           </div>
           <p className="tnum mt-2 text-xl font-bold text-white">
             {data.nextMilestone ? fmtUSD(data.nextMilestone.amount) : "—"}

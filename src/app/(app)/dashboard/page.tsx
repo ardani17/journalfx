@@ -28,7 +28,7 @@ import { CurrencyConverter } from "@/components/finance/currency-converter";
 import { formatFxEstimate } from "@/lib/finance/exchange";
 import { D, fmtNum, fmtPct, fmtPctDelta, fmtUSD, fmtUSDdelta } from "@/lib/money";
 
-export const metadata = { title: "Dashboard" };
+export const metadata = { title: "Dasbor" };
 
 export default async function DashboardPage() {
   const user = await requireUser();
@@ -83,12 +83,12 @@ export default async function DashboardPage() {
   return (
     <PageShell>
       <PageHeader
-        title="Dashboard"
+        title="Dasbor"
         subtitle="Ringkasan proyek trading, performa, dan rencana menuju $1.000.000"
       />
 
       <section
-        aria-label="Project banner"
+        aria-label="Ringkasan proyek"
         className="banner-gradient flex flex-wrap items-center gap-3 rounded-[14px] px-5 py-4"
       >
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/15">
@@ -108,7 +108,7 @@ export default async function DashboardPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          label="Balance Saat Ini"
+          label="Saldo Saat Ini"
           value={fmtUSD(balance)}
           tone="primary"
           icon={Wallet}
@@ -132,7 +132,7 @@ export default async function DashboardPage() {
           sub="Realisasi dari ledger"
         />
         <StatCard
-          label="Progress Target"
+          label="Progres Target"
           value={fmtPct(progressPct)}
           tone="indigo"
           icon={Target}
@@ -143,7 +143,7 @@ export default async function DashboardPage() {
       <div className="grid gap-3 xl:grid-cols-[68fr_32fr]">
         <Card>
           <CardHeader>
-            <CardTitle>Pertumbuhan Balance — Aktual vs Proyeksi (ilustratif 5%/mgg)</CardTitle>
+            <CardTitle>Pertumbuhan Saldo · Aktual dan Proyeksi (contoh 5% per minggu)</CardTitle>
           </CardHeader>
           <CardContent>
             {actualWithProj.length > 1 ? (
@@ -151,8 +151,8 @@ export default async function DashboardPage() {
             ) : (
               <EmptyState
                 icon={<TrendingUp className="h-8 w-8" />}
-                title="Belum cukup data balance"
-                description="Kurva tumbuh seiring transaksi ledger: deposit, WD, dan P&L realisasi dari jurnal trading."
+                title="Data saldo belum cukup"
+                description="Grafik mengikuti setoran, penarikan, dan P&L terealisasi yang tercatat di buku besar."
               />
             )}
           </CardContent>
@@ -188,10 +188,10 @@ function WeeklySummaryCard({ weekly, pnlIdr }: {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <SummaryRow icon={<BarChart3 className="h-3.5 w-3.5" />} label="Total Trade" value={fmtNum(weekly.tradesCount, 0)} />
+        <SummaryRow icon={<BarChart3 className="h-3.5 w-3.5" />} label="Total Transaksi" value={fmtNum(weekly.tradesCount, 0)} />
         <SummaryRow
           icon={<Percent className="h-3.5 w-3.5" />}
-          label="Return Mingguan"
+          label="Imbal Hasil Mingguan"
           value={weekly.returnPct ? fmtPctDelta(weekly.returnPct) : "—"}
           tone={weekly.returnPct ? (weekly.returnPct.gt(0) ? "pos" : "neg") : undefined}
         />
@@ -207,7 +207,7 @@ function WeeklySummaryCard({ weekly, pnlIdr }: {
           tone={weekly.realizedPnl.gt(0) ? "pos" : weekly.realizedPnl.lt(0) ? "neg" : undefined}
         />
         <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Deposit" value={fmtUSD(weekly.deposits)} />
-        <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Withdrawal" value={fmtUSD(weekly.withdrawals)} />
+        <SummaryRow icon={<Wallet className="h-3.5 w-3.5" />} label="Penarikan Dana" value={fmtUSD(weekly.withdrawals)} />
       </CardContent>
     </Card>
   );

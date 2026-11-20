@@ -50,6 +50,13 @@ async function createJournal() {
       { ...ledger, type: "REALIZED_PNL", amount: 20, sourceTradeId: `${userId}-201` },
     ] });
     await tx.accountTransaction.create({ data: { ...ledger, type: "REVERSAL", amount: 2, reversalOfId: feeId } });
+    await tx.tradeJournal.createMany({
+      data: [
+        { tradeId: `${userId}-002`, entryReason: "Alasan saja", postChecklist: { "Sesuai plan": false } },
+        { tradeId: `${userId}-003`, entryReason: " ", compliant: false },
+        { tradeId: `${userId}-004`, entryReason: "Alasan lengkap", emotionBefore: "calm" },
+      ],
+    });
     const session = await signSession({ sub: userId, email: user.email, name: user.name });
     return { userId, account, otherAccount, fifty, fiftyOne, session };
   });
@@ -66,9 +73,43 @@ test.afterAll(async () => {
 });
 
 async function expectResults(page: Page, range: string, count: number) {
-  await expect(page.getByText(`Menampilkan ${range} trade`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`Menampilkan ${range} transaksi`, { exact: true })).toBeVisible();
   await expect(page.getByRole("table").getByRole("link")).toHaveCount(count);
 }
+
+test("shows saved completion of both psychology and reflection", async ({ page, baseURL }) => {
+  await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);
+  const list = `/journal?sort=asc&accountId=${journal.account.id}`;
+  await page.goto(list);
+  await expect(page.getByRole("columnheader", { name: "Psikologi dan Jurnal" })).toBeVisible();
+  const row = (id: string) => page.getByRole("row").filter({
+    has: page.locator(`a[href="/journal/${journal.userId}-${id}"]`),
+  });
+  await expect(row("001")).toContainText("Belum diisi");
+  await expect(row("002")).toContainText("Belum diisi");
+  await expect(row("003")).toContainText("Belum diisi");
+  await expect(row("004")).toContainText("Sudah diisi");
+
+  await row("003").getByRole("link").click();
+  await page.getByRole("tab", { name: "Psikologi dan Jurnal" }).click();
+  const reason = page.locator("#j-entry");
+  await reason.fill("Menunggu uji ulang");
+  const save = async () => {
+    const saved = page.waitForResponse((response) => response.url().endsWith("/journal") && response.request().method() === "PUT");
+    await page.getByRole("button", { name: "Simpan Jurnal" }).click();
+    expect((await saved).ok()).toBeTruthy();
+  };
+  await save();
+  await page.goto(list);
+  await expect(row("003")).toContainText("Sudah diisi");
+  await row("003").getByRole("link").click();
+  await page.getByRole("tab", { name: "Psikologi dan Jurnal" }).click();
+  await expect(reason).toHaveValue("Menunggu uji ulang");
+  await reason.clear();
+  await save();
+  await page.goto(list);
+  await expect(row("003")).toContainText("Belum diisi");
+});
 
 test("applies entry dates to filtered rows, pagination, and KPIs", async ({ page, baseURL }) => {
   await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);
@@ -85,7 +126,7 @@ test("applies entry dates to filtered rows, pagination, and KPIs", async ({ page
   await to.fill("2026-11-04");
   await page.getByRole("button", { name: "Terapkan" }).click();
   await expectResults(page, "1–1 dari 1", 1);
-  await expect(page.getByText("Sampel kecil (1 < 30 trade)", { exact: false })).toBeVisible();
+  await expect(page.getByText("Sampel kecil (1 < 30 transaksi)", { exact: false })).toBeVisible();
   await expect(page.getByText("+$10,00", { exact: true })).toBeVisible();
   await expect(page.getByRole("table").getByRole("link")).toHaveAttribute("href", `/journal/${journal.userId}-200`);
   expect(new URL(page.url()).searchParams.get("page")).toBe("1");
@@ -102,6 +143,27 @@ for (const viewport of [
   { name: "desktop", width: 1440, height: 900 },
   { name: "mobile", width: 390, height: 844 },
 ]) {
+  test(`opens the correct trade from anywhere in the row on ${viewport.name}`, async ({ page, baseURL }, testInfo) => {
+    await page.setViewportSize({ width: viewport.width, height: viewport.height });
+    await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);
+    const list = `/journal?sort=asc&accountId=${journal.account.id}`;
+    const link = (id: string) => page.locator(`a[href="/journal/${journal.userId}-${id}"]`);
+    const row = (id: string) => page.getByRole("row").filter({ has: link(id) });
+    await page.goto(list);
+    await row("001").getByRole("cell", { name: "EURUSD", exact: true }).click({ force: true });
+    await expect(page).toHaveURL(new RegExp(`/journal/${journal.userId}-001$`));
+    await page.goto(list);
+    await row("002").getByRole("cell").nth(7).click({ force: true, position: { x: 4, y: 4 } });
+    await expect(page).toHaveURL(new RegExp(`/journal/${journal.userId}-002$`));
+    await page.goto(list);
+    await link("001").focus();
+    await page.keyboard.press("Tab");
+    await expect(link("002")).toBeFocused();
+    await page.screenshot({ path: testInfo.outputPath(`journal-rows-${viewport.name}.png`) });
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL(new RegExp(`/journal/${journal.userId}-002$`));
+  });
+
   test(`preserves date sorting across filtered pages on ${viewport.name}`, async ({ page, baseURL }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);
@@ -147,7 +209,7 @@ for (const viewport of [
     const controls = page.getByRole("navigation", { name: "Paginasi jurnal" });
     const previous = controls.getByRole("link", { name: "Sebelumnya" });
     const next = controls.getByRole("link", { name: "Berikutnya" });
-    const pageSize = page.getByLabel("Trade per halaman");
+    const pageSize = page.getByLabel("Transaksi per halaman");
     const filter = { status: "CLOSED", result: "win", accountId: journal.account.id };
     const url = (params: Record<string, string> = {}) => `/journal?${new URLSearchParams({ ...filter, ...params })}`;
 
@@ -157,7 +219,7 @@ for (const viewport of [
 
     await page.goto(url({ status: "CANCELLED" }));
     await expectResults(page, "0 dari 0", 0);
-    await expect(page.getByText("Tidak ada trade yang cocok dengan filter.")).toBeVisible();
+    await expect(page.getByText("Tidak ada transaksi yang cocok dengan filter.")).toBeVisible();
     await expect(controls.getByRole("button", { name: "Sebelumnya" })).toBeDisabled();
     await expect(controls.getByRole("button", { name: "Berikutnya" })).toBeDisabled();
 
@@ -166,7 +228,7 @@ for (const viewport of [
     await expect(controls.getByRole("button", { name: "Sebelumnya" })).toBeDisabled();
     await expect(controls.getByRole("button", { name: "Berikutnya" })).toBeDisabled();
 
-    await page.getByLabel("Filter setup").selectOption(journal.fiftyOne.id);
+    await page.getByLabel("Filter strategi").selectOption(journal.fiftyOne.id);
     await expectResults(page, "1–50 dari 51", 50);
     await expect(page.getByRole("table").getByRole("link").last()).toHaveAttribute("href", `/journal/${journal.userId}-052`);
     await next.click();

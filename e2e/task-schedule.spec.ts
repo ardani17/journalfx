@@ -37,7 +37,7 @@ test("plans tomorrow, records outcomes, reviews history and opens the schedule o
     const strategy = await prisma.strategy.create({ data: { userId: user.id, name: "Tunggu konfirmasi penutupan" } });
     await signIn(page.context(), baseURL!, user);
     await page.goto("/dashboard");
-    await page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Task / Jadwal" }).click();
+    await page.getByRole("navigation", { name: "Navigasi utama" }).getByRole("link", { name: "Tugas / Jadwal" }).click();
     const formatLocal = new Intl.DateTimeFormat("sv-SE", {
       dateStyle: "short",
       timeZone: user.timezone,
@@ -111,7 +111,7 @@ test("plans tomorrow, records outcomes, reviews history and opens the schedule o
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/dashboard");
     await page.getByRole("button", { name: "Buka menu navigasi" }).click();
-    await page.getByRole("dialog", { name: "Menu navigasi" }).getByRole("link", { name: "Task / Jadwal" }).click();
+    await page.getByRole("dialog", { name: "Menu navigasi" }).getByRole("link", { name: "Tugas / Jadwal" }).click();
     await page.getByRole("link", { name: "Besok", exact: true }).click();
     await expect(page.getByText("Tidak membuka posisi karena kondisi belum terpenuhi.")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
@@ -261,7 +261,7 @@ test("adds the first strategy from a trading activity without losing the plan", 
     await page.reload();
     await expect(saved.getByText(name, { exact: true })).toBeVisible();
     await page.goto("/journal/new");
-    await expect(page.getByLabel("Strategi / Setup").getByRole("option", { name, exact: true })).toHaveCount(1);
+    await expect(page.getByLabel("Strategi", { exact: true }).getByRole("option", { name, exact: true })).toHaveCount(1);
   } finally {
     await prisma.user.delete({ where: { id: user.id } });
   }

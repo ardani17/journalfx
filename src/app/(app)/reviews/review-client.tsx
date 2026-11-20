@@ -6,13 +6,20 @@ import { Lock, Save, Undo2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Field, Textarea } from "@/components/ui/field";
+import { reviewHref, type ReviewKind } from "@/lib/review-period";
 
 export function ReviewClient({
   kind,
+  reviewId,
+  date,
+  calendar,
   closed,
   initial,
 }: {
-  kind: "DAILY" | "WEEKLY" | "MONTHLY";
+  kind: ReviewKind;
+  reviewId?: string;
+  date?: string;
+  calendar?: string;
   closed: boolean;
   initial: { performance: string; riskNotes: string; reflections: string; nextPlan: string };
 }) {
@@ -22,7 +29,7 @@ export function ReviewClient({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function call(method: "PUT" | "POST", body: unknown, okMsg: string) {
+  async function call(method: "PUT" | "POST", body: Record<string, string>, okMsg: string) {
     setError(null);
     setMsg(null);
     setLoading(true);
@@ -30,15 +37,19 @@ export function ReviewClient({
       const res = await fetch("/api/reviews", {
         method,
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ kind, ...(reviewId ? { reviewId } : { date }), ...body }),
       });
       const json = await res.json();
       if (!res.ok || !json.ok) {
         setError(json.error ?? "Operasi gagal");
         return;
       }
-      setMsg(okMsg);
-      router.refresh();
+      if (body.action === "correct") {
+        router.push(reviewHref(kind, { reviewId: json.data.id, calendar }));
+      } else {
+        setMsg(okMsg);
+        router.refresh();
+      }
     } catch {
       setError("Tidak dapat menghubungi server");
     } finally {
@@ -52,7 +63,7 @@ export function ReviewClient({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Catatan Review {closed ? "(immutable — gunakan koreksi)" : ""}</CardTitle>
+        <CardTitle>Catatan Review {closed ? "tersimpan" : ""}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-3 lg:grid-cols-2">
@@ -65,15 +76,15 @@ export function ReviewClient({
         {msg ? <p className="text-xs text-primary" role="status">{msg}</p> : null}
         <div className="flex justify-end gap-2">
           {closed ? (
-            <Button variant="secondary" disabled={loading} onClick={() => call("POST", { kind, action: "correct" }, "Koreksi dibuat sebagai review terbuka baru (ter-audit; snapshot asli tetap utuh).")}>
+            <Button variant="secondary" disabled={loading} onClick={() => call("POST", { action: "correct" }, "Revisi dibuat.")}>
               <Undo2 className="h-4 w-4" aria-hidden /> Buat Koreksi
             </Button>
           ) : (
             <>
-              <Button variant="secondary" disabled={loading} onClick={() => call("PUT", { kind, ...fields }, "Catatan tersimpan.")}>
+              <Button variant="secondary" disabled={loading} onClick={() => call("PUT", fields, "Catatan tersimpan.")}>
                 <Save className="h-4 w-4" aria-hidden /> Simpan Catatan
               </Button>
-              <Button disabled={loading} onClick={() => call("POST", { kind, action: "close" }, "Review ditutup — snapshot metrik dibekukan secara immutable.")}>
+              <Button disabled={loading} onClick={() => call("POST", { action: "close" }, "Review ditutup dan ringkasan tersimpan.")}>
                 <Lock className="h-4 w-4" aria-hidden /> Tutup Periode
               </Button>
             </>

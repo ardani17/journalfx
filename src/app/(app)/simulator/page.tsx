@@ -5,7 +5,7 @@ import { getDefaultProject } from "@/server/services/projects";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
 import { SimulatorClient } from "./simulator-client";
 
-export const metadata = { title: "Compounding Plan" };
+export const metadata = { title: "Simulasi Pemajemukan" };
 
 export default async function SimulatorPage({ searchParams }: {
   searchParams: Promise<{ scenarioId?: string | string[] }>;
@@ -23,7 +23,7 @@ export default async function SimulatorPage({ searchParams }: {
   return (
     <PageShell>
       <PageHeader
-        title="Compounding Plan"
+        title="Simulasi Pemajemukan"
         subtitle="Atur parameter lalu simulasikan target — hasil adalah proyeksi ilustratif, bukan janji imbal hasil."
       />
       <SimulatorClient
@@ -44,6 +44,7 @@ export default async function SimulatorPage({ searchParams }: {
           wdRatio: s.wdRatio ? Number(s.wdRatio) : null,
         }))}
         selected={selected && { id: selected.id, name: selected.name, ...savedScenarioParameters(selected) }}
+        userId={user.id}
       />
     </PageShell>
   );
