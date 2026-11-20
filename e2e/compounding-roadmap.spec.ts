@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
-import { fmtUSD } from "../src/lib/money";
+import { describeProjection } from "../src/lib/finance/compounding";
 import { zonedPeriod } from "../src/lib/dates";
 import { monteCarloEquityStorageKey } from "../src/lib/finance/trading-capital";
 
@@ -48,70 +48,6 @@ async function planningFixture() {
   });
 }
 
-async function runAndRead(page: Page, action: string, endpoint: string) {
-  const pending = page.waitForResponse((response) => response.url().endsWith(endpoint) && response.request().method() === "POST");
-  await page.getByRole("button", { name: action, exact: true }).click();
-  const response = await pending;
-  expect(response.ok()).toBe(true);
-  const body = await response.json();
-  expect(body.ok).toBe(true);
-  return { data: body.data, response };
-}
-
-test("opens cycle 100 and the final deterministic cycle, then runs Monte Carlo in a worker", async ({ page, baseURL }) => {
-  const { owner, other } = await planningFixture();
-  try {
-    await page.context().addCookies([{
-      url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
-      value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
-    }]);
-    await page.goto("/simulator");
-    await page.getByLabel("Imbal Hasil per Siklus (%)", { exact: true }).fill("5");
-    await page.getByLabel("Biaya / Siklus (USD)", { exact: true }).fill("1");
-    await page.getByLabel("Mode Penarikan", { exact: true }).selectOption("FIXED");
-    await page.getByLabel("Nominal Penarikan (USD)", { exact: true }).fill("2");
-    const { data } = await runAndRead(page, "Simulasikan", "/api/simulator/run");
-    expect(data.cycles.length).toBeGreaterThan(100);
-    const history = page.getByRole("region", { name: "Riwayat siklus deterministik" });
-    const jump = async (cycle: number) => {
-      await history.getByLabel("Nomor siklus").fill(String(cycle));
-      await history.getByRole("button", { name: "Ke siklus" }).click();
-    };
-    await jump(100);
-    const cycle = data.cycles[99];
-    const row = history.getByRole("row").filter({ has: page.getByRole("cell", { name: "100 minggu", exact: true }) });
-    // Compare the displayed values to the actual API row and reconcile the unrounded amounts.
-    await expect(row.getByRole("cell")).toHaveCount(9);
-    for (const [index, amount] of [[1, cycle.opening], [3, cycle.grossProfit], [4, cycle.costs],
-      [5, cycle.profit], [6, cycle.deposit], [7, cycle.wd], [8, cycle.closing]]) {
-      await expect(row.getByRole("cell").nth(Number(index))).toHaveText(fmtUSD(amount));
-    }
-    expect(Number(cycle.opening) + Number(cycle.profit) - Number(cycle.wd) + Number(cycle.deposit))
-      .toBeCloseTo(Number(cycle.closing), 7);
-    for (const size of ["50", "100", "200"]) {
-      await history.getByLabel("Siklus per halaman").selectOption(size);
-      await jump(data.cycles.length);
-      await expect(history.getByRole("cell", { name: `${data.cycles.length} minggu`, exact: true })).toBeVisible();
-    }
-
-    await page.getByLabel("Iterasi Monte Carlo").fill("2000");
-    await page.getByLabel("Jumlah transaksi", { exact: true }).fill("110");
-    await page.getByLabel("Transaksi per siklus", { exact: true }).fill("1");
-    await page.getByLabel("Tingkat kemenangan (%)", { exact: true }).fill("100");
-    const worker = page.waitForEvent("worker");
-    await page.getByRole("button", { name: "Simulasikan Monte Carlo" }).click();
-    await worker;
-    await expect(page.getByRole("heading", { name: "Contoh jalur simulasi" })).toBeVisible();
-    const sample = page.getByRole("region", { name: "Riwayat siklus Monte Carlo" });
-    await sample.getByLabel("Nomor siklus").fill("100");
-    await sample.getByRole("button", { name: "Ke siklus" }).click();
-    await sample.getByRole("button", { name: /Siklus 100 · Transaksi 100/ }).click();
-    await expect(sample.getByRole("cell", { name: "Menang", exact: true })).toBeVisible();
-  } finally {
-    await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
-  }
-});
-
 test("estimates capital from the active budget and prefills Monte Carlo", async ({ page, baseURL }, testInfo) => {
   const { owner, other } = await planningFixture();
   const rateId = `fixture-capital-${randomUUID()}`;
@@ -144,50 +80,24 @@ test("estimates capital from the active budget and prefills Monte Carlo", async 
     if (href) {
       expect(href).toBe("/simulator#monte-carlo");
       await jump.click();
-      await expect(page.locator("#monte-carlo-initialEquity")).not.toHaveValue("200");
+      await expect(page.getByLabel("Modal awal (USD)", { exact: true })).not.toHaveValue("200");
     } else {
       await expect(page.getByText("Kurs USD diperlukan untuk mengisi modal awal Monte Carlo.")).toBeVisible();
       await page.evaluate(([key, amount]) => sessionStorage.setItem(key!, amount!), [storageKey, "6250.25"]);
       await page.goto("/simulator#monte-carlo");
-      await expect(page.locator("#monte-carlo-initialEquity")).toHaveValue("6.250,25");
+      await expect(page.getByLabel("Modal awal (USD)", { exact: true })).toHaveValue("6.250,25");
     }
     await expect(page).toHaveURL(/\/simulator#monte-carlo$/);
-    const equity = page.locator("#monte-carlo-initialEquity");
+    const equity = page.getByLabel("Modal awal (USD)", { exact: true });
     const transferred = await equity.inputValue();
-    await page.getByRole("button", { name: "Konservatif", exact: true }).click();
+    await page.getByRole("button", { name: "Acak ulang" }).click();
     await expect(equity).toHaveValue(transferred);
     expect(await page.evaluate((key) => sessionStorage.getItem(key), storageKey)).toBeNull();
     await page.reload();
     await expect(equity).toHaveValue("200");
-    await expect(page.getByRole("heading", { name: "Contoh jalur simulasi" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Peluang menyentuh target" })).toBeVisible();
   } finally {
     await prisma.exchangeRate.deleteMany({ where: { id: rateId } });
-    await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
-  }
-});
-
-test("runs all three editable US$200 templates", async ({ page, baseURL }, testInfo) => {
-  const { owner, other } = await planningFixture();
-  try {
-    await page.context().addCookies([{
-      url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
-      value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
-    }]);
-    await page.goto("/simulator");
-    await page.getByRole("button", { name: "Coba contoh US$200" }).click();
-    await expect(page.getByRole("button", { name: "Santai", exact: true })).toHaveAttribute("aria-pressed", "true");
-    for (const [name, percent, value] of [["Konservatif", "0,5", "$1,00"], ["Santai", "1", "$2,00"], ["Agresif", "2", "$4,00"]] as const) {
-      await page.getByRole("button", { name, exact: true }).click();
-      await expect(page.locator("#monte-carlo-initialEquity")).toHaveValue("200");
-      await expect(page.locator("#monte-carlo-baseRiskPercent")).toHaveValue(percent);
-      await expect(page.getByText(`= ${value} per transaksi.`, { exact: false })).toBeVisible();
-      await page.getByRole("button", { name: "Simulasikan Monte Carlo" }).click();
-      await expect(page.getByRole("heading", { name: "Contoh jalur simulasi" })).toBeVisible();
-    }
-    await page.locator("#monte-carlo-initialEquity").fill("250");
-    await expect(page.getByText("= $5,00 per transaksi.", { exact: false })).toBeVisible();
-    await page.screenshot({ path: testInfo.outputPath("monte-carlo-examples.png") });
-  } finally {
     await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
   }
 });
@@ -199,37 +109,65 @@ for (const viewport of [
   test.describe(viewport.name, () => {
     test.use({ isMobile: viewport.name === "mobile", hasTouch: viewport.name === "mobile" });
 
-    test("runs Monte Carlo with localized numbers and validates integer fields", async ({ page, baseURL }, testInfo) => {
-      const { owner, other } = await planningFixture();
+    test("explores a single trade horizon across the three chart scales", async ({ page, baseURL }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      const { owner, other, saved } = await planningFixture();
       try {
-        await page.setViewportSize({ width: viewport.width, height: viewport.height });
         await page.context().addCookies([{
           url: baseURL!, name: SESSION_COOKIE, httpOnly: true,
           value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
         }]);
         await page.goto("/simulator");
-        const funds = page.getByLabel("Modal awal Monte Carlo (USD)", { exact: true });
-        const iterations = page.getByLabel("Iterasi Monte Carlo");
-        const run = page.getByRole("button", { name: "Simulasikan Monte Carlo" });
-        await expect(iterations).toHaveValue("1.000");
-        await funds.fill("1000000");
-        await iterations.focus();
-        await expect(funds).toHaveValue("1.000.000");
-        await funds.fill("1.000.000,50");
-        await iterations.fill("1,5");
-        await run.click();
-        await expect(page.locator("#monte-carlo-error")).toContainText("bilangan bulat");
-        await iterations.fill("5");
-        await page.locator("#monte-carlo-totalTrades").fill("1");
-        await run.click();
-        await expect(page.getByText(`Saldo awal ${fmtUSD(1_000_000.50)}`, { exact: false })).toBeVisible();
-        await page.screenshot({ path: testInfo.outputPath(`monte-carlo-input-${viewport.name}.png`) });
+        const heading = page.getByRole("heading", { name: "Simulasi Compounding", exact: true });
+        await expect(heading).toBeVisible();
+        await expect(page).toHaveTitle(/Simulasi Compounding · Horizon Journal/);
+        await expect(page.getByRole("navigation", { name: "Mode simulator" })).toHaveCount(0);
+        const navigation = viewport.name === "mobile" ? "Navigasi bawah" : "Navigasi utama";
+        const navLabel = viewport.name === "mobile" ? "Compounding" : "Simulasi Compounding";
+        await expect(page.getByRole("navigation", { name: navigation }).getByRole("link", { name: navLabel, exact: true }))
+          .toHaveAttribute("href", "/simulator");
+
+        for (const query of ["?mode=pemajemukan", "?mode=lanjutan", "?scenarioId=" + saved.id]) {
+          await page.goto("/simulator" + query);
+          await expect(page).toHaveURL(/\/simulator$/);
+          await expect(heading).toBeVisible();
+        }
+        const trades = page.getByLabel("Jumlah trade", { exact: true });
+        await expect(trades).toHaveCount(1);
+        await trades.fill("1,5");
+        await expect(trades).toHaveAttribute("aria-invalid", "true");
+        await expect(page.getByRole("alert").filter({ hasText: "bilangan bulat" })).toBeVisible();
+        await trades.fill("101");
+        await expect(page.getByRole("img", { name: /Siklus 21/ })).toBeVisible();
+        const axis = page.getByRole("group", { name: "Sumbu grafik" });
+        await axis.getByRole("button", { name: "Hari", exact: true }).click();
+        await expect(page.getByRole("img", { name: /Hari 101/ })).toBeVisible();
+        await axis.getByRole("button", { name: "Tanggal", exact: true }).click();
+        await page.getByLabel("Tanggal awal grafik").fill("2026-12-20");
+        await expect(page.getByRole("img", { name: /20 Des 26 hingga 31 Mar 27/ })).toBeVisible();
+        await expect(trades).toHaveValue("101");
+
+        await page.getByRole("button", { name: "Lihat jalur win/loss" }).click();
+        const path = page.getByRole("dialog", { name: "Contoh jalur win/loss" });
+        await expect(path.getByText(/win · .* loss/)).toBeVisible();
+        await path.getByRole("button", { name: "Berikutnya" }).click();
+        await expect(path.getByText("Trade 9–16 dari 101")).toBeVisible();
+        await page.keyboard.press("Escape");
+
+        await page.getByRole("button", { name: "Simpan skenario", exact: true }).click();
+        await page.getByLabel("Nama skenario").fill("Eksplorasi uji");
+        await page.getByRole("button", { name: "Simpan", exact: true }).click();
+        await page.reload();
+        await page.getByRole("button", { name: "Skenario", exact: true }).click();
+        await page.getByRole("button", { name: "Gunakan Eksplorasi uji" }).click();
+        await expect(trades).toHaveValue("101");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
       } finally {
         await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });
       }
     });
 
-    test(`edits, reopens, and applies private compounding plans on ${viewport.name}`, async ({ page, baseURL }) => {
+    test(`uses saved compounding scenarios in Roadmap on ${viewport.name}`, async ({ page, baseURL }) => {
       const { owner, other, project, saved, elsewhere, foreign, immediate, values } = await planningFixture();
       try {
         await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -237,79 +175,27 @@ for (const viewport of [
           url: baseURL!, name: SESSION_COOKIE, value: await signSession({ sub: owner.id, email: owner.email, name: owner.name }),
           httpOnly: true,
         }]);
-        await page.goto("/simulator");
-        await expect(page.getByRole("heading", { name: "Simulasi Compounding", exact: true })).toBeVisible();
-        await expect(page.getByRole("link", { name: "Compounding", exact: true })).toHaveAttribute("href", "/simulator");
         const runEndpoint = "/api/simulator/run";
-        const saveEndpoint = "/api/scenarios";
-        const target = page.getByLabel("Target (USD)", { exact: true });
-        const start = page.getByLabel("Modal Awal (USD)", { exact: true });
-        const returns = page.getByLabel("Imbal Hasil per Siklus (%)", { exact: true });
-        const cost = page.getByLabel("Biaya / Siklus (USD)", { exact: true });
-        await expect(target).toHaveValue("1.000.000");
-        await expect(cost).toHaveAttribute("inputmode", "decimal");
-        for (const [input, value] of [[start, "200"], [returns, "2"], [cost, "50"]] as const) {
-          await input.selectText();
-          await input.press("Backspace");
-          await expect(input).toHaveValue("");
-          await input.pressSequentially(value);
-          await expect(input).toHaveValue(value);
-        }
-        await returns.fill("");
-        await page.getByRole("button", { name: "Simulasikan", exact: true }).click();
-        await expect(returns).toHaveAttribute("aria-invalid", "true");
-        await expect(page.getByText("Kolom ini wajib diisi.")).toBeVisible();
-        await returns.fill("0");
-        await cost.fill("0,00");
-        await page.getByLabel("Nama Skenario").fill("Uji skenario baru");
+        const newInput = { initialCapital: 200, targetAmount: 1_000_000, returnPerCycle: 0, costPerCycle: 0 };
+        const run = await page.request.post(runEndpoint, { data: newInput });
+        expect(run.ok()).toBe(true);
+        const simulation = (await run.json()).data;
+        const created = await page.request.post("/api/scenarios", { data: { ...newInput, name: "Uji skenario baru" } });
+        expect(created.status()).toBe(201);
+        const { scenario, summary } = (await created.json()).data;
+        expect(summary).toEqual({ cyclesCount: simulation.cyclesCount, reached: simulation.reached });
 
-        const run = await runAndRead(page, "Simulasikan", runEndpoint);
-        const newScenario = await runAndRead(page, "Simpan Skenario", saveEndpoint);
-        for (const { response } of [run, newScenario]) {
-          expect(response.request().postDataJSON()).toMatchObject({
-            targetAmount: 1_000_000, initialCapital: 200, returnPerCycle: 0, costPerCycle: 0,
-          });
-        }
-        expect(newScenario.data.summary).toEqual({ cyclesCount: run.data.cyclesCount, reached: run.data.reached });
-        const newId: string = newScenario.data.scenario.id;
-        await expect(page.getByRole("link", { name: "Buka Uji skenario baru" })).toBeVisible();
-        const savedEndpoint = `/api/scenarios/${saved.id}/run`;
-        const automaticRun = page.waitForResponse((response) => response.url().endsWith(savedEndpoint) && response.request().method() === "POST");
-        await page.getByRole("link", { name: "Buka Skenario lama" }).click();
-        await expect(page.getByRole("heading", { name: "Skenario lama" })).toBeVisible();
-        const savedResponse = await automaticRun;
-        expect(savedResponse.ok()).toBe(true);
-        const savedRun = await savedResponse.json();
-        await expect(page.getByText("Estimasi Pencapaian", { exact: true })).toBeVisible();
-        await expect(page.getByRole("img", { name: "Kurva pertumbuhan simulasi" })).toBeVisible();
-        await expect(page.getByRole("columnheader", { name: "Siklus" })).toBeVisible();
-        await page.reload();
-        await expect(page.getByText("Estimasi Pencapaian", { exact: true })).toBeVisible();
-        for (const value of ["$550,25", "$200,00", "25,1234%", "Bulanan", "Nominal tetap · $5,75 / siklus", "$1,25"]) {
-          await expect(page.getByText(value, { exact: true }).first()).toBeVisible();
-        }
-        expect(savedRun.data.totalDeposits).toBe("100");
-        expect(savedRun.data.firstCycles[1].returnPct).toBe("15");
+        const savedRun = await page.request.post(`/api/scenarios/${saved.id}/run`);
+        expect(savedRun.ok()).toBe(true);
+        const savedSimulation = (await savedRun.json()).data;
+        expect(savedSimulation.totalDeposits).toBe("100");
+        expect(savedSimulation.firstCycles[1].returnPct).toBe("15");
         const direct = await page.request.post(runEndpoint, { data: values });
-        expect((await direct.json()).data).toEqual(savedRun.data);
-        const estimate = await page.getByText("Lama Estimasi").locator("..").locator("p").last().innerText();
-        await page.getByRole("link", { name: "Buka Uji skenario baru" }).click();
-        await expect(page.getByText("Target belum tercapai dalam horizon", { exact: true })).toBeVisible();
-        await expect(page.getByText(estimate, { exact: true })).toHaveCount(0);
-
-        const failureMessage = "Simulasi sedang tidak tersedia";
-        await page.route(`**${savedEndpoint}`, async (route) => {
-          await expect(page.getByRole("status").filter({ hasText: "Menghitung simulasi" })).toBeVisible();
-          await route.fulfill({ status: 503, json: { ok: false, error: failureMessage } });
-        }, { times: 1 });
-        await page.goto(`/simulator?scenarioId=${saved.id}`);
-        await expect(page.getByRole("alert").filter({ hasText: failureMessage })).toBeVisible();
-        await page.getByRole("button", { name: "Coba Lagi" }).click();
-        await expect(page.getByText("Estimasi Pencapaian", { exact: true })).toBeVisible();
+        expect(direct.ok()).toBe(true);
+        expect((await direct.json()).data).toEqual(savedSimulation);
+        const estimate = describeProjection(savedSimulation, saved.frequency);
         expect((await prisma.compoundingScenario.findUniqueOrThrow({ where: { id: saved.id } })).updatedAt).toEqual(saved.updatedAt);
 
-        const forbidden = await page.request.get(`/simulator?scenarioId=${foreign.id}`);
-        expect(forbidden.status()).toBe(404);
         expect((await page.request.post(`/api/scenarios/${foreign.id}/run`)).status()).toBe(404);
         for (const id of [foreign.id, elsewhere.id]) {
           expect((await page.request.patch("/api/roadmap", { data: { scenarioId: id } })).status()).toBe(404);
@@ -317,7 +203,8 @@ for (const viewport of [
 
         await page.goto("/roadmap");
         const select = page.getByLabel("Skenario Compounding");
-        await expect(page.getByRole("link", { name: "Buka Simulasi Compounding" })).toHaveAttribute("href", "/simulator");
+        const simulator = page.getByRole("link", { name: "Buka Simulasi Compounding", exact: true });
+        await expect(simulator).toHaveAttribute("href", "/simulator");
         const apply = page.getByRole("button", { name: "Terapkan", exact: true });
         const milestones = page.getByRole("table", { name: "Tonggak Pencapaian" });
         const history = page.getByRole("table", { name: "Riwayat Pencapaian" });
@@ -326,17 +213,22 @@ for (const viewport of [
         await expect(select.locator("option", { hasText: "Skenario project lain" })).toHaveCount(0);
         await select.selectOption(saved.id);
         await apply.click();
-        await expect(page.getByRole("link", { name: "Buka skenario aktif" })).toHaveAttribute("href", `/simulator?scenarioId=${saved.id}`);
+        await expect(page.getByText("Skenario lama", { exact: true }).filter({ visible: true })).toBeVisible();
+        await expect(simulator).toHaveAttribute("href", "/simulator");
         await page.reload();
         await expect(select).toHaveValue(saved.id);
         await expect(page.getByText(estimate, { exact: true })).toBeVisible();
+        const details = page.getByRole("heading", { name: "Estimasi Proyek" }).locator("../..");
+        for (const value of ["$550,25", "$200,00", "25,1234%", "Bulanan", "Nominal tetap · $5,75 / siklus", "$1,25"]) {
+          await expect(details.getByText(value, { exact: true })).toBeVisible();
+        }
         await expect(page.getByText("$350,00 / $550,25", { exact: true })).toBeVisible();
         await expect(milestones.getByRole("row").last()).toContainText("$550,25");
         await expect(milestones.getByRole("row").last()).toContainText("2 Jan 2025");
         await expect(history.getByRole("row", { name: /550,25/ })).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
 
-        await select.selectOption(newId);
+        await select.selectOption(scenario.id);
         await apply.click();
         await expect(page.getByText("Target belum tercapai dalam 2000 minggu", { exact: true })).toBeVisible();
         await expect(history.getByRole("row", { name: /550,25/ })).toBeVisible();

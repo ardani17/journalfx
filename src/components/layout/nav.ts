@@ -43,7 +43,7 @@ export const NAV: NavGroup[] = [
   {
     label: "Rencana dan Strategi",
     items: [
-      { label: "Compounding", href: "/simulator", icon: TrendingUp },
+      { label: "Simulasi Compounding", href: "/simulator", icon: TrendingUp },
       { label: "Penarikan Dana", href: "/withdrawals", icon: Wallet },
       { label: "Target Proyek", href: "/roadmap", icon: Target },
     ],

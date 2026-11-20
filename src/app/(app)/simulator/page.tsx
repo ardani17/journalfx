@@ -1,49 +1,35 @@
-import { notFound } from "next/navigation";
+import { randomInt } from "node:crypto";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/server/auth";
-import { getScenario, listScenarios, savedScenarioParameters } from "@/server/services/scenarios";
 import { getDefaultProject } from "@/server/services/projects";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
-import { SimulatorClient } from "./simulator-client";
+import { calendarDate } from "@/lib/dates";
+import { defaultExplorationInput } from "@/lib/finance/exploration-monte-carlo";
+import { ExplorationPanel } from "./exploration-panel";
 
-export const metadata = { title: "Simulasi Compounding" };
+const title = "Simulasi Compounding";
+export const metadata = { title };
 
 export default async function SimulatorPage({ searchParams }: {
-  searchParams: Promise<{ scenarioId?: string | string[] }>;
+  searchParams: Promise<{ scenarioId?: string | string[]; mode?: string | string[] }>;
 }) {
   const user = await requireUser();
-  const { scenarioId } = await searchParams;
-  if (scenarioId !== undefined && typeof scenarioId !== "string") notFound();
-  const [project, scenarios, selected] = await Promise.all([
-    getDefaultProject(user.id),
-    listScenarios(user.id),
-    typeof scenarioId === "string" ? getScenario(user.id, scenarioId) : null,
-  ]);
-  if (scenarioId !== undefined && !selected) notFound();
+  const { scenarioId, mode } = await searchParams;
+  if (scenarioId !== undefined || mode !== undefined) redirect("/simulator");
 
+  const project = await getDefaultProject(user.id);
+  const initial = defaultExplorationInput(Number(project.initialCapital), Number(project.targetAmount));
   return (
     <PageShell>
       <PageHeader
-        title="Simulasi Compounding"
-        subtitle="Atur parameter lalu simulasikan target — hasil adalah proyeksi ilustratif, bukan janji imbal hasil."
+        className="[&_h1]:text-[clamp(1.75rem,3vw,2.5rem)] [&_h1]:leading-tight [&_p]:mt-2 [&_p]:text-sm"
+        title={title}
+        subtitle="Lihat peluang mencapai target saat setiap trade bisa menang atau kalah."
       />
-      <SimulatorClient
-        key={selected?.id ?? "new"}
-        defaults={{
-          initialCapital: Number(project.initialCapital),
-          targetAmount: Number(project.targetAmount),
-          returnPerCycle: 5,
-          frequency: "WEEKLY",
-          wdMode: "DYNAMIC",
-          wdRatio: 50,
-        }}
-        saved={scenarios.map((s) => ({
-          id: s.id,
-          name: s.name,
-          returnPerCycle: Number(s.returnPerCycle),
-          wdMode: s.wdMode,
-          wdRatio: s.wdRatio ? Number(s.wdRatio) : null,
-        }))}
-        selected={selected && { id: selected.id, name: selected.name, ...savedScenarioParameters(selected) }}
+      <ExplorationPanel
+        initial={initial}
+        initialSeed={randomInt(2 ** 32)}
+        initialDate={calendarDate(new Date(), user.timezone).toISOString().slice(0, 10)}
         userId={user.id}
       />
     </PageShell>

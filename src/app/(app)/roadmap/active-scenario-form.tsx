@@ -58,13 +58,8 @@ export function ActiveScenarioForm({ active, options }: { active: ScenarioOption
           <Button type="submit" disabled={pending || selection === (active?.id ?? "")}>
             {pending ? "Menerapkan…" : "Terapkan"}
           </Button>
-          {active ? (
-            <Link className="inline-flex min-h-10 items-center text-xs text-primary hover:underline"
-              href={`/simulator?scenarioId=${encodeURIComponent(active.id)}`}>Buka skenario aktif</Link>
-          ) : (
-            <Link className="inline-flex min-h-10 items-center text-xs text-primary hover:underline"
-              href="/simulator">Buka Simulasi Compounding</Link>
-          )}
+          <Link className="inline-flex min-h-10 items-center text-xs text-primary hover:underline"
+            href="/simulator">Buka Simulasi Compounding</Link>
         </form>
         {error && <p className="text-xs text-loss" role="alert">{error}</p>}
       </CardContent>
