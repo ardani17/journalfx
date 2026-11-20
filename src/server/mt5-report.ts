@@ -1,5 +1,6 @@
 import { D, type Decimal } from "@/lib/money";
 import { ApiError, parseUploadForm } from "@/lib/api";
+import { instrumentSymbolSchema } from "@/lib/validation/trades";
 import { readWorkbookSheets, type WorkbookRow } from "./mt5-workbook";
 
 const POSITION_HEADERS = ["time", "position", "symbol", "type", "volume", "price", "sl", "tp", "time", "price", "commission", "swap", "profit"];
@@ -75,9 +76,9 @@ function brokerTicket(text = "") {
 function parsePosition(cells: Map<string, string>, rowNumber: number, date1904: boolean): Mt5Position {
   const cell = (column: string) => cells.get(column) ?? "";
   const ticket = brokerTicket(cell("B"));
-  const symbol = cell("C").toUpperCase();
+  const symbol = instrumentSymbolSchema.safeParse(cell("C"));
   const side = cell("D").toLowerCase();
-  if (!ticket || !symbol || symbol.length > 64 || /[\p{C}\s]/u.test(symbol) || !["buy", "sell"].includes(side)) {
+  if (!ticket || !symbol.success || !["buy", "sell"].includes(side)) {
     throw new Error("Nomor posisi, simbol, atau arah transaksi tidak valid");
   }
 
@@ -103,7 +104,7 @@ function parsePosition(cells: Map<string, string>, rowNumber: number, date1904: 
   if (netPnl.abs().gte("1e16")) throw new Error("P&L di luar rentang yang didukung");
 
   return {
-    rowNumber, ticket, symbol, direction: side === "buy" ? "LONG" : "SHORT", lot, openAt, openPrice, closeAt, closePrice,
+    rowNumber, ticket, symbol: symbol.data, direction: side === "buy" ? "LONG" : "SHORT", lot, openAt, openPrice, closeAt, closePrice,
     stopLoss: stopLoss.gt(0) ? stopLoss : null,
     takeProfit: takeProfit.gt(0) ? takeProfit : null,
     commission: commission.negated(), swap: swap.negated(), netPnl,

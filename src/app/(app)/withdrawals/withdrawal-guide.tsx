@@ -15,7 +15,7 @@ export function WithdrawalGuide() {
             <ol className="list-decimal space-y-2 pb-3 pl-5">
               <li>
                 <strong className="text-ink">Ajukan di Horizon Journal.</strong> Saat rekomendasi positif, klik <strong>Ajukan WD</strong>,
-                pilih akun trading aktif sebagai sumber, lalu masukkan nominal USD. Nominal tidak boleh melebihi rekomendasi atau saldo akun sumber.
+                pilih akun trading aktif sebagai sumber, lalu masukkan nominal USD. Batasnya adalah yang lebih kecil antara rekomendasi dan saldo sumber setelah pengajuan yang masih menunggu.
                 Pengajuan masuk ke riwayat dengan status <strong>REQUESTED</strong>.
               </li>
               <li>
@@ -45,7 +45,7 @@ export function WithdrawalGuide() {
               <p>
                 Rekomendasi mengikuti batas terkecil antara <strong>Cap Rasio</strong>, <strong>Cap Kebutuhan Mingguan</strong>,
                 dan <strong>Cap Kas di Atas Reserve</strong>. Pengajuan yang masih menunggu penyelesaian dan WD yang selesai minggu ini
-                mengurangi sisa batas rasio dan kebutuhan.
+                mengurangi sisa batas rasio dan kebutuhan. Pengajuan yang masih menunggu juga mengurangi kas di atas cadangan dan saldo sumber.
               </p>
               <p>
                 Contoh, jika profit eligibel $100, rasio 50%, batas kebutuhan $40, dan kas di atas reserve $80,

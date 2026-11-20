@@ -84,7 +84,7 @@ export function WithdrawalsClient(props: Props) {
   const maxAmount = source ? requestLimit(source.balanceUsd) : D(0);
   const requestAvailable = rec.gt(0) && Boolean(source);
   const blockers = rec.isZero() ? props.rec.zeroReasons : source ? [] : [
-    "Belum ada akun sumber aktif dengan saldo minimal $0,01. Periksa status dan saldo di Akun Trading.",
+    "Belum ada akun sumber aktif dengan sisa saldo minimal $0,01. Periksa saldo di Akun Trading dan pengajuan yang menunggu di riwayat WD.",
   ];
   const amount = parseConversionAmount(amountUsd);
   const previewIdr = amount && amount.gt(0) ? formatFxEstimate(amount, "USD", props.latestFx) : null;

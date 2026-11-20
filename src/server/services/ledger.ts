@@ -42,8 +42,8 @@ export interface TransactionFilter {
 }
 
 /** Reversals retain their event date while inheriting the original's reporting type. */
-export async function attributedLedger(userId: string) {
-  const rows = await prisma.accountTransaction.findMany({
+export async function attributedLedger(userId: string, db: Prisma.TransactionClient = prisma) {
+  const rows = await db.accountTransaction.findMany({
     where: { userId }, orderBy: [{ occurredAt: "asc" }, { createdAt: "asc" }],
   });
   const originals = new Map(rows.map((r) => [r.id, r]));
@@ -164,8 +164,8 @@ export interface AccountBalance {
 }
 
 /** Aggregate in the account currency, or in USD across all accounts. */
-export async function computeBalance(userId: string, accountId?: string, upTo?: Date): Promise<AccountBalance> {
-  const rows = await prisma.accountTransaction.findMany({
+export async function computeBalance(userId: string, accountId?: string, upTo?: Date, db: Prisma.TransactionClient = prisma): Promise<AccountBalance> {
+  const rows = await db.accountTransaction.findMany({
     where: {
       userId,
       ...(accountId ? { accountId } : {}),
@@ -180,7 +180,7 @@ export async function computeBalance(userId: string, accountId?: string, upTo?: 
     .filter((r) => r.type === "REVERSAL" && r.reversalOfId)
     .map((r) => r.reversalOfId!);
   const originals = reversalIds.length
-    ? await prisma.accountTransaction.findMany({
+    ? await db.accountTransaction.findMany({
         where: { id: { in: reversalIds } },
         select: { id: true, type: true },
       })

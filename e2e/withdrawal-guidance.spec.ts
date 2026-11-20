@@ -43,7 +43,7 @@ for (const viewport of [
       await rules.getByLabel("Kebutuhan Bulanan (IDR)").fill("100000000");
       await rules.getByRole("button", { name: "Simpan Aturan" }).click();
       await expect(rules).toBeHidden();
-      await expect(page.getByText(/Belum ada akun sumber aktif dengan saldo minimal/)).toBeVisible();
+      await expect(page.getByText(/Belum ada akun sumber aktif dengan sisa saldo minimal/)).toBeVisible();
       await expect(request).toBeDisabled();
 
       await prisma.accountTransaction.createMany({ data: [
@@ -67,7 +67,7 @@ for (const viewport of [
 
       for (const [accountId, amountUsd, reason] of [
         [usd.id, "51", "melebihi rekomendasi"],
-        [cent.id, "5", "Saldo akun sumber tidak mencukupi"],
+        [cent.id, "5", "Saldo yang tersedia di akun sumber tidak mencukupi"],
       ]) {
         const response = await page.request.post("/api/withdrawals", {
           headers: { origin: baseURL! }, data: { accountId, amountUsd },

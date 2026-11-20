@@ -135,6 +135,10 @@ describe("weekly withdrawal and risk reconciliation", () => {
     expect(funded.recommendation.recommended.isZero()).toBe(true);
     expect(funded.recommendation.zeroReasons.join()).toContain("sudah terpenuhi");
     expect(funded.recommendation.zeroReasons.join()).not.toContain("belum disetel");
+
+    db.budget.findFirst.mockResolvedValue({ categories: [] });
+    const emptyBudget = await getRecommendation("owner");
+    expect(emptyBudget.recommendation.zeroReasons.join()).toMatch(/Anggaran aktif.*Isi nominal/);
   });
 
   it("lists only funded active source accounts and converts cent balances to USD", async () => {
@@ -149,9 +153,10 @@ describe("weekly withdrawal and risk reconciliation", () => {
       { accountId: "cent", _sum: { amount: D(499.75) } },
       { accountId: "dust", _sum: { amount: D(0.99) } },
     ]);
+    db.withdrawal.groupBy.mockResolvedValue([{ accountId: "usd", _sum: { amountUSD: D(5) } }]);
 
     const accounts = await listWithdrawalSourceAccounts("owner", "project");
-    expect(accounts.map(({ id, balanceUsd }) => [id, balanceUsd.toString()])).toEqual([["usd", "30"], ["cent", "4.99"]]);
+    expect(accounts.map(({ id, balanceUsd }) => [id, balanceUsd.toString()])).toEqual([["usd", "25"], ["cent", "4.99"]]);
     expect(db.tradingAccount.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "owner", projectId: "project", isActive: true } }));
   });
 

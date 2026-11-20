@@ -54,34 +54,32 @@ export function handleRouteError(e: unknown) {
 
 const MAX_MULTIPART_BYTES = 8 * 1024 * 1024;
 
+/** Enforce a byte limit before a request parser buffers the full body. */
+export function limitRequestBody(req: Request, maxBytes: number, message: string) {
+  if (Number(req.headers.get("content-length")) > maxBytes) throw new ApiError(413, message);
+
+  let received = 0;
+  return req.body?.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      received += chunk.byteLength;
+      if (received > maxBytes) controller.error(new ApiError(413, message));
+      else controller.enqueue(chunk);
+    },
+  })) ?? null;
+}
+
 /** Limit the entire upload, including multipart metadata, before parsing it. */
 export async function parseUploadForm(req: Request): Promise<FormData> {
-  if (Number(req.headers.get("content-length")) > MAX_MULTIPART_BYTES) {
-    throw new ApiError(413, "Ukuran permintaan unggah maksimal 8 MB.");
-  }
   const contentType = req.headers.get("content-type");
   if (!req.body || !contentType?.toLowerCase().startsWith("multipart/form-data;")) {
     throw new ApiError(400, "Unggahan file tidak valid.");
   }
-
-  let received = 0;
-  let tooLarge = false;
-  const body = req.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      received += chunk.byteLength;
-      if (received > MAX_MULTIPART_BYTES) {
-        tooLarge = true;
-        controller.error(new Error("Multipart body exceeds size limit"));
-        return;
-      }
-      controller.enqueue(chunk);
-    },
-  }));
+  const body = limitRequestBody(req, MAX_MULTIPART_BYTES, "Ukuran permintaan unggah maksimal 8 MB.");
 
   try {
     return await new Response(body, { headers: { "content-type": contentType } }).formData();
-  } catch {
-    if (tooLarge) throw new ApiError(413, "Ukuran permintaan unggah maksimal 8 MB.");
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
     throw new ApiError(400, "Unggahan file tidak valid.");
   }
 }
