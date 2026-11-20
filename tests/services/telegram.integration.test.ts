@@ -147,7 +147,7 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     const user = await createUser();
     const chat = 2 ** 40 + randomInt(100_000_000);
     vi.mocked(requireUser).mockResolvedValueOnce(user);
-    expect(await (await getBot()).json()).toEqual({ ok: true, data: { url: "https://t.me/Horizon_QA_bot" } });
+    expect(await (await getBot()).json()).toEqual({ ok: true, data: { url: "https://t.me/Horizon_QA_bot?start=menu" } });
     vi.mocked(requireUser).mockResolvedValueOnce(user);
     const invalid = await createLink(new Request("https://example.test/api/notifications/channels/telegram-link", {
       method: "POST", body: JSON.stringify({ chatId: "@username" }),
@@ -157,10 +157,62 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
     await update(chat, "/id", "group");
     expect(messages).toHaveLength(0);
     await update(chat, "/id");
-    expect(messages).toEqual([{ chat_id: String(chat), text: expect.stringContaining(String(chat)) }]);
+    expect(messages).toMatchObject([{
+      chat_id: String(chat), text: expect.stringContaining(String(chat)),
+      reply_markup: { inline_keyboard: [[{ text: "Menu Utama" }]] },
+    }]);
     expect((await channelConfig(user.id)).telegramChatId).toBeNull();
     await update(chat, await startCommand(user, chat));
     expect((await channelConfig(user.id)).telegramChatId).toBe(String(chat));
+  });
+
+  it("lets private chats discover and navigate the inline menu in local development", async () => {
+    vi.stubEnv("APP_ORIGIN", "http://localhost:3000");
+    const probe = () => new Request("http://localhost:3000/api/integrations/telegram/webhook", {
+      method: "POST",
+      body: JSON.stringify({ check: "inline-menu" }),
+      headers: { "x-telegram-bot-api-secret-token": telegramWebhookSecret()! },
+    });
+    const unauthorizedProbe = probe();
+    unauthorizedProbe.headers.delete("x-telegram-bot-api-secret-token");
+    expect((await webhook(unauthorizedProbe)).status).toBe(401);
+    expect(await (await webhook(probe())).json()).toMatchObject({ data: { inlineMenu: true } });
+
+    const user = await createUser();
+    const chat = randomInt(100_000_000, 2_147_483_646);
+
+    await update(chat, "/start");
+    const welcome = messages.at(-1)!;
+    expect(welcome.text).toContain("Selamat datang di Horizon Journal");
+    expect(welcome.text).toContain("Hubungkan Telegram");
+    const welcomeButtons = welcome.reply_markup!.inline_keyboard.flat();
+    expect(welcomeButtons.map(({ text }) => text)).toEqual(["Lihat Chat ID"]);
+    const chatIdButton = welcomeButtons[0]!.callback_data!;
+    await update(chat, "/start menu");
+    expect(messages.at(-1)?.text).toContain("Selamat datang di Horizon Journal");
+    const messagesBeforeClick = messages.length;
+    await click(chat, "other-sender", chatIdButton, "private", chat + 1);
+    expect(messages).toHaveLength(messagesBeforeClick);
+    await click(chat, "chat-id", chatIdButton);
+    expect(messages.at(-1)?.text).toContain(String(chat));
+    expect(callbackAnswers.at(-1)).toMatchObject({ callback_query_id: "chat-id", show_alert: false });
+
+    const start = await startCommand(user, chat);
+    await update(chat, start);
+    await update(chat, "/start menu");
+    const menu = messages.at(-1)!.reply_markup!.inline_keyboard.flat();
+    expect(menu.map(({ text }) => text)).toEqual(["Ringkasan Trading", "Tugas Hari Ini"]);
+
+    await click(chat, "summary", menu[0]!.callback_data!);
+    expect(messages.at(-1)?.text).toContain("Ringkasan Trading");
+    const summaryButtons = messages.at(-1)!.reply_markup!.inline_keyboard.flat();
+    expect(summaryButtons.map(({ text }) => text)).toEqual(["Menu Utama"]);
+    await click(chat, "back", summaryButtons[0]!.callback_data!);
+    expect(messages.at(-1)?.text).toContain("Pilih menu Horizon Journal");
+
+    await click(chat, "tasks", menu[1]!.callback_data!);
+    expect(messages.at(-1)?.text).toContain("Tugas Hari Ini");
+    expect(messages.at(-1)?.reply_markup?.inline_keyboard.flat().map(({ text }) => text)).toEqual(["Menu Utama"]);
   });
 
   it("sends to the owner once, honors settings, and holds the claim after a timeout", async () => {
@@ -211,8 +263,8 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
       await prisma.user.update({ where: { id: alice.id }, data: { timezone: "Asia/Jakarta" } });
       const chat = randomInt(100_000_000, 2_147_483_644);
       await update(chat, await startCommand(alice, chat));
-      expect(messages.at(-1)?.reply_markup?.inline_keyboard.flat().map(({ text }) => text))
-        .toEqual(["Ringkasan Trading", "Tugas Hari Ini"]);
+      const firstMenu = messages.at(-1)!.reply_markup!.inline_keyboard.flat();
+      expect(firstMenu.map(({ text }) => text)).toEqual(["Ringkasan Trading", "Tugas Hari Ini"]);
       await update(chat + 1, await startCommand(bob, chat + 1));
       await updateChannel(alice.id, { isActive: false, quietStartHour: 0, quietEndHour: 23 });
       const project = await prisma.project.create({ data: { userId: alice.id, name: "Telegram QA", initialCapital: 200 } });
@@ -237,7 +289,7 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
       const expected = await weeklySummary(alice.id, now);
       expect(messages.at(-1)).toMatchObject({
         chat_id: String(chat), text: expect.stringContaining(fmtUSDdelta(expected.realizedPnl)),
-        reply_markup: { inline_keyboard: [[{ url: "https://journal.example.test/dashboard" }]] },
+        reply_markup: { inline_keyboard: [[{ url: "https://journal.example.test/dashboard" }], [{ text: "Menu Utama" }]] },
       });
       await update(chat + 1, "/ringkasan");
       expect(messages.at(-1)?.text).toContain("Belum ada transaksi");
@@ -273,7 +325,11 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("Telegram linking and outbound
 
       vi.setSystemTime(now.getTime() + 16 * 60_000);
       await click(chat, "expired", done!);
-      expect(callbackAnswers.at(-1)).toMatchObject({ callback_query_id: "expired", text: expect.stringContaining("kedaluwarsa"), show_alert: true });
+      expect(callbackAnswers.at(-1)).toMatchObject({ callback_query_id: "expired", text: expect.stringContaining("kedaluwarsa"), show_alert: false });
+      expect(messages.at(-1)?.reply_markup?.inline_keyboard.flat().map(({ text }) => text))
+        .toEqual(["Ringkasan Trading", "Tugas Hari Ini"]);
+      await click(chat, "tasks-from-old-menu", firstMenu[1]!.callback_data!);
+      expect(messages.at(-1)?.text).toContain("Agenda privat Alice · Selesai");
     } finally {
       vi.useRealTimers();
     }

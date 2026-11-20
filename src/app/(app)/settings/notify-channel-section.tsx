@@ -144,14 +144,16 @@ export function NotifyChannelSection({ userId, initial }: { userId: string; init
             <Input id="nc-chat-id" autoComplete="off" inputMode="numeric" required
               aria-describedby="nc-chat-id-hint" value={chatId} onChange={(event) => setChatId(event.target.value)} />
           </Field>
-          <p id="nc-chat-id-hint" className="text-xs text-muted">Di chat pribadi bot, kirim <strong>/id</strong>, lalu masukkan angka yang dikirim bot.</p>
+          <p id="nc-chat-id-hint" className="text-xs text-muted">
+            Di chat pribadi bot, tekan <strong>Start</strong>, lalu pilih <strong>Lihat Chat ID</strong>.
+          </p>
           {verifiedChatId ? <p className="text-xs text-muted">Chat ID aktif {verifiedChatId}</p> : null}
           {!telegramAvailable ? (
             <p className="text-xs text-muted">Bot Telegram belum tersedia.</p>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
               <Button type="button" variant="secondary" onClick={() => openTelegram()} disabled={pending !== null}>
-                {pending === "bot" ? "Membuka bot…" : "Temukan Chat ID"}
+                {pending === "bot" ? "Membuka bot…" : connected ? "Buka Menu Bot" : "Temukan Chat ID"}
               </Button>
               <Button type="submit" variant="secondary" disabled={pending !== null || !canLink}>
                 {pending === "link" ? "Membuat tautan…" : linkExpired && awaitingConfirmation ? "Buat Tautan Baru" : "Hubungkan Telegram"}

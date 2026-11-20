@@ -80,11 +80,11 @@ Isi `TELEGRAM_BOT_TOKEN` pada server. Untuk deployment dengan origin HTTPS publi
 node --env-file=.env scripts/register-telegram-webhook.mjs
 ```
 
-Di **Pengaturan → Notifikasi Telegram**, pilih **Temukan Chat ID**, kirim `/id` di chat pribadi bot, masukkan angka yang diberikan, lalu pilih **Hubungkan Telegram** dan tekan **Start** di chat yang sama. Setelah terhubung, gunakan pesan tes untuk memeriksa pengiriman. Jam tenang mengikuti zona waktu profil.
+Di **Pengaturan → Notifikasi Telegram**, pilih **Temukan Chat ID** untuk membuka chat pribadi bot. Tekan **Start**, lalu pilih **Lihat Chat ID**. Masukkan angka yang diberikan, pilih **Hubungkan Telegram**, dan tekan **Start** pada tautan verifikasi. Setelah terhubung, gunakan pesan tes untuk memeriksa pengiriman. Jam tenang mengikuti zona waktu profil.
 
-Bot menampilkan menu setelah akun terhubung. Gunakan `/menu`, `/ringkasan`, atau `/tugas` untuk melihat ringkasan transaksi mingguan dan agenda hari ini. Tombol **Tandai selesai** menyimpan status tugas di aplikasi. Jalankan ulang skrip pendaftaran webhook setelah memasang versi dengan menu Telegram agar klik tombol diterima.
+Bot menampilkan tombol **Ringkasan Trading** dan **Tugas Hari Ini** setelah akun terhubung. Tekan **Menu Utama** untuk kembali dari ringkasan atau daftar tugas, atau pilih **Buka Menu Bot** di Pengaturan untuk membuka menu kembali di Telegram. Tombol **Tandai selesai** menyimpan status tugas di aplikasi. Jika sebuah tombol lama kedaluwarsa, bot mengirim menu baru. Pastikan webhook menerima `message` dan `callback_query` dengan menjalankan skrip pendaftaran di atas.
 
-Untuk pengujian lokal, jalankan `node --env-file=.env scripts/poll-telegram-local.mjs` bersama aplikasi dengan `APP_ORIGIN` loopback. Gunakan satu poller per bot dan hentikan poller sebelum mendaftarkan webhook HTTPS.
+Untuk pengujian lokal, jalankan aplikasi dengan `APP_ORIGIN` loopback. Di terminal kedua, jalankan `node --env-file=.env scripts/poll-telegram-local.mjs` dan biarkan berjalan selama pengujian. Jika menjalankan beberapa checkout, arahkan `APP_ORIGIN` poller ke port checkout yang ingin diuji. Gunakan satu poller per bot dan hentikan poller sebelum mendaftarkan webhook HTTPS.
 
 ### AI Journal Insights
 

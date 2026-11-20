@@ -6,7 +6,10 @@ import { localDateKey, reviewPeriodLabel } from "@/lib/review-period";
 import { prisma } from "@/server/db";
 import type { Prisma } from "@prisma/client";
 import { weeklySummary } from "./ledger";
-import { answerTelegramCallback, sendTelegramText, telegramCallbackSignature, type TelegramButton } from "./notify-channels";
+import {
+  answerTelegramCallback, pairTelegramChat, sendTelegramText, TELEGRAM_MENU_START,
+  telegramCallbackSignature, type TelegramButton,
+} from "./notify-channels";
 import { completePendingActivity, getTaskDayPage } from "./tasks";
 
 type Destination = { chatId: string; userId: string; timezone: string };
@@ -14,9 +17,11 @@ type CallbackAction = "w" | "t" | "d";
 
 const buttonLifetimeSeconds = 15 * 60;
 const tasksPerMessage = 8;
-const connectMessage = "Hubungkan Telegram dari Pengaturan → Notifikasi Telegram di Horizon Journal. Kirim /id untuk memperoleh Chat ID.";
+const pairingInstructions = "Masukkan Chat ID di Pengaturan → Notifikasi Telegram, lalu pilih Hubungkan Telegram.";
+const connectMessage = "Hubungkan Telegram dari Pengaturan → Notifikasi Telegram di Horizon Journal.";
 const retryMessage = "Permintaan gagal diproses. Coba lagi sebentar.";
-const expiredMessage = "Tombol sudah kedaluwarsa atau tidak tersedia. Buka /menu lagi.";
+const unavailableMessage = "Tombol sudah kedaluwarsa atau tidak tersedia.";
+const mainMenuButton = { text: "Menu Utama", callback_data: "horizon:menu" };
 
 async function linkedDestination(chatId: string): Promise<Destination | null> {
   const config = await prisma.notificationChannel.findUnique({
@@ -53,15 +58,14 @@ function readCallback(destination: Destination, value: string) {
   const resource = match[2]!;
   const expires = match[3]!;
   const signature = match[4]!;
-  if (Number.parseInt(expires, 36) <= Math.floor(Date.now() / 1000)) return null;
   const expected = signCallback(destination, `${action}.${resource}.${expires}`);
   if (!expected || !timingSafeEqual(expected, Buffer.from(signature, "base64url"))) return null;
-  return { action, resource };
+  return { action, resource, expiresAt: Number.parseInt(expires, 36) * 1000 };
 }
 
 function appLink(text: string, path: string): TelegramButton[] {
   const origin = getAppOrigin();
-  return origin ? [{ text, url: new URL(path, origin).href }] : [];
+  return origin?.protocol === "https:" ? [{ text, url: new URL(path, origin).href }] : [];
 }
 
 async function reply(destination: Destination, text: string, buttons: TelegramButton[][] = []) {
@@ -76,9 +80,20 @@ async function reply(destination: Destination, text: string, buttons: TelegramBu
 
 async function showMenu(destination: Destination) {
   await reply(destination, "Pilih menu Horizon Journal.", [
-    [callbackButton(destination, "w", "", "Ringkasan Trading")],
-    [callbackButton(destination, "t", "0", "Tugas Hari Ini")],
+    [{ text: "Ringkasan Trading", callback_data: "horizon:ringkasan" }],
+    [{ text: "Tugas Hari Ini", callback_data: "horizon:tugas" }],
   ]);
+}
+
+async function showWelcome(chatId: string, pairingAttempt: boolean) {
+  const intro = pairingAttempt
+    ? "Tautan penyambungan tidak berlaku. Buat tautan baru dari Pengaturan."
+    : "Selamat datang di Horizon Journal. Hubungkan akun untuk melihat ringkasan trading mingguan dan menyelesaikan tugas harian dari Telegram.";
+  const buttons = [
+    [{ text: "Lihat Chat ID", callback_data: "horizon:id" }],
+    appLink("Buka Pengaturan", "/settings"),
+  ].filter((row) => row.length);
+  await sendTelegramText(chatId, `${intro}\n\nTekan Lihat Chat ID. ${pairingInstructions}`, buttons);
 }
 
 async function showSummary(destination: Destination, now: Date) {
@@ -87,7 +102,8 @@ async function showSummary(destination: Destination, now: Date) {
   const result = summary.tradesCount || !summary.realizedPnl.isZero()
     ? `P&L terealisasi ${fmtUSDdelta(summary.realizedPnl)}\nJumlah transaksi ${fmtNum(summary.tradesCount, 0)}`
     : "Belum ada transaksi yang terealisasi minggu ini.";
-  await reply(destination, `Ringkasan Trading\n${period}\n\n${result}`, [appLink("Buka Dasbor", "/dashboard")].filter((row) => row.length));
+  const buttons = [appLink("Buka Dasbor", "/dashboard"), [mainMenuButton]].filter((row) => row.length);
+  await reply(destination, `Ringkasan Trading\n${period}\n\n${result}`, buttons);
 }
 
 const taskStatus = { PENDING: "Menunggu", COMPLETED: "Selesai", NOT_COMPLETED: "Tidak selesai" } as const;
@@ -108,24 +124,38 @@ async function showTasks(destination: Destination, now: Date, page = 0) {
   if (pagination.length) buttons.push(pagination);
   const open = appLink("Buka Tugas di Web", `/tasks?date=${date}`);
   if (open.length) buttons.push(open);
+  buttons.push([mainMenuButton]);
 
   const header = `Tugas Hari Ini\n${fmtCalendarDateID(date)}${totalPages > 1 ? ` · Halaman ${currentPage + 1}/${totalPages}` : ""}`;
   await reply(destination, `${header}\n\n${rows.length ? rows.join("\n") : "Belum ada tugas hari ini."}`, buttons);
 }
 
-export async function handleTelegramMenuCommand(chatId: string, command: string) {
-  const now = new Date();
+async function showScreen(chatId: string, command: string, pairingAttempt = false) {
+  if (command === "id") {
+    await sendTelegramText(chatId, `Chat ID Telegram Anda: ${chatId}\n\n${pairingInstructions}`, [[mainMenuButton]]);
+    return;
+  }
+  const destination = await linkedDestination(chatId);
+  if (!destination) {
+    await showWelcome(chatId, pairingAttempt);
+  } else if (command === "ringkasan") {
+    await showSummary(destination, new Date());
+  } else if (command === "tugas") {
+    await showTasks(destination, new Date());
+  } else {
+    await showMenu(destination);
+  }
+}
+
+export async function handleTelegramMessage(chatId: string, text: string) {
+  const match = /^\/(start|id|menu|ringkasan|tugas)(?:@[a-z0-9_]+)?(?:\s+(\S+))?$/i.exec(text.trim());
+  const command = match?.[1]?.toLowerCase();
+  const payload = match?.[2];
+  if (!command || (payload && command !== "start")) return;
+  if (payload && /^[A-Za-z0-9_-]{43}$/.test(payload)) await pairTelegramChat(chatId, payload);
+
   try {
-    const destination = await linkedDestination(chatId);
-    if (!destination) {
-      await sendTelegramText(chatId, connectMessage);
-    } else if (command === "ringkasan") {
-      await showSummary(destination, now);
-    } else if (command === "tugas") {
-      await showTasks(destination, now);
-    } else {
-      await showMenu(destination);
-    }
+    await showScreen(chatId, command, Boolean(payload && payload !== TELEGRAM_MENU_START));
   } catch {
     await sendTelegramText(chatId, retryMessage);
   }
@@ -135,10 +165,24 @@ export async function handleTelegramMenuCallback(chatId: string, id: string, dat
   const now = new Date();
   let acknowledged = false;
   try {
+    const command = /^horizon:(id|menu|ringkasan|tugas)$/.exec(data)?.[1];
+    if (command) {
+      await answerTelegramCallback(id);
+      acknowledged = true;
+      await showScreen(chatId, command);
+      return;
+    }
+
     const destination = await linkedDestination(chatId);
     if (!destination) return await answerTelegramCallback(id, connectMessage, true);
     const callback = readCallback(destination, data);
-    if (!callback) return await answerTelegramCallback(id, expiredMessage, true);
+    if (!callback) return await answerTelegramCallback(id, unavailableMessage, true);
+    if (callback.expiresAt <= now.getTime()) {
+      await answerTelegramCallback(id, "Tombol sudah kedaluwarsa. Pilih dari menu baru di chat.");
+      acknowledged = true;
+      await showMenu(destination);
+      return;
+    }
 
     if (callback.action === "d") {
       const date = localDateKey(now, destination.timezone);
@@ -147,7 +191,7 @@ export async function handleTelegramMenuCallback(chatId: string, id: string, dat
           ? completePendingActivity(destination.userId, callback.resource, date, tx) : "not-available";
       });
       const label = outcome === "completed" ? "Tugas ditandai selesai."
-        : outcome === "already-completed" ? "Tugas sudah selesai." : expiredMessage;
+        : outcome === "already-completed" ? "Tugas sudah selesai." : unavailableMessage;
       await answerTelegramCallback(id, label, outcome === "not-available");
       acknowledged = true;
       if (outcome === "completed") await showTasks(destination, now);
