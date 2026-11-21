@@ -8,6 +8,27 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+### Added
+
+- Generate an Indonesian AI analysis from the latest closed trades. Save reports to a private history and download current or saved reports as PDFs.
+- Preview rupiah equivalents under USD inputs using the JISDOR exchange rate. Set trades per day to update the simulator duration and chart, and save the frequency with the scenario.
+- Expand the daily review's trade list to see close times and net P&L while retaining unsaved notes.
+- Open trading account setup from the New Trade form.
+
+### Fixed
+
+- Make Journal history and statistics use the same filters across pages. Include realized partial trades in the performance sample.
+- Show elapsed time and clearer provider quota errors during AI analysis. Validate report text before saving and load bundled fonts for PDF export.
+- Read daily review trades and P&L from the same database snapshot.
+
+### Security
+
+- Verify the report owner and signed contents before saving or exporting an AI analysis. Keep trade details in the review snapshot and record aggregates in its audit event.
+
+### Database
+
+- Apply migration `20261121100000_saved_ai_journal_analysis` to enable private report history.
+
 ## [1.4.7] — 2026-11-20
 
 ### Added
