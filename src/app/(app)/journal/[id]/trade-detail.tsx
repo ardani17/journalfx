@@ -13,7 +13,9 @@ import { Table, TableWrap, TBody, TD, THead, TH, TR, EmptyRow } from "@/componen
 import { D, fmtDecimal, fmtNum, fmtTradingDelta, fmtTradingMoney, fmtUSD } from "@/lib/money";
 import { fmtDateTimeID } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import { attachmentKindLabel, executionKindLabel, tradeDirectionLabel, tradingSessionLabel } from "@/lib/trading-labels";
+import {
+  attachmentKindLabel, executionKindLabel, journalEmotionLabel, journalMistakeLabel, tradeDirectionLabel, tradingSessionLabel,
+} from "@/lib/trading-labels";
 
 interface Exec {
   id: string;
@@ -77,19 +79,6 @@ export interface TradeDTO {
   attachments: { id: string; kind: AttachmentKind; fileName: string; createdAt: string }[];
 }
 
-const MISTAKE_LABELS = {
-  "Entry dini": "Masuk terlalu cepat",
-  "Terlambat entry": "Masuk terlambat",
-  "SL digeser": "SL digeser",
-  "Tanpa SL": "Tanpa SL",
-  Overlot: "Ukuran lot berlebihan",
-  "Cut profit dini": "Ambil laba terlalu cepat",
-  "Hold terlalu lama": "Menahan posisi terlalu lama",
-  "Balas dendam": "Balas dendam",
-  FOMO: "FOMO",
-  Impulsif: "Impulsif",
-};
-
 const POST_CHECK_LABELS = {
   "Sesuai plan": "Sesuai rencana",
   "SL disiplin": "Disiplin mengikuti SL",
@@ -97,10 +86,6 @@ const POST_CHECK_LABELS = {
   "Eksekusi sesuai checklist": "Eksekusi sesuai daftar periksa",
 };
 
-const emotionLabels: Record<string, string> = {
-  calm: "Tenang", anxious: "Cemas", excited: "Bersemangat", fomo: "Takut tertinggal (FOMO)",
-  angry: "Marah", bored: "Bosan", satisfied: "Puas", regret: "Menyesal", frustrated: "Frustrasi",
-};
 const emotionsWhileTrading = ["calm", "anxious", "excited", "fomo", "angry", "bored"];
 const emotionsAfterTrading = ["calm", "anxious", "excited", "satisfied", "regret", "frustrated"];
 
@@ -109,7 +94,7 @@ function EmotionOptions({ options, value }: { options: string[]; value?: string 
   return (
     <>
       <option value="">Belum dicatat</option>
-      {available.map((key) => <option key={key} value={key}>{Object.hasOwn(emotionLabels, key) ? emotionLabels[key] : "Pilihan tersimpan"}</option>)}
+      {available.map((key) => <option key={key} value={key}>{Object.hasOwn(journalEmotionLabel, key) ? journalEmotionLabel[key] : "Pilihan tersimpan"}</option>)}
     </>
   );
 }
@@ -222,7 +207,7 @@ function useTradeActions(trade: TradeDTO, openQty: ReturnType<typeof D>) {
     const compliance = fd.get("compliant");
     const post = { ...trade.journal?.postChecklist };
     for (const key of Object.keys(POST_CHECK_LABELS)) post[key] = fd.get(`post_${key}`) === "on";
-    const savedMistakes = trade.journal?.mistakes.filter((key) => !Object.hasOwn(MISTAKE_LABELS, key)) ?? [];
+    const savedMistakes = trade.journal?.mistakes.filter((key) => !Object.hasOwn(journalMistakeLabel, key)) ?? [];
     const payload: Record<string, unknown> = {
       marketContext: fd.get("marketContext") || null,
       entryReason: fd.get("entryReason") || null,
@@ -236,7 +221,7 @@ function useTradeActions(trade: TradeDTO, openQty: ReturnType<typeof D>) {
       revenge: fd.get("revenge") === "on",
       overtrading: fd.get("overtrading") === "on",
       compliant: compliance ? compliance === "true" : null,
-      mistakes: [...savedMistakes, ...Object.keys(MISTAKE_LABELS).filter((key) => fd.get(`mistake_${key}`) === "on")],
+      mistakes: [...savedMistakes, ...Object.keys(journalMistakeLabel).filter((key) => fd.get(`mistake_${key}`) === "on")],
       lessons: fd.get("lessons") || null,
       improvement: fd.get("improvement") || null,
       tags: String(fd.get("tags") ?? "")
@@ -488,7 +473,7 @@ function JournalForm({ journal: j, loading, saveJournal }: {
           <div>
             <p className="mb-1.5 text-xs font-medium text-muted">Kesalahan</p>
             <div className="flex flex-wrap gap-1.5">
-              {Object.entries(MISTAKE_LABELS).map(([m, label]) => (
+              {Object.entries(journalMistakeLabel).map(([m, label]) => (
                 <label key={m} className={cn(
                   "flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px]",
                   j?.mistakes?.includes(m) ? "border-loss/50 bg-loss/10 text-loss" : "border-line text-muted hover:border-line",

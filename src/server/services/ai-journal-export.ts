@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { MIN_AI_JOURNAL_TRADES, type AiJournalCoverage, type AiJournalMetrics, type AiJournalScope } from "@/lib/ai-journal";
 import { DEFAULT_TZ, isValidTimezone } from "@/lib/dates";
 import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
-import { tradingSessionLabel } from "@/lib/trading-labels";
+import { journalEmotionLabel, journalMistakeLabel, tradingSessionLabel } from "@/lib/trading-labels";
 import { prisma } from "@/server/db";
 
 const MAX_EXPORT_BYTES = 24 * 1024;
@@ -26,6 +26,7 @@ type Trade = TradeRow & { ref: string; accountRef: string; instrumentRef: string
 type Example = {
   tradeRef: string;
   account: string;
+  accountCurrency: "USD" | "USC";
   instrument: string;
   entryAt: string;
   exitAt: string | null;
@@ -35,6 +36,7 @@ type Example = {
 };
 type Pattern = {
   id: string;
+  label: string;
   kind: "recorded" | "indicator";
   trades: number;
   netPnlUsd: string;
@@ -236,20 +238,22 @@ const journalSignals = {
     select: (trade: Trade) => Boolean(trade.journal?.mistakes.some((mistake) => mistake.trim())) },
 };
 
-function buildEvidence(trades: Trade[], metrics: AiJournalMetrics, labels: Map<string, string>, tradesByExample: Map<Example, string>) {
+function buildEvidence(trades: Trade[], metrics: AiJournalMetrics, tradesByExample: Map<Example, string>) {
   const evidence: Pattern[] = [];
   function add(id: string, label: string, kind: Pattern["kind"], candidates: Candidate[]) {
     if (!candidates.length) return;
-    labels.set(id, label);
     const net = candidates.reduce((sum, { trade }) => sum.plus(trade.pnl), D(0));
     const examples = candidates.slice().sort((a, b) => a.trade.entryAt.getTime() - b.trade.entryAt.getTime() ||
       a.trade.id.localeCompare(b.trade.id)).slice(-MAX_EXAMPLES).map(({ trade, details }) => {
-      const example = { tradeRef: trade.ref, account: trade.accountRef, instrument: trade.instrumentRef,
-        entryAt: trade.entryAt.toISOString(), exitAt: trade.exitAt?.toISOString() ?? null, pnlUsd: trade.pnl.toString(), details };
+      const example: Example = {
+        tradeRef: trade.ref, account: trade.accountRef, accountCurrency: trade.account.currency === "USC" ? "USC" : "USD",
+        instrument: trade.instrumentRef, entryAt: trade.entryAt.toISOString(),
+        exitAt: trade.exitAt?.toISOString() ?? null, pnlUsd: trade.pnl.toString(), details,
+      };
       tradesByExample.set(example, trade.id);
       return example;
     });
-    evidence.push({ id, kind, trades: candidates.length, netPnlUsd: net.toString(),
+    evidence.push({ id, label, kind, trades: candidates.length, netPnlUsd: net.toString(),
       netPnlWithoutTheseTradesUsd: D(metrics.netPnlUsd).minus(net).toString(), examples });
   }
   const { revenge, riskIncreases } = timingEvidence(trades);
@@ -259,6 +263,17 @@ function buildEvidence(trades: Trade[], metrics: AiJournalMetrics, labels: Map<s
   add("exit-below-target", "Exit profit sebelum level TP tercatat", "indicator", exitsBeforeTarget(trades));
   for (const [id, { label, select }] of Object.entries(journalSignals)) {
     add(id, label, "recorded", trades.filter(select).map((trade) => ({ trade })));
+  }
+  for (const [emotion, label] of Object.entries(journalEmotionLabel)) {
+    if (emotion === "fomo") continue;
+    const recorded = trades.filter(({ journal }) => journal &&
+      [journal.emotionBefore, journal.emotionDuring, journal.emotionAfter].includes(emotion));
+    add("emotion-" + emotion, "Emosi tercatat: " + label, "recorded", recorded.map((trade) => ({ trade })));
+  }
+  for (const [tag, label] of Object.entries(journalMistakeLabel)) {
+    const id = "mistake-" + tag.toLowerCase().replaceAll(" ", "-");
+    const recorded = trades.filter(({ journal }) => journal?.mistakes.includes(tag));
+    add(id, "Kesalahan tercatat: " + label, "recorded", recorded.map((trade) => ({ trade })));
   }
   return evidence;
 }
@@ -334,7 +349,7 @@ export async function loadAiJournalExport(userId: string, userTimezone: string) 
     };
     for (const key of BREAKDOWNS) coverage.breakdownGroupsOmitted += ranked[key].length - breakdowns[key].length;
     const tradesByExample = new Map<Example, string>();
-    const evidence = buildEvidence(trades, metrics, labels, tradesByExample);
+    const evidence = buildEvidence(trades, metrics, tradesByExample);
     for (const pattern of evidence) coverage.examplesOmitted += pattern.trades - pattern.examples.length;
     const exitExamples = evidence.find(({ id }) => id === "exit-below-target")?.examples ?? [];
     for (const example of exitExamples) {

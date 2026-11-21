@@ -3,6 +3,7 @@ import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
 import { AI_JOURNAL_PROVIDER_TIMEOUT_MS, type AiJournalAnalysis, type AiJournalFinding } from "@/lib/ai-journal";
 import { fmtNum, fmtUSD } from "@/lib/money";
+import { isPersistableReportText } from "@/lib/validation/ai-journal-snapshot";
 import type { AiJournalExport } from "./ai-journal-export";
 import { AI_JOURNAL_PROMPT } from "./ai-journal-prompt";
 
@@ -53,11 +54,11 @@ export function aiJournalConfig(env = process.env) {
 }
 
 const findingSchema = z.strictObject({
-  text: z.string().trim().min(1).max(800),
+  text: z.string().trim().min(1).max(800).refine(isPersistableReportText),
   evidenceIds: z.array(z.string().min(1).max(60)).min(1).max(4),
 });
 const resultSchema = z.strictObject({
-  summary: z.string().trim().min(1).max(1500),
+  summary: z.string().trim().min(1).max(1500).refine(isPersistableReportText),
   strengths: z.array(findingSchema).max(3),
   mistakes: z.array(findingSchema).max(3),
   actionPlan: z.array(findingSchema).max(3),
@@ -154,7 +155,7 @@ export async function generateAiJournal(
       references.set(group.id, evidenceText(labels.get(group.id) ?? group.id, group));
     }
     for (const pattern of payload.evidence) {
-      references.set(pattern.id, (labels.get(pattern.id) ?? pattern.id) + " · " + pattern.trades +
+      references.set(pattern.id, pattern.label + " · " + pattern.trades +
         " trade · P/L " + fmtUSD(pattern.netPnlUsd) + " · simulasi P/L tanpa trade tersebut " +
         fmtUSD(pattern.netPnlWithoutTheseTradesUsd));
     }

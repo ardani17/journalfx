@@ -100,9 +100,10 @@ describe("AI journal report endpoint", () => {
   it("isolates the caller, normalizes USC and keeps private labels and notes out of the export", async () => {
     const allTrades = [
       trade("25", { initialStopLoss: null, actualR: "2", strategy: { id: "strategy-id-private", name: "Private strategy name" },
-        journal: { compliant: false, mistakes: ["private mistake tag"], exitReason: "Private note" },
+        journal: { compliant: false, mistakes: ["private mistake tag", "SL digeser"], emotionBefore: "anxious",
+          emotionDuring: "private emotion", exitReason: "Private note" },
         entryAt: new Date("2026-01-01T20:00Z"), exitAt: new Date("2026-01-01T21:00Z") }),
-      trade("-500", { account: { currency: "USC" }, actualR: "-1" }),
+      trade("-500", { accountId: "private-cent-account-id", account: { currency: "USC" }, actualR: "-1", initialStopLoss: null }),
       trade("0"),
       trade("1000", { status: "PARTIAL" }), trade(null),
       trade("5000", { userId: "someone-else" }),
@@ -119,12 +120,19 @@ describe("AI journal report endpoint", () => {
     expect(report.metrics).toMatchObject({ closedTrades: 3, wins: 1, losses: 1, breakEven: 1,
       netPnlUsd: "20", profitFactor: 5, avgWinUsd: "25.0000", avgLossUsd: "5.0000",
       realizedRiskReward: 5, avgR: 0.5, winRate: 33.33, closedTradeDrawdownUsd: "5" });
-    expect(report.coverage).toMatchObject({ withJournal: 1, withJournalDiscipline: 1, withRecordedStop: 2, withRecordedTarget: 0,
+    expect(report.coverage).toMatchObject({ withJournal: 1, withJournalDiscipline: 1, withRecordedStop: 1, withRecordedTarget: 0,
       withActualR: 2, withExitReason: 1 });
     expect(report.strengths[0].evidence[0]).toContain("Private strategy name · 1 trade · P/L $25,00");
     expect(payload().breakdowns.day.map(({ id }: { id: string }) => id)).toContain("day-2026-01-02");
-    for (const excluded of ["private-user-id", "Private Name", "private@example.test", "Private note", "private mistake tag",
-      "private-test-key", "strategy-id-private", "Private strategy name", "PRIVATE-SYMBOL", "instrument-private-id", "private-account-id"]) {
+    expect(payload().evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "emotion-anxious", label: "Emosi tercatat: Cemas", trades: 1 }),
+      expect.objectContaining({ id: "mistake-sl-digeser", label: "Kesalahan tercatat: SL digeser", trades: 1 }),
+      expect.objectContaining({ id: "missing-stop", examples: expect.arrayContaining([
+        expect.objectContaining({ account: "account-2", accountCurrency: "USC", pnlUsd: "-5" }),
+      ]) }),
+    ]));
+    for (const excluded of ["private emotion", "private-user-id", "Private Name", "private@example.test", "Private note", "private mistake tag",
+      "private-test-key", "strategy-id-private", "Private strategy name", "PRIVATE-SYMBOL", "instrument-private-id", "private-account-id", "private-cent-account-id"]) {
       expect(sent(0)[1].content).not.toContain(excluded);
     }
   });
@@ -244,6 +252,20 @@ describe("AI journal report endpoint", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).toEqual({ ok: false, error: message });
+  });
+
+  it("rejects report text that cannot be stored while keeping valid Unicode", async () => {
+    const { provider } = captureProvider();
+    provider.mockImplementationOnce(async () => providerResponse({ summary: summary + String.fromCharCode(0) }))
+      .mockImplementationOnce(async () => providerResponse({
+        actionPlan: [{ ...finding, text: finding.text + String.fromCharCode(0xd800) }],
+      }))
+      .mockImplementationOnce(async () => providerResponse({ summary: summary + " 📈" }));
+    expect((await request()).status).toBe(502);
+    expect((await request()).status).toBe(502);
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect((await response.json()).data.summary).toBe(summary + " 📈");
   });
 
   it("rejects unknown references, malformed reports and oversized responses, and distinguishes provider failures", async () => {

@@ -30,7 +30,7 @@ export interface CoreMetrics {
   maxWinStreak: number;
   maxLossStreak: number;
   avgHoldMinutes: number | null;
-  sampleWarning: boolean; // closedTrades < 30
+  sampleWarning: boolean; // Fewer than 30 trades contribute to the performance statistics.
   dailyTradeBreakdown?: DailyTradeBreakdown;
 }
 
@@ -89,7 +89,9 @@ export async function coreMetrics(
     ? await prisma.$transaction([tradesQuery, ledgerQuery], { isolationLevel: "RepeatableRead" })
     : await Promise.all([tradesQuery, ledgerQuery]);
 
-  const closed = trades.filter((t) => t.status === "CLOSED" && t.realizedPnl !== null);
+  const realized = trades.filter((trade) => trade.realizedPnl !== null);
+  const closed = realized.filter((trade) => trade.status === "CLOSED");
+  const measured = journal ? realized : closed;
   let wins = 0;
   let losses = 0;
   let be = 0;
@@ -106,7 +108,7 @@ export async function coreMetrics(
   let maxWin = 0;
   let maxLoss = 0;
 
-  for (const t of closed) {
+  for (const t of measured) {
     const pnl = filter?.accountId ? D(t.realizedPnl) : tradingAmountToUsd(t.realizedPnl, t.account.currency);
     if (pnl.gt(0)) {
       wins++;
@@ -137,9 +139,11 @@ export async function coreMetrics(
     }
   }
 
-  const n = closed.length;
-  const journalTradeIds = journal ? new Set(trades.map((trade) => trade.id)) : null;
-  const hasTradeSpecificFilter = journal?.status || journal?.result || journal?.strategyId;
+  const n = measured.length;
+  const hasTradeSpecificFilter = journal?.status || journal?.result || journal?.strategyId || journal?.q;
+  const journalTradeIds = hasTradeSpecificFilter || journal?.from || journal?.to
+    ? new Set(trades.map((trade) => trade.id))
+    : null;
   const periodLedger = normalizeRealizedTradingRows(ledger).filter((r) => {
     if (!journalTradeIds) return true;
     if (r.sourceTradeId) return journalTradeIds.has(r.sourceTradeId);
@@ -187,7 +191,7 @@ export async function coreMetrics(
   } satisfies DailyTradeBreakdown : undefined;
   return {
     totalTrades: journal ? trades.length : n,
-    closedTrades: n,
+    closedTrades: closed.length,
     wins,
     losses,
     breakEven: be,

@@ -128,7 +128,7 @@ test("applies entry dates to filtered rows, pagination, and KPIs", async ({ page
   await to.fill("2026-11-04");
   await page.getByRole("button", { name: "Terapkan" }).click();
   await expectResults(page, "1–1 dari 1", 1);
-  await expect(page.getByText("Sampel kecil (1 < 30 transaksi)", { exact: false })).toBeVisible();
+  await expect(page.getByText("Sampel kecil (1 < 30 trade dengan P&L tercatat)", { exact: false })).toBeVisible();
   await expect(page.getByText("+$10,00", { exact: true })).toBeVisible();
   await expect(page.getByRole("table").getByRole("link")).toHaveAttribute("href", `/journal/${journal.userId}-200`);
   expect(new URL(page.url()).searchParams.get("page")).toBe("1");

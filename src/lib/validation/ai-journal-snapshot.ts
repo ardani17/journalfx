@@ -4,8 +4,12 @@ import { isValidTimezone } from "@/lib/dates";
 
 const count = z.int().nonnegative();
 const money = z.string().max(100).regex(/^-?\d+(\.\d+)?(e[+-]?\d+)?$/i);
+export function isPersistableReportText(value: string) {
+  return value.isWellFormed() && !value.includes("\0");
+}
+
 const finding = z.strictObject({
-  text: z.string().min(1).max(800),
+  text: z.string().min(1).max(800).refine(isPersistableReportText),
   evidence: z.array(z.string().min(1).max(2400)).min(1).max(4),
 });
 
@@ -47,7 +51,7 @@ export const aiJournalSnapshotV1 = z.strictObject({
     closedTradeDrawdownUsd: money.nullable(),
   }),
   analyzedAt: z.iso.datetime(),
-  summary: z.string().min(1).max(1500),
+  summary: z.string().min(1).max(1500).refine(isPersistableReportText),
   strengths: z.array(finding).max(3),
   mistakes: z.array(finding).max(3),
   actionPlan: z.array(finding).max(3),

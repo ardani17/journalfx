@@ -144,6 +144,28 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     expect((await getOrCreateReview(owner.userId, "DAILY", { reviewId: closed.id })).snapshot).toEqual(closed.snapshot);
   });
 
+  it("includes realized partial trades in filtered journal statistics and retains legacy ledger P&L", async () => {
+    const { userId, accountId } = await fixture();
+    const occurredAt = new Date("2026-11-02T04:00:00Z");
+    const partial = await prisma.trade.create({ data: {
+      userId, accountId, instrumentId, lot: 0.1, entryPrice: 2000, entryAt: occurredAt,
+      direction: "LONG", status: "PARTIAL", realizedPnl: 12, actualR: 0.5,
+    } });
+    const row = { userId, accountId, occurredAt };
+    await prisma.accountTransaction.createMany({ data: [
+      { ...row, type: "REALIZED_PNL", amount: 12, sourceTradeId: partial.id },
+      { ...row, type: "REALIZED_PNL", amount: 3 },
+      { ...row, type: "FEE", amount: -1 },
+    ] });
+
+    const filtered = await coreMetrics(userId, { accountId, journal: { accountId, result: "win" } });
+    expect(filtered).toMatchObject({ totalTrades: 1, closedTrades: 0, wins: 1, winRate: 100, avgR: 0.5 });
+    expect(filtered.netPnl.toString()).toBe("12");
+    const accountJournal = await coreMetrics(userId, { accountId, journal: { accountId } });
+    expect(accountJournal.netPnl.toString()).toBe("14");
+    expect((await coreMetrics(userId, { accountId })).winRate).toBeNull();
+  });
+
   it("provisions one empty private journal per Google subject even with concurrent sign-ins or shared email text", async () => {
     const identity = { subject: `google-${randomUUID()}`, name: "OAuth Tester", email: "same@example.com" };
     const owners = await Promise.all([findOrCreateGoogleUser(identity), findOrCreateGoogleUser(identity)]);

@@ -104,7 +104,7 @@ export function InsightsPanel({
           <p className="text-xs text-muted">Analisis AI membutuhkan minimal {MIN_AI_JOURNAL_TRADES} trade tertutup dengan P/L tercatat.</p>
         ) : null}
         {canGenerate ? (
-          <p className="text-xs text-muted">Setiap permintaan mengirim statistik, pengaturan risiko, dan contoh transaksi berkode anonim ke penyedia AI.</p>
+          <p className="text-xs text-muted">Setiap permintaan mengirim statistik, pengaturan risiko, indikator jurnal, dan contoh transaksi berkode anonim ke penyedia AI.</p>
         ) : null}
         {startedAt !== null ? <AnalysisProgress startedAt={startedAt} /> : null}
         {error ? <p role="alert" className="text-xs text-loss">{error}</p> : null}
