@@ -56,6 +56,7 @@ describe("AI journal report endpoint", () => {
     vi.stubEnv("AI_BASE_URL", "https://provider.example/v1/");
     vi.stubEnv("AI_API_KEY", "private-test-key");
     vi.stubEnv("AI_MODEL", "test-model");
+    vi.stubEnv("AUTH_SECRET", "local-testing-secret-for-ai-journal-receipts");
     vi.mocked(requireUser).mockResolvedValue({ id: "private-user-id", email: "private@example.test",
       name: "Private Name", timezone: "Asia/Jakarta", locale: "id" });
     db.trade.count.mockResolvedValue(3);

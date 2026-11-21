@@ -12,6 +12,11 @@ export function fail(status: number, error: string, details?: unknown) {
   return NextResponse.json({ ok: false as const, error, details }, { status });
 }
 
+export function privateNoStore(response: Response) {
+  response.headers.set("Cache-Control", "private, no-store");
+  return response;
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,

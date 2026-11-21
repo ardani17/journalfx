@@ -1,6 +1,7 @@
 export const MIN_AI_JOURNAL_TRADES = 3;
 export const AI_JOURNAL_SMALL_SAMPLE = 30;
 export const AI_JOURNAL_PROVIDER_TIMEOUT_MS = 5 * 60_000;
+export const AI_JOURNAL_HISTORY_PATH = "/analytics/analisis-tersimpan";
 
 export interface AiJournalScope {
   capturedAt: string;
@@ -55,4 +56,9 @@ export interface AiJournalAnalysis {
   strengths: AiJournalFinding[];
   mistakes: AiJournalFinding[];
   actionPlan: AiJournalFinding[];
+}
+
+export interface GeneratedAiJournalAnalysis extends AiJournalAnalysis {
+  reportId: string;
+  receipt: string;
 }

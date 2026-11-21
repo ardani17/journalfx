@@ -1,10 +1,13 @@
 "use client";
 
 import { Brain, CheckCircle2, AlertTriangle, Info } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AI_JOURNAL_PROVIDER_TIMEOUT_MS, MIN_AI_JOURNAL_TRADES, type AiJournalAnalysis } from "@/lib/ai-journal";
+import { AI_JOURNAL_HISTORY_PATH, AI_JOURNAL_PROVIDER_TIMEOUT_MS, MIN_AI_JOURNAL_TRADES, type GeneratedAiJournalAnalysis } from "@/lib/ai-journal";
+import type { AiJournalPdfInput } from "@/lib/validation/ai-journal-snapshot";
+import { AnalysisActions } from "./ai-analysis-actions";
 import { AnalysisReport } from "./ai-analysis-report";
 
 export interface InsightDTO {
@@ -51,7 +54,7 @@ export function InsightsPanel({
   closedTrades: number;
   aiAvailable: boolean;
 }) {
-  const [analysis, setAnalysis] = useState<AiJournalAnalysis | null>(null);
+  const [report, setReport] = useState<Extract<AiJournalPdfInput, { source: "current" }> | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [error, setError] = useState("");
   const pending = startedAt !== null;
@@ -68,7 +71,8 @@ export function InsightsPanel({
         setError(result.error ?? "Analisis AI gagal dibuat. Silakan coba lagi.");
         return;
       }
-      setAnalysis(result.data);
+      const { reportId, receipt, ...analysis } = result.data as GeneratedAiJournalAnalysis;
+      setReport({ source: "current", reportId, receipt, analysis });
     } catch {
       setError("Analisis AI gagal dibuat. Silakan coba lagi.");
     } finally {
@@ -87,9 +91,14 @@ export function InsightsPanel({
         <p className="text-xs leading-relaxed text-muted">
           Seluruh riwayat trade tertutup · {closedTrades} trade dengan P/L tercatat
         </p>
-        <Button type="button" variant="secondary" size="sm" disabled={!canGenerate || pending} onClick={generate}>
-          {pending ? "Membuat analisis AI…" : error ? "Coba lagi" : "Buat analisis AI"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="button" variant="secondary" size="sm" disabled={!canGenerate || pending} onClick={generate}>
+            {pending ? "Membuat analisis AI…" : error ? "Coba lagi" : "Buat analisis AI"}
+          </Button>
+          <Link href={AI_JOURNAL_HISTORY_PATH} className="text-xs font-medium text-primary hover:underline">
+            Riwayat analisis
+          </Link>
+        </div>
         {!aiAvailable ? <p className="text-xs text-muted">Penyedia AI belum dikonfigurasi.</p> : null}
         {!enoughTrades ? (
           <p className="text-xs text-muted">Analisis AI membutuhkan minimal {MIN_AI_JOURNAL_TRADES} trade tertutup dengan P/L tercatat.</p>
@@ -99,7 +108,12 @@ export function InsightsPanel({
         ) : null}
         {startedAt !== null ? <AnalysisProgress startedAt={startedAt} /> : null}
         {error ? <p role="alert" className="text-xs text-loss">{error}</p> : null}
-        {analysis ? <AnalysisReport analysis={analysis} previous={pending || Boolean(error)} /> : null}
+        {report?.analysis ? (
+          <>
+            <AnalysisActions key={report.reportId} input={report} />
+            <AnalysisReport analysis={report.analysis} previous={pending || Boolean(error)} />
+          </>
+        ) : null}
         <h3 className="text-sm font-semibold">Insight berbasis aturan</h3>
         <p className="text-xs text-muted">{coverage.withJournal}/{coverage.total} trade memiliki jurnal terisi · {coverage.complete} lengkap</p>
         {insights.length === 0 ? (

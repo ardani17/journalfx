@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
@@ -14,6 +15,7 @@ const fixtureIds: string[] = [];
 let mockProvider: Server | undefined;
 let providerGate: ReturnType<typeof Promise.withResolvers<void>> | undefined;
 let failProvider = false;
+let longReport = false;
 const seenExports: { metrics: { netPnlUsd: string }; coverage: { withJournal: number } }[] = [];
 
 test.beforeAll(async () => {
@@ -35,12 +37,23 @@ test.beforeAll(async () => {
       const sessions: { id: string; netPnlUsd: string }[] = data.breakdowns.session;
       const winner = sessions.find(({ netPnlUsd }) => Number(netPnlUsd) > 0);
       const loser = sessions.find(({ netPnlUsd }) => Number(netPnlUsd) < 0);
-      const content = JSON.stringify({
+      const standard = {
         summary: "Evaluasi seluruh trade tertutup.",
         strengths: winner ? [{ text: "Pertahankan eksekusi yang konsisten pada kelompok dengan hasil positif.", evidenceIds: [winner.id] }] : [],
         mistakes: loser ? [{ text: "Tinjau ada tidaknya pola kesalahan dalam kelompok ini.", evidenceIds: [loser.id] }] : [],
         actionPlan: [{ text: "Tinjau alasan entry dan exit selama sesi berikutnya.", evidenceIds: ["overview"] }],
-      });
+      };
+      const paragraph = "Tinjau keputusan masuk dan keluar berdasarkan bukti, lalu bandingkan disiplin risiko pada setiap sesi. ";
+      const longer = (section: string, evidenceId: string) => Array.from({ length: 3 }, (_, index) => ({
+        text: section + " " + (index + 1) + ". " + paragraph.repeat(6) + "Selesai meninjau bukti.",
+        evidenceIds: [evidenceId],
+      }));
+      const content = JSON.stringify(longReport ? {
+        summary: standard.summary + " " + paragraph.repeat(12).trim(),
+        strengths: longer("Kekuatan", winner?.id ?? "overview"),
+        mistakes: longer("Kesalahan", loser?.id ?? "overview"),
+        actionPlan: longer("Aturan perbaikan", "overview"),
+      } : standard);
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ choices: [{ message: { content } }] }));
     } catch {
@@ -58,6 +71,7 @@ test.afterEach(async () => {
   providerGate?.resolve();
   providerGate = undefined;
   failProvider = false;
+  longReport = false;
   seenExports.length = 0;
   if (fixtureIds.length > 0) {
     const ids = fixtureIds.splice(0);
@@ -207,6 +221,66 @@ test("requests a new analysis for unchanged data and reflects the next saved dat
   expect(seenExports.map((snapshot) => [snapshot.metrics.netPnlUsd, snapshot.coverage.withJournal]))
     .toEqual([["20", 0], ["20", 0], ["30", 1]]);
   await expect(page.getByRole("region", { name: "Laporan analisis AI" }).getByText("$30,00", { exact: true })).toBeVisible();
+});
+
+test("downloads a report, saves it once, and keeps the saved snapshot private", async ({ page }) => {
+  test.skip(mode !== "mock", "Requires a deterministic report.");
+  longReport = true;
+  const userId = await openReports(page, [
+    { pnl: 30, actualR: 2, session: "london" },
+    { pnl: -10, actualR: -1, session: "newyork" },
+    { pnl: 0 },
+  ]);
+  const generated = await generate(page);
+  expect(generated.status()).toBe(200);
+  const { data: { reportId, receipt, ...analysis } } = await generated.json();
+
+  const [current] = await Promise.all([
+    page.waitForEvent("download", { timeout: 10_000 }),
+    page.getByRole("button", { name: "Unduh PDF" }).click({ timeout: 10_000 }),
+  ]);
+  expect(current.suggestedFilename()).toMatch(/^analisis-ai-\d{4}-\d{2}-\d{2}-\d{4}-[a-f0-9]{8}\.pdf$/);
+  const pdfPath = test.info().outputPath("laporan-analisis.pdf");
+  await current.saveAs(pdfPath);
+  expect((await readFile(pdfPath)).subarray(0, 5).toString()).toBe("%PDF-");
+
+  const emptyHistory = await page.request.get("/analytics/analisis-tersimpan", { timeout: 10_000 });
+  expect(await emptyHistory.text()).toContain("Belum ada analisis tersimpan.");
+
+  await page.getByRole("button", { name: "Simpan analisis" }).click({ timeout: 10_000 });
+  await expect(page.getByRole("status").filter({ hasText: "Analisis tersimpan." })).toBeVisible();
+  const saveAgain = await page.request.post("/api/analytics/journal-insights/saved", {
+    data: { reportId, receipt, analysis }, timeout: 10_000,
+  });
+  expect(await saveAgain.json()).toMatchObject({ ok: true, data: { id: reportId } });
+  const tampered = await page.request.post("/api/analytics/journal-insights/saved", {
+    data: { reportId, receipt, analysis: { ...analysis, summary: "Hasil diubah." } },
+  });
+  expect(tampered.status()).toBe(403);
+
+  await db.trade.updateMany({ where: { userId }, data: { realizedPnl: 1000 } });
+  await page.getByRole("link", { name: "Riwayat analisis" }).click();
+  await expect(page.getByRole("link", { name: "Buka laporan" })).toHaveCount(1);
+  await page.getByRole("link", { name: "Buka laporan" }).click();
+  await expect(page.getByRole("region", { name: "Laporan analisis AI" }).getByText("$20,00", { exact: true })).toBeVisible();
+  const savedUrl = page.url();
+  const [savedPdf] = await Promise.all([
+    page.waitForEvent("download", { timeout: 10_000 }),
+    page.getByRole("button", { name: "Unduh PDF" }).click({ timeout: 10_000 }),
+  ]);
+  expect(savedPdf.suggestedFilename()).toBe(current.suggestedFilename());
+  expect(seenExports).toHaveLength(1);
+
+  await openReports(page, journalFreeSample);
+  expect((await page.goto(savedUrl))?.status()).toBe(404);
+  const foreignPdf = await page.request.post("/api/analytics/journal-insights/pdf", {
+    data: { source: "saved", reportId },
+  });
+  expect(foreignPdf.status()).toBe(404);
+  const foreignSave = await page.request.post("/api/analytics/journal-insights/saved", {
+    data: { reportId, receipt, analysis },
+  });
+  expect(foreignSave.status()).toBe(403);
 });
 
 test("shows elapsed analysis time, explains quota, and resets the timer on retry", async ({ page }) => {

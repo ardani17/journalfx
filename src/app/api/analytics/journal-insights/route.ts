@@ -1,19 +1,15 @@
 import { requireUser } from "@/server/auth";
 import { hasEnoughAiJournalTrades, loadAiJournalExport } from "@/server/services/ai-journal-export";
 import { aiJournalConfig, generateAiJournal, reserveAiJournalRequest } from "@/server/services/ai-journal";
+import { issueAnalysisReceipt } from "@/server/services/ai-journal-history";
 import { MIN_AI_JOURNAL_TRADES } from "@/lib/ai-journal";
-import { ApiError, handleRouteError, ok } from "@/lib/api";
+import { ApiError, handleRouteError, ok, privateNoStore } from "@/lib/api";
 
 const insufficientTrades = `Analisis AI membutuhkan minimal ${MIN_AI_JOURNAL_TRADES} trade tertutup dengan P/L tercatat.`;
 
 function tradeDataUnavailable(): never {
   console.warn("[ai-journal]", { stage: "trade_data" });
   throw new ApiError(503, "Data trade belum bisa dimuat untuk analisis AI. Silakan coba lagi.");
-}
-
-function noStore(response: Response) {
-  response.headers.set("Cache-Control", "private, no-store");
-  return response;
 }
 
 export async function POST(request: Request) {
@@ -42,8 +38,9 @@ export async function POST(request: Request) {
     if (analysis.payload.scope.closedTrades < MIN_AI_JOURNAL_TRADES) {
       throw new ApiError(422, insufficientTrades);
     }
-    return noStore(ok(await generateAiJournal(analysis, config)));
+    const report = await generateAiJournal(analysis, config);
+    return privateNoStore(ok(await issueAnalysisReceipt(user.id, report)));
   } catch (error) {
-    return noStore(handleRouteError(error));
+    return privateNoStore(handleRouteError(error));
   }
 }
