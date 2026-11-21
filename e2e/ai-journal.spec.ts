@@ -2,14 +2,18 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { expect, test, type Page } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
+import { AI_JOURNAL_PROVIDER_TIMEOUT_MS } from "../src/lib/ai-journal";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
 import { requireLocalTestDatabase } from "./test-database";
 
 const mode = process.env.AI_JOURNAL_E2E_MODE ?? "mock";
+const liveResponseTimeout = AI_JOURNAL_PROVIDER_TIMEOUT_MS + 15_000;
+if (mode === "live") test.describe.configure({ timeout: 2 * liveResponseTimeout + 30_000 });
 const db = new PrismaClient();
 const fixtureIds: string[] = [];
 let mockProvider: Server | undefined;
-let stallProvider = false;
+let providerGate: ReturnType<typeof Promise.withResolvers<void>> | undefined;
+let failProvider = false;
 const seenExports: { metrics: { netPnlUsd: string }; coverage: { withJournal: number } }[] = [];
 
 test.beforeAll(async () => {
@@ -20,7 +24,11 @@ test.beforeAll(async () => {
     try {
       let raw = "";
       for await (const chunk of request) raw += String(chunk);
-      if (stallProvider) return;
+      await providerGate?.promise;
+      if (failProvider) {
+        response.writeHead(503).end();
+        return;
+      }
       const { messages } = JSON.parse(raw);
       const data = JSON.parse(messages[1].content);
       seenExports.push(data);
@@ -47,7 +55,9 @@ test.beforeAll(async () => {
 });
 
 test.afterEach(async () => {
-  stallProvider = false;
+  providerGate?.resolve();
+  providerGate = undefined;
+  failProvider = false;
   seenExports.length = 0;
   if (fixtureIds.length > 0) {
     const ids = fixtureIds.splice(0);
@@ -103,7 +113,7 @@ async function openReports(page: Page, sample: Array<{ pnl: number; session?: st
 
 async function generate(page: Page, button = "Buat analisis AI") {
   const response = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/analytics/journal-insights", {
-    timeout: 25_000,
+    timeout: mode === "live" ? liveResponseTimeout : 25_000,
   });
   await page.getByRole("button", { name: button, exact: true }).click();
   return response;
@@ -199,26 +209,41 @@ test("requests a new analysis for unchanged data and reflects the next saved dat
   await expect(page.getByRole("region", { name: "Laporan analisis AI" }).getByText("$30,00", { exact: true })).toBeVisible();
 });
 
-test("shows a timeout, explains quota, and allows retry", async ({ page }) => {
-  test.skip(mode !== "mock", "Requires the mock provider to produce a controlled timeout.");
+test("shows elapsed analysis time, explains quota, and resets the timer on retry", async ({ page }) => {
+  test.skip(mode !== "mock", "Requires control over the mock provider.");
   const userId = await openReports(page, journalFreeSample);
   const key = `user:${userId}`;
   expect((await generate(page)).status()).toBe(200);
   await db.aiJournalRateLimit.delete({ where: { key } });
-  stallProvider = true;
-  const timedOut = generate(page);
+  await page.clock.install();
+  providerGate = Promise.withResolvers<void>();
+  failProvider = true;
+  const failed = generate(page);
+  const timer = page.getByRole("timer", { name: "Waktu analisis berjalan" });
   await expect(page.getByText("Analisis transaksi sedang diproses.")).toBeVisible();
-  expect((await timedOut).status()).toBe(504);
-  await expect(page.getByRole("alert").filter({ hasText: "Penyedia AI terlalu lama merespons." })).toBeVisible();
+  await expect(timer).toHaveText(/00:0[01] \/ 05:00/);
+  await page.clock.fastForward(4_000);
+  await expect(timer).toHaveText(/00:0[4-6] \/ 05:00/);
+  providerGate.resolve();
+  providerGate = undefined;
+  expect((await failed).status()).toBe(502);
+  await expect(page.getByRole("alert").filter({ hasText: /gagal dibuat/ })).toBeVisible();
+  await expect(timer).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Hasil terakhir", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Insight berbasis aturan" })).toBeVisible();
 
-  stallProvider = false;
+  failProvider = false;
   await db.aiJournalRateLimit.update({ where: { key }, data: { windowStart: new Date(Date.now() + 60_000) } });
   expect((await generate(page, "Coba lagi")).status()).toBe(429);
   await expect(page.getByRole("alert").filter({ hasText: "Batas permintaan insight AI tercapai." })).toBeVisible();
 
   await db.aiJournalRateLimit.delete({ where: { key } });
-  expect((await generate(page, "Coba lagi")).status()).toBe(200);
+  providerGate = Promise.withResolvers<void>();
+  const retried = generate(page, "Coba lagi");
+  await expect(timer).toHaveText(/00:0[01] \/ 05:00/);
+  providerGate.resolve();
+  providerGate = undefined;
+  expect((await retried).status()).toBe(200);
+  await expect(timer).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Laporan analisis AI", exact: true })).toBeVisible();
 });

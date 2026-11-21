@@ -1,14 +1,13 @@
 import { z } from "zod";
 import { prisma } from "@/server/db";
 import { ApiError } from "@/lib/api";
-import type { AiJournalAnalysis, AiJournalFinding } from "@/lib/ai-journal";
+import { AI_JOURNAL_PROVIDER_TIMEOUT_MS, type AiJournalAnalysis, type AiJournalFinding } from "@/lib/ai-journal";
 import { fmtNum, fmtUSD } from "@/lib/money";
 import type { AiJournalExport } from "./ai-journal-export";
 import { AI_JOURNAL_PROMPT } from "./ai-journal-prompt";
 
 const REQUESTS_PER_USER_PER_MINUTE = 1;
 const TOTAL_REQUESTS_PER_MINUTE = 30;
-const PROVIDER_TIMEOUT_MS = 15_000;
 const MAX_PROVIDER_RESPONSE_BYTES = 128 * 1024;
 
 export async function reserveAiJournalRequest(userId: string) {
@@ -103,7 +102,7 @@ export async function generateAiJournal(
   { json: exportJson, payload, labels }: AiJournalExport,
   config: NonNullable<ReturnType<typeof aiJournalConfig>>,
 ): Promise<AiJournalAnalysis> {
-  const signal = AbortSignal.timeout(PROVIDER_TIMEOUT_MS);
+  const signal = AbortSignal.timeout(AI_JOURNAL_PROVIDER_TIMEOUT_MS);
   let stage: ProviderStage = "provider_network";
   try {
     const response = await fetch(config.url, {

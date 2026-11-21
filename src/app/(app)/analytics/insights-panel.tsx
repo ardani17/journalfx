@@ -1,10 +1,10 @@
 "use client";
 
 import { Brain, CheckCircle2, AlertTriangle, Info } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { MIN_AI_JOURNAL_TRADES, type AiJournalAnalysis } from "@/lib/ai-journal";
+import { AI_JOURNAL_PROVIDER_TIMEOUT_MS, MIN_AI_JOURNAL_TRADES, type AiJournalAnalysis } from "@/lib/ai-journal";
 import { AnalysisReport } from "./ai-analysis-report";
 
 export interface InsightDTO {
@@ -13,6 +13,31 @@ export interface InsightDTO {
   title: string;
   detail: string;
   evidence: string;
+}
+
+function formatElapsed(ms: number) {
+  const seconds = Math.floor(ms / 1000);
+  return String(Math.floor(seconds / 60)).padStart(2, "0") + ":" + String(seconds % 60).padStart(2, "0");
+}
+
+function AnalysisProgress({ startedAt }: { startedAt: number }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    const tick = window.setInterval(() => setElapsed(performance.now() - startedAt), 1000);
+    return () => window.clearInterval(tick);
+  }, [startedAt]);
+
+  return (
+    <div className="space-y-1 text-xs text-muted">
+      <p role="status">Analisis transaksi sedang diproses.</p>
+      <p>
+        Waktu berjalan{" "}
+        <span role="timer" aria-label="Waktu analisis berjalan" className="tnum font-semibold text-ink">
+          {formatElapsed(elapsed)} / {formatElapsed(AI_JOURNAL_PROVIDER_TIMEOUT_MS)}
+        </span>
+      </p>
+    </div>
+  );
 }
 
 export function InsightsPanel({
@@ -27,13 +52,14 @@ export function InsightsPanel({
   aiAvailable: boolean;
 }) {
   const [analysis, setAnalysis] = useState<AiJournalAnalysis | null>(null);
-  const [pending, setPending] = useState(false);
+  const [startedAt, setStartedAt] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const pending = startedAt !== null;
   const enoughTrades = closedTrades >= MIN_AI_JOURNAL_TRADES;
   const canGenerate = aiAvailable && enoughTrades;
 
   async function generate() {
-    setPending(true);
+    setStartedAt(performance.now());
     setError("");
     try {
       const response = await fetch("/api/analytics/journal-insights", { method: "POST", cache: "no-store" });
@@ -46,7 +72,7 @@ export function InsightsPanel({
     } catch {
       setError("Analisis AI gagal dibuat. Silakan coba lagi.");
     } finally {
-      setPending(false);
+      setStartedAt(null);
     }
   }
 
@@ -71,7 +97,7 @@ export function InsightsPanel({
         {canGenerate ? (
           <p className="text-xs text-muted">Setiap permintaan mengirim statistik, pengaturan risiko, dan contoh transaksi berkode anonim ke penyedia AI.</p>
         ) : null}
-        {pending ? <p role="status" className="text-xs text-muted">Analisis transaksi sedang diproses.</p> : null}
+        {startedAt !== null ? <AnalysisProgress startedAt={startedAt} /> : null}
         {error ? <p role="alert" className="text-xs text-loss">{error}</p> : null}
         {analysis ? <AnalysisReport analysis={analysis} previous={pending || Boolean(error)} /> : null}
         <h3 className="text-sm font-semibold">Insight berbasis aturan</h3>

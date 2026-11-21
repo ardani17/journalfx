@@ -205,6 +205,32 @@ describe("AI journal report endpoint", () => {
     expect(provider).not.toHaveBeenCalled();
   });
 
+  it("keeps an analysis running past 15 seconds and returns 504 at five minutes", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new DOMException("Deadline exceeded", "TimeoutError")), ms);
+      return controller.signal;
+    });
+    const { provider } = captureProvider();
+    provider.mockImplementation(async (...args) => {
+      const signal = args[1].signal!;
+      return new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    });
+    try {
+      const response = request();
+      await vi.advanceTimersByTimeAsync(299_999);
+      expect(provider).toHaveBeenCalledOnce();
+      expect(provider.mock.calls[0]?.[1].signal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await response).status).toBe(504);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rejects unknown references, malformed reports and oversized responses, and distinguishes provider failures", async () => {
     const { provider } = captureProvider();
     provider.mockImplementationOnce(async () => providerResponse({ actionPlan: [{ ...finding, evidenceIds: ["invented"] }] }))
