@@ -93,6 +93,28 @@ test("estimates capital from the active budget and prefills Monte Carlo", async 
     await page.getByRole("button", { name: "Acak ulang" }).click();
     await expect(equity).toHaveValue(transferred);
     expect(await page.evaluate((key) => sessionStorage.getItem(key), storageKey)).toBeNull();
+    if (href) {
+      const estimate = page.locator("#exploration-capital-idr");
+      await expect(estimate).toHaveText(/^≈ Rp [\d.]+$/);
+      await equity.fill("1.250,75");
+      await expect(estimate).toHaveText(/^≈ Rp [\d.]+$/);
+      const preview = await estimate.innerText();
+      await equity.fill("250,75");
+      await expect(estimate).not.toHaveText(preview);
+      await equity.fill("");
+      await expect(estimate).toHaveCount(0);
+      await equity.fill("tidak valid");
+      await expect(estimate).toHaveCount(0);
+      await equity.fill(transferred);
+      await page.getByText("Penarikan & biaya", { exact: true }).click();
+      await expect(page.getByLabel("Biaya per trade (USD)", { exact: true })).toHaveAccessibleDescription("≈ Rp 0");
+      const withdrawalMode = page.getByLabel("Mode penarikan per trade");
+      await expect(page.getByLabel("Nominal ditarik (USD)", { exact: true })).toHaveCount(0);
+      await withdrawalMode.selectOption("FIXED");
+      await expect(page.getByLabel("Nominal ditarik (USD)", { exact: true })).toHaveAccessibleDescription("≈ Rp 0");
+      await withdrawalMode.selectOption("NONE");
+      await expect(page.locator("#exploration-withdrawalAmount-idr")).toHaveCount(0);
+    }
     await page.reload();
     await expect(equity).toHaveValue("200");
     await expect(page.getByRole("heading", { name: "Peluang menyentuh target" })).toBeVisible();
@@ -141,7 +163,9 @@ for (const viewport of [
         await expect(page.getByText("Estimasi Pencapaian", { exact: true })).toBeVisible();
         await page.goto("/simulator");
         const trades = page.getByLabel("Jumlah trade", { exact: true });
+        const frequency = page.getByLabel("Trade per hari", { exact: true });
         await expect(trades).toHaveCount(1);
+        await expect(frequency).toHaveValue("1");
         await trades.fill("1,5");
         await expect(trades).toHaveAttribute("aria-invalid", "true");
         await expect(page.getByRole("alert").filter({ hasText: "bilangan bulat" })).toBeVisible();
@@ -151,8 +175,9 @@ for (const viewport of [
         await axis.getByRole("button", { name: "Hari", exact: true }).click();
         await expect(page.getByRole("img", { name: /Hari 101/ })).toBeVisible();
         await axis.getByRole("button", { name: "Tanggal", exact: true }).click();
-        await page.getByLabel("Tanggal awal grafik").fill("2026-12-20");
-        await expect(page.getByRole("img", { name: /20 Des 26 hingga 31 Mar 27/ })).toBeVisible();
+        const date = page.getByLabel("Tanggal awal grafik");
+        await date.fill("2026-12-20");
+        await expect(page.getByRole("img", { name: /20 Des 26 hingga 30 Mar 27/ })).toBeVisible();
         await expect(trades).toHaveValue("101");
 
         await page.getByRole("button", { name: "Lihat jalur win/loss" }).click();
@@ -162,14 +187,63 @@ for (const viewport of [
         await expect(path.getByText("Trade 9–16 dari 101")).toBeVisible();
         await page.keyboard.press("Escape");
 
+        await trades.fill("10");
+        await expect(page.getByText("Estimasi durasi 10 hari kalender.")).toBeVisible();
+        await frequency.fill("3");
+        await expect(page.getByText("Estimasi durasi 4 hari kalender.")).toBeVisible();
+        const dateChart = page.getByRole("img", { name: /20 Des hingga 23 Des/ });
+        await expect(dateChart).toBeVisible();
+        const chartSurface = dateChart.locator('svg[role="application"]');
+        await chartSurface.focus();
+        await expect(dateChart.getByText("Saldo awal · 20 Des", { exact: true })).toBeVisible();
+        for (const [index, day] of [20, 20, 20, 21, 21, 21, 22, 22, 22, 23].entries()) {
+          await chartSurface.press("ArrowRight");
+          await expect(dateChart.getByText(`${day} Des · Trade ${index + 1}`, { exact: true })).toBeVisible();
+        }
+        await date.fill("2026-12-21");
+        await expect(page.getByRole("img", { name: /21 Des hingga 24 Des/ })).toBeVisible();
+        await axis.getByRole("button", { name: "Hari", exact: true }).click();
+        await expect(page.getByRole("img", { name: /Hari 1 hingga Hari 4/ })).toBeVisible();
+        await frequency.fill("12");
+        await expect(page.getByText("Estimasi durasi 1 hari kalender.")).toBeVisible();
+        await expect(page.getByRole("img", { name: /Hari 1 hingga Hari 1/ })).toBeVisible();
+        for (const invalid of ["0", "1,5", ""]) {
+          await frequency.fill(invalid);
+          await expect(frequency).toHaveAttribute("aria-invalid", "true");
+          await expect(page.getByText("Estimasi durasi 1 hari kalender.")).toBeVisible();
+        }
+        await frequency.fill("3");
+
+        const capital = page.getByLabel("Modal awal (USD)", { exact: true });
+        await capital.fill("");
+        await trades.fill("12");
+        await frequency.fill("5");
+        await expect(page.getByText("Estimasi durasi 3 hari kalender.")).toBeVisible();
+        await expect(page.getByRole("img", { name: /Hari 1 hingga Hari 3/ })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Simpan skenario", exact: true })).toBeDisabled();
+        await capital.fill("200");
+        await trades.fill("10");
+        await frequency.fill("3");
+
         await page.getByRole("button", { name: "Simpan skenario", exact: true }).click();
         const save = page.getByRole("dialog", { name: "Simpan skenario" });
         await save.getByLabel("Nama skenario").fill("Eksplorasi uji");
         await save.getByRole("button", { name: "Simpan", exact: true }).click();
+        await page.evaluate((key) => {
+          const items = JSON.parse(localStorage.getItem(key) ?? "[]");
+          const legacy = { ...items[0], id: "legacy", name: "Eksplorasi lama", input: { ...items[0].input } };
+          delete legacy.input.tradesPerDay;
+          localStorage.setItem(key, JSON.stringify([...items, legacy]));
+        }, "horizon-journal:exploration:" + owner.id);
         await page.reload();
         await page.getByRole("button", { name: "Skenario", exact: true }).click();
         await page.getByRole("button", { name: "Gunakan Eksplorasi uji" }).click();
-        await expect(trades).toHaveValue("101");
+        await expect(trades).toHaveValue("10");
+        await expect(frequency).toHaveValue("3");
+        await page.getByRole("button", { name: "Skenario", exact: true }).click();
+        await page.getByRole("button", { name: "Gunakan Eksplorasi lama" }).click();
+        await expect(trades).toHaveValue("10");
+        await expect(frequency).toHaveValue("1");
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
       } finally {
         await prisma.user.deleteMany({ where: { id: { in: [owner.id, other.id] } } });

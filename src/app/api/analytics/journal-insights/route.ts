@@ -1,8 +1,9 @@
 import { requireUser } from "@/server/auth";
-import { hasEnoughAiJournalTrades, loadAiJournalEvidence } from "@/server/services/ai-journal-evidence";
+import { hasEnoughAiJournalTrades, loadAiJournalExport } from "@/server/services/ai-journal-export";
 import { aiJournalConfig, generateAiJournal, reserveAiJournalRequest } from "@/server/services/ai-journal";
+import { issueAnalysisReceipt } from "@/server/services/ai-journal-history";
 import { MIN_AI_JOURNAL_TRADES } from "@/lib/ai-journal";
-import { ApiError, handleRouteError, ok } from "@/lib/api";
+import { ApiError, handleRouteError, ok, privateNoStore } from "@/lib/api";
 
 const insufficientTrades = `Analisis AI membutuhkan minimal ${MIN_AI_JOURNAL_TRADES} trade tertutup dengan P/L tercatat.`;
 
@@ -33,14 +34,13 @@ export async function POST(request: Request) {
       console.warn("[ai-journal]", { stage: "quota_store" });
       throw new ApiError(503, "Insight AI sementara tidak tersedia. Silakan coba lagi.");
     });
-    const analysis = await loadAiJournalEvidence(user.id).catch(tradeDataUnavailable);
-    if (analysis.coverage.closedTrades < MIN_AI_JOURNAL_TRADES) {
+    const analysis = await loadAiJournalExport(user.id, user.timezone).catch(tradeDataUnavailable);
+    if (analysis.payload.scope.closedTrades < MIN_AI_JOURNAL_TRADES) {
       throw new ApiError(422, insufficientTrades);
     }
-    const response = ok(await generateAiJournal(analysis, config));
-    response.headers.set("Cache-Control", "private, no-store");
-    return response;
+    const report = await generateAiJournal(analysis, config);
+    return privateNoStore(ok(await issueAnalysisReceipt(user.id, report)));
   } catch (error) {
-    return handleRouteError(error);
+    return privateNoStore(handleRouteError(error));
   }
 }

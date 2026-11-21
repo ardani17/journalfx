@@ -23,7 +23,7 @@ async function createJournal() {
     const entryAt = new Date("2026-11-03T10:00:00Z");
     const trade = {
       userId, accountId: account.id, instrumentId, direction: "LONG" as const, status: "CLOSED" as const,
-      lot: 0.01, entryPrice: 1.1, exitPrice: 1.2, realizedPnl: 1, entryAt, exitAt: entryAt, createdAt: entryAt,
+      lot: 0.01, entryPrice: 1.1, exitPrice: 1.2, realizedPnl: 1, actualR: 2, entryAt, exitAt: entryAt, createdAt: entryAt,
     };
     await tx.trade.createMany({
       data: [
@@ -37,7 +37,8 @@ async function createJournal() {
           } : {}),
           strategyId: index < 50 ? fifty.id : index < 101 ? fiftyOne.id : null,
         })),
-        { ...trade, realizedPnl: -1 },
+        { ...trade, id: userId + "-loss", realizedPnl: -1, actualR: -1 },
+        { ...trade, realizedPnl: 0, actualR: 0 },
         { ...trade, accountId: otherAccount.id },
         { ...trade, accountId: otherAccount.id, status: "OPEN", realizedPnl: null, exitPrice: null, exitAt: null },
       ],
@@ -48,6 +49,7 @@ async function createJournal() {
       { ...ledger, type: "REALIZED_PNL", amount: 10, sourceTradeId: `${userId}-200` },
       { ...ledger, id: feeId, type: "FEE", amount: -2, sourceTradeId: `${userId}-200` },
       { ...ledger, type: "REALIZED_PNL", amount: 20, sourceTradeId: `${userId}-201` },
+      { ...ledger, type: "REALIZED_PNL", amount: -7, sourceTradeId: userId + "-loss" },
     ] });
     await tx.accountTransaction.create({ data: { ...ledger, type: "REVERSAL", amount: 2, reversalOfId: feeId } });
     await tx.tradeJournal.createMany({
@@ -126,7 +128,7 @@ test("applies entry dates to filtered rows, pagination, and KPIs", async ({ page
   await to.fill("2026-11-04");
   await page.getByRole("button", { name: "Terapkan" }).click();
   await expectResults(page, "1–1 dari 1", 1);
-  await expect(page.getByText("Sampel kecil (1 < 30 transaksi)", { exact: false })).toBeVisible();
+  await expect(page.getByText("Sampel kecil (1 < 30 trade dengan P&L tercatat)", { exact: false })).toBeVisible();
   await expect(page.getByText("+$10,00", { exact: true })).toBeVisible();
   await expect(page.getByRole("table").getByRole("link")).toHaveAttribute("href", `/journal/${journal.userId}-200`);
   expect(new URL(page.url()).searchParams.get("page")).toBe("1");
@@ -137,6 +139,41 @@ test("applies entry dates to filtered rows, pagination, and KPIs", async ({ page
   await page.getByRole("button", { name: "Hapus rentang" }).click();
   await expectResults(page, "1–50 dari 201", 50);
   await expect(page.getByLabel("Filter hasil")).toHaveValue("win");
+});
+
+test("updates history and unpaginated statistics when the outcome changes without dates", async ({ page, baseURL }) => {
+  await page.context().addCookies([{ url: baseURL!, name: SESSION_COOKIE, value: journal.session, httpOnly: true }]);
+  await page.goto(`/journal?accountId=${journal.account.id}&page=2`);
+  const outcome = page.getByLabel("Filter hasil");
+  const value = (label: string) => page.getByText(label, { exact: true }).locator("xpath=following-sibling::span[1]");
+
+  await outcome.selectOption("loss");
+  await expect.poll(() => Object.fromEntries(new URL(page.url()).searchParams)).toMatchObject({
+    accountId: journal.account.id, result: "loss", page: "1",
+  });
+  await expectResults(page, "1–1 dari 1", 1);
+  await expect(value("Total Transaksi")).toHaveText("1");
+  await expect(value("Tingkat Kemenangan")).toHaveText("0,0%");
+  await expect(value("P&L Neto")).toHaveText("−$7,00");
+  await expect(value("Rata-rata R")).toHaveText("-1,00R");
+
+  await outcome.selectOption("win");
+  await expectResults(page, "1–50 dari 201", 50);
+  await expect(value("Total Transaksi")).toHaveText("201");
+  await expect(value("Tingkat Kemenangan")).toHaveText("100,0%");
+  await expect(value("P&L Neto")).toHaveText("+$30,00");
+  await expect(value("Rata-rata R")).toHaveText("+2,00R");
+
+  await outcome.selectOption("be");
+  await expectResults(page, "1–1 dari 1", 1);
+  await expect(value("Total Transaksi")).toHaveText("1");
+  await expect(value("Tingkat Kemenangan")).toHaveText("0,0%");
+  await expect(value("P&L Neto")).toHaveText("$0,00");
+  await expect(value("Rata-rata R")).toHaveText("+0,00R");
+
+  await outcome.selectOption("");
+  await expectResults(page, "1–50 dari 203", 50);
+  await expect(value("Total Transaksi")).toHaveText("203");
 });
 
 for (const viewport of [
@@ -214,7 +251,7 @@ for (const viewport of [
     const url = (params: Record<string, string> = {}) => `/journal?${new URLSearchParams({ ...filter, ...params })}`;
 
     await page.goto("/journal");
-    await expectResults(page, "1–50 dari 204", 50);
+    await expectResults(page, "1–50 dari 205", 50);
     await expect(pageSize).toHaveValue("50");
 
     await page.goto(url({ status: "CANCELLED" }));

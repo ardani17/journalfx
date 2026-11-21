@@ -65,7 +65,7 @@ export default async function JournalPage({
   const offset = (page - 1) * pageSize;
   const [{ items, total }, metrics, accounts, strategies] = await Promise.all([
     listTrades(user.id, { ...tradeFilters, limit: pageSize, offset }, { includeJournalCompletion: true }),
-    coreMetrics(user.id, { accountId: filters.accountId, journal: hasDateRange ? tradeFilters : undefined }),
+    coreMetrics(user.id, { accountId: filters.accountId, journal: tradeFilters }),
     listAccounts(user.id),
     listStrategies(user.id),
   ]);
@@ -73,6 +73,7 @@ export default async function JournalPage({
 
   const range = items.length ? `${fmtNum(offset + 1, 0)}–${fmtNum(offset + items.length, 0)}` : "0";
   const summaryCurrency = accounts.find((account) => account.id === filters.accountId)?.currency ?? "USD";
+  const sampleSize = metrics.wins + metrics.losses + metrics.breakEven;
 
   return (
     <PageShell>
@@ -112,9 +113,9 @@ export default async function JournalPage({
           icon={BarChart3}
         />
       </div>
-      {metrics.sampleWarning && metrics.totalTrades > 0 ? (
+      {metrics.sampleWarning && sampleSize > 0 ? (
         <p className="rounded-lg border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn" role="status">
-          Sampel kecil ({metrics.totalTrades} &lt; 30 transaksi). Metrik belum signifikan secara statistik.
+          Sampel kecil ({fmtNum(sampleSize, 0)} &lt; 30 trade dengan P&L tercatat). Metrik belum signifikan secara statistik.
         </p>
       ) : null}
 

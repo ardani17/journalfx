@@ -6,7 +6,7 @@ import { audit } from "@/server/audit";
 import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import { disciplineScore, type DisciplineResult } from "@/lib/finance/discipline";
 import { debtDateKey, debtSchedule, scheduledDebtDate } from "@/lib/finance/debt";
-import { coreMetrics, realizedTradingRows } from "./analytics";
+import { coreMetrics, realizedTradingRows, type DailyTradeBreakdown } from "./analytics";
 import { computeBalance } from "./ledger";
 import { getRecommendation } from "./withdrawals";
 import { budgetOverview } from "./finance";
@@ -30,14 +30,19 @@ export interface PeriodFacts {
   compoundedAmount: Decimal; // profit retained (not withdrawn) in period
   budgetCoveragePct: number | null;
   balance: Decimal;
+  dailyTradeBreakdown?: DailyTradeBreakdown;
 }
 
 /** Facts assembled from the ledger/analytics — captured immutably at close. */
-export async function collectFacts(userId: string, window: ReviewWindow): Promise<PeriodFacts> {
+export async function collectFacts(
+  userId: string,
+  window: ReviewWindow,
+  { includeDailyTrades = false }: { includeDailyTrades?: boolean } = {},
+): Promise<PeriodFacts> {
   const { start, end } = window;
   const historical = end <= new Date();
   const [metrics, balances, wdRec, budget, trades, riskSettings, wdActualAgg] = await Promise.all([
-    coreMetrics(userId, { from: start, to: end }),
+    coreMetrics(userId, { from: start, to: end }, { includeDailyTrades }),
     computeBalance(userId, undefined, historical ? end : undefined),
     historical ? null : getRecommendation(userId),
     historical ? null : budgetOverview(userId).catch(() => null),
@@ -93,6 +98,7 @@ export async function collectFacts(userId: string, window: ReviewWindow): Promis
     compoundedAmount,
     budgetCoveragePct: budget ? budget.coveragePct : null,
     balance: balances.balance,
+    dailyTradeBreakdown: metrics.dailyTradeBreakdown,
   };
 }
 
@@ -179,9 +185,9 @@ export async function saveReviewFields(
 export async function closeReview(userId: string, kind: ReviewKind, req?: Request, selection?: ReviewSelection) {
   const { review, window } = await resolveOrCreateReview(userId, kind, selection);
   if (review.status === "CLOSED") throw new ApiError(400, "Review sudah ditutup");
-  const facts = await collectFacts(userId, window);
+  const facts = await collectFacts(userId, window, { includeDailyTrades: kind === "DAILY" });
   const closedAt = new Date();
-  const snapshot = {
+  const summary = {
     closedAt: closedAt.toISOString(),
     tradesCount: facts.tradesCount,
     netPnl: facts.netPnl.toString(),
@@ -192,6 +198,10 @@ export async function closeReview(userId: string, kind: ReviewKind, req?: Reques
     compoundedAmount: facts.compoundedAmount.toString(),
     budgetCoveragePct: facts.budgetCoveragePct,
     discipline: facts.discipline,
+  };
+  const snapshot = {
+    ...summary,
+    ...(facts.dailyTradeBreakdown ? { dailyTradeBreakdown: facts.dailyTradeBreakdown } : {}),
   };
   const [updated] = await prisma.periodReview.updateManyAndReturn({
     where: { id: review.id, userId, status: "OPEN" },
@@ -207,7 +217,7 @@ export async function closeReview(userId: string, kind: ReviewKind, req?: Reques
     },
   });
   if (!updated) throw new ApiError(400, "Review sudah ditutup");
-  await audit({ userId, action: "close", entity: "PeriodReview", entityId: review.id, after: snapshot, req });
+  await audit({ userId, action: "close", entity: "PeriodReview", entityId: review.id, after: summary, req });
   return updated;
 }
 

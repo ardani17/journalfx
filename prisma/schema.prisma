@@ -44,6 +44,7 @@ model User {
   financialBuckets   FinancialBucket[]
   financialAllocations FinancialAllocation[]
   periodReviews      PeriodReview[]
+  savedAiJournalAnalyses SavedAiJournalAnalysis[]
   dailyPlans         DailyPlan[]
   dailyActivityTypes DailyActivityType[]
   notifications      Notification[]
@@ -792,6 +793,19 @@ model AuditLog {
 
   @@index([userId, createdAt])
   @@index([entity, entityId])
+}
+
+model SavedAiJournalAnalysis {
+  id            String   @id @db.Uuid
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  analyzedAt    DateTime
+  savedAt       DateTime @default(now())
+  tradeCount    Int
+  schemaVersion Int      @default(1)
+  snapshot      Json
+
+  @@index([userId, savedAt(sort: Desc), id(sort: Desc)])
 }
 
 model AiJournalRateLimit {

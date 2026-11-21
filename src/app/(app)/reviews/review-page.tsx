@@ -11,8 +11,9 @@ import { D, fmtNum, fmtUSD, fmtUSDdelta } from "@/lib/money";
 import { calendarHref, dailyPnlLabel, localDateKey, reviewHref, reviewPeriodLabel, type ReviewKind } from "@/lib/review-period";
 import { reviewSelectorSchema } from "@/lib/validation/reviews";
 import type { DisciplineResult } from "@/lib/finance/discipline";
-import { dailyPnl } from "@/server/services/analytics";
+import { coreMetrics, dailyPnl, type DailyTradeBreakdown } from "@/server/services/analytics";
 import { fmtCalendarDateID, fmtDateTimeID } from "@/lib/dates";
+import { DailyReviewTrades } from "./daily-review-trades";
 import { ReviewClient } from "./review-client";
 
 export type ReviewSearchParams = Promise<{
@@ -31,6 +32,7 @@ type StoredFacts = {
   winRate: number | null;
   balance: string;
   budgetCoveragePct: number | null;
+  dailyTradeBreakdown?: DailyTradeBreakdown;
 };
 const labelID = (label: string) => label === "Setup" ? "Strategi" : label === "Stop Loss" ? "SL" : label;
 
@@ -48,10 +50,16 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
   const historical = window.end <= new Date();
   const unavailable = historical ? "Data historis tidak tersedia" : "—";
   const today = localDateKey(new Date(), timezone);
-  const [facts, days] = await Promise.all([
-    closed && review.snapshot ? review.snapshot as unknown as StoredFacts : collectFacts(user.id, window),
-    kind !== "DAILY" ? dailyPnl(user.id, window.start, window.end) : [],
+  const daily = kind === "DAILY";
+  const storedFacts = closed && review.snapshot ? review.snapshot as unknown as StoredFacts : null;
+  const [facts, days, currentDailyMetrics] = await Promise.all([
+    storedFacts ?? collectFacts(user.id, window, { includeDailyTrades: daily }),
+    daily ? [] : dailyPnl(user.id, window.start, window.end),
+    daily && storedFacts && !storedFacts.dailyTradeBreakdown
+      ? coreMetrics(user.id, { from: window.start, to: window.end }, { includeDailyTrades: true })
+      : null,
   ]);
+  const dailyTrades = facts.dailyTradeBreakdown ?? currentDailyMetrics?.dailyTradeBreakdown;
   const titles: Record<string, { t: string; s: string }> = {
     DAILY: { t: "Review Harian", s: "Tutup hari dengan evaluasi disiplin dan rencana besok" },
     WEEKLY: { t: "Review Mingguan", s: "Evaluasi penarikan dana, pemajemukan, dan disiplin eksekusi" },
@@ -109,6 +117,15 @@ export async function ReviewPage({ kind, searchParams }: { kind: ReviewKind; sea
             </ul>
           </CardContent>
         </Card>
+      ) : null}
+
+      {daily && dailyTrades ? (
+        <DailyReviewTrades
+          breakdown={dailyTrades}
+          timezone={timezone}
+          netPnl={currentDailyMetrics?.netPnl ?? facts.netPnl}
+          liveLedger={closed && !storedFacts?.dailyTradeBreakdown}
+        />
       ) : null}
 
       {/* Discipline breakdown */}

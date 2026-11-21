@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { NewStrategyDialog, type StrategyOption } from "@/components/journal/new-strategy-dialog";
@@ -134,6 +135,12 @@ export function NewTradeForm({
                     <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>
                   ))}
                 </Select>
+                <Link
+                  href="/accounts"
+                  className="inline-flex h-8 items-center self-start rounded-lg px-3 text-xs text-primary transition-colors hover:bg-panel-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-primary"
+                >
+                  Tambah akun
+                </Link>
               </Field>
               <Field label="Instrumen" htmlFor="t-instrument">
                 <Select id="t-instrument" name="instrumentId" required value={instrumentId} onChange={(event) => setInstrumentId(event.target.value)}>

@@ -1,5 +1,5 @@
 import { prisma } from "@/server/db";
-import type { LedgerEntryType } from "@prisma/client";
+import type { LedgerEntryType, TradeDirection } from "@prisma/client";
 import { D, Decimal, tradingAmountToUsd } from "@/lib/money";
 import { calendarDate, startOfUTCDay, addUTCDays } from "@/lib/dates";
 import { userTimezone } from "./time";
@@ -30,15 +30,34 @@ export interface CoreMetrics {
   maxWinStreak: number;
   maxLossStreak: number;
   avgHoldMinutes: number | null;
-  sampleWarning: boolean; // closedTrades < 30
+  sampleWarning: boolean; // Fewer than 30 trades contribute to the performance statistics.
+  dailyTradeBreakdown?: DailyTradeBreakdown;
 }
+
+type AdditionalPnl<Value> = {
+  otherTrades: Value;
+  accountFees: Value;
+  unlinkedPnl: Value;
+};
+
+export type DailyTradeBreakdown = {
+  trades: Array<{
+    id: string;
+    symbol: string;
+    direction: TradeDirection;
+    closedAt: string | null;
+    netPnl: string;
+  }>;
+  additionalPnl: AdditionalPnl<string | null>;
+};
 
 export async function coreMetrics(
   userId: string,
   filter?: { accountId?: string; from?: Date; to?: Date; journal?: Omit<ListTradesFilter, "limit" | "offset"> },
+  { includeDailyTrades = false }: { includeDailyTrades?: boolean } = {},
 ): Promise<CoreMetrics> {
   const journal = filter?.journal;
-  const trades = await prisma.trade.findMany({
+  const tradesQuery = prisma.trade.findMany({
     where: journal ? tradeFilterWhere(userId, journal) : {
       userId,
       status: { in: ["CLOSED", "PARTIAL"] },
@@ -53,10 +72,26 @@ export async function coreMetrics(
         : {}),
     },
     orderBy: { exitAt: "asc" },
-    select: { id: true, status: true, realizedPnl: true, actualR: true, entryAt: true, exitAt: true, account: { select: { currency: true } } },
+    select: {
+      id: true,
+      status: true,
+      realizedPnl: true,
+      actualR: true,
+      entryAt: true,
+      exitAt: true,
+      account: { select: { currency: true } },
+      direction: includeDailyTrades,
+      instrument: includeDailyTrades ? { select: { symbol: true } } : undefined,
+    },
   });
+  const ledgerQuery = queryRealizedTradingRows(userId, filter);
+  const [trades, ledger] = includeDailyTrades
+    ? await prisma.$transaction([tradesQuery, ledgerQuery], { isolationLevel: "RepeatableRead" })
+    : await Promise.all([tradesQuery, ledgerQuery]);
 
-  const closed = trades.filter((t) => t.status === "CLOSED" && t.realizedPnl !== null);
+  const realized = trades.filter((trade) => trade.realizedPnl !== null);
+  const closed = realized.filter((trade) => trade.status === "CLOSED");
+  const measured = journal ? realized : closed;
   let wins = 0;
   let losses = 0;
   let be = 0;
@@ -73,7 +108,7 @@ export async function coreMetrics(
   let maxWin = 0;
   let maxLoss = 0;
 
-  for (const t of closed) {
+  for (const t of measured) {
     const pnl = filter?.accountId ? D(t.realizedPnl) : tradingAmountToUsd(t.realizedPnl, t.account.currency);
     if (pnl.gt(0)) {
       wins++;
@@ -104,10 +139,12 @@ export async function coreMetrics(
     }
   }
 
-  const n = closed.length;
-  const journalTradeIds = journal ? new Set(trades.map((trade) => trade.id)) : null;
-  const hasTradeSpecificFilter = journal?.status || journal?.result || journal?.strategyId;
-  const periodLedger = (await realizedTradingRows(userId, filter)).filter((r) => {
+  const n = measured.length;
+  const hasTradeSpecificFilter = journal?.status || journal?.result || journal?.strategyId || journal?.q;
+  const journalTradeIds = hasTradeSpecificFilter || journal?.from || journal?.to
+    ? new Set(trades.map((trade) => trade.id))
+    : null;
+  const periodLedger = normalizeRealizedTradingRows(ledger).filter((r) => {
     if (!journalTradeIds) return true;
     if (r.sourceTradeId) return journalTradeIds.has(r.sourceTradeId);
 
@@ -115,10 +152,46 @@ export async function coreMetrics(
     return r.type === "FEE" && !hasTradeSpecificFilter &&
       (!journal?.from || r.occurredAt >= journal.from) && (!journal?.to || r.occurredAt < journal.to);
   });
-  const netPnl = periodLedger.reduce((sum, r) => sum.plus(filter?.accountId ? D(r.amount) : tradingAmountToUsd(r.amount, r.currency)), D(0));
+  const pnlByTrade = includeDailyTrades ? new Map(closed.map(({ id }) => [id, D(0)])) : null;
+  const additionalPnl: AdditionalPnl<Decimal | null> = {
+    otherTrades: null,
+    accountFees: null,
+    unlinkedPnl: null,
+  };
+  let netPnl = D(0);
+  for (const row of periodLedger) {
+    const amount = filter?.accountId ? D(row.amount) : tradingAmountToUsd(row.amount, row.currency);
+    netPnl = netPnl.plus(amount);
+    if (!pnlByTrade) continue;
+
+    const tradePnl = row.sourceTradeId ? pnlByTrade.get(row.sourceTradeId) : undefined;
+    if (row.sourceTradeId && tradePnl !== undefined) {
+      pnlByTrade.set(row.sourceTradeId, tradePnl.plus(amount));
+      continue;
+    }
+
+    // Partial closes and standalone ledger entries contribute to P&L without increasing the closed trade count.
+    const group = row.sourceTradeId ? "otherTrades" : row.type === "FEE" ? "accountFees" : "unlinkedPnl";
+    additionalPnl[group] = (additionalPnl[group] ?? D(0)).plus(amount);
+  }
+
+  const dailyTradeBreakdown = pnlByTrade ? {
+    trades: closed.toReversed().map((trade) => ({
+      id: trade.id,
+      symbol: trade.instrument.symbol,
+      direction: trade.direction,
+      closedAt: trade.exitAt?.toISOString() ?? null,
+      netPnl: pnlByTrade.get(trade.id)!.toString(),
+    })),
+    additionalPnl: {
+      otherTrades: additionalPnl.otherTrades?.toString() ?? null,
+      accountFees: additionalPnl.accountFees?.toString() ?? null,
+      unlinkedPnl: additionalPnl.unlinkedPnl?.toString() ?? null,
+    },
+  } satisfies DailyTradeBreakdown : undefined;
   return {
     totalTrades: journal ? trades.length : n,
-    closedTrades: n,
+    closedTrades: closed.length,
     wins,
     losses,
     breakEven: be,
@@ -137,6 +210,7 @@ export async function coreMetrics(
     maxLossStreak: maxLoss,
     avgHoldMinutes: holdCount > 0 ? Math.round(holdMs / holdCount / 60000) : null,
     sampleWarning: n < 30,
+    ...(dailyTradeBreakdown ? { dailyTradeBreakdown } : {}),
   };
 }
 
@@ -181,9 +255,11 @@ export interface DayPnl {
   hasRealizedPnl: boolean;
 }
 
-export async function realizedTradingRows(userId: string, filter?: { from?: Date; to?: Date; accountId?: string }) {
+type LedgerScope = { from?: Date; to?: Date; accountId?: string };
+
+function queryRealizedTradingRows(userId: string, filter?: LedgerScope) {
   const pnlTypes: LedgerEntryType[] = ["REALIZED_PNL", "FEE"];
-  const rows = await prisma.accountTransaction.findMany({
+  return prisma.accountTransaction.findMany({
     where: {
       userId,
       accountId: filter?.accountId,
@@ -198,7 +274,14 @@ export async function realizedTradingRows(userId: string, filter?: { from?: Date
       reversalOf: { select: { type: true, sourceTradeId: true } },
     },
   });
+}
+
+function normalizeRealizedTradingRows(rows: Awaited<ReturnType<typeof queryRealizedTradingRows>>) {
   return rows.map(({ reversalOf, ...row }) => reversalOf ? { ...row, ...reversalOf } : row);
+}
+
+export async function realizedTradingRows(userId: string, filter?: LedgerScope) {
+  return normalizeRealizedTradingRows(await queryRealizedTradingRows(userId, filter));
 }
 
 /** Daily realized P&L grouped by ledger date in the user's local time. */
