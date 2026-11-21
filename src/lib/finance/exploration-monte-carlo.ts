@@ -9,6 +9,7 @@ export const explorationFields = {
   capital: { label: "Modal awal (USD)", initial: 1000, min: 0.01, max: 1e16 },
   target: { label: "Target saldo (USD)", initial: 10000, min: 0.01, max: 1e16 },
   trades: { label: "Jumlah trade", initial: 120, min: 1, max: 300 },
+  tradesPerDay: { label: "Trade per hari", initial: 1, min: 1, max: Number.MAX_SAFE_INTEGER },
   winRate: { label: "Peluang menang (%)", initial: 55, min: 0, max: 100 },
   winReturn: { label: "Laba saat menang (%)", initial: 6, min: 0.01, max: 100 },
   lossReturn: { label: "Rugi saat kalah (%)", initial: 3, min: 0.01, max: 100 },
@@ -22,7 +23,7 @@ export const explorationFieldNames = Object.keys(explorationFields) as Explorati
 const numericFields = Object.fromEntries(explorationFieldNames.map((key) => {
   const { min, max } = explorationFields[key];
   const value = z.number().min(min).max(max);
-  return [key, key === "trades" ? value.int() : value];
+  return [key, key === "trades" || key === "tradesPerDay" ? value.int() : value];
 })) as Record<ExplorationField, z.ZodNumber>;
 
 function amountField(name: "capital" | "target" | "withdrawalAmount" | "fee") {
@@ -37,6 +38,7 @@ function amountField(name: "capital" | "target" | "withdrawalAmount" | "fee") {
 
 export const explorationSchema = z.object({
   ...numericFields,
+  tradesPerDay: numericFields.tradesPerDay.default(explorationFields.tradesPerDay.initial),
   capital: amountField("capital"),
   target: amountField("target"),
   withdrawalAmount: amountField("withdrawalAmount"),
@@ -45,6 +47,10 @@ export const explorationSchema = z.object({
 });
 
 export type ExplorationInput = z.infer<typeof explorationSchema>;
+
+export function explorationTradeDay(trade: number, tradesPerDay: number) {
+  return Math.ceil(trade / tradesPerDay);
+}
 
 export function defaultExplorationInput(capital: string | number, target: string | number): ExplorationInput {
   const defaults = Object.fromEntries(explorationFieldNames.map((key) => [key, explorationFields[key].initial])) as Record<ExplorationField, number>;
@@ -71,7 +77,7 @@ export interface ExplorationTrade {
   closing: number;
 }
 
-export function simulateExploration(input: ExplorationInput, seed: number) {
+export function simulateExploration(input: Omit<ExplorationInput, "tradesPerDay">, seed: number) {
   const { trades, withdrawal } = input;
   const capital = D(input.capital);
   const target = D(input.target);
