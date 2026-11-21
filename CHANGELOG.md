@@ -8,6 +8,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/) / releases are tagged `v
 
 ## [Unreleased]
 
+## [1.4.8] — 2026-11-21
+
 ### Added
 
 - Generate an Indonesian AI analysis from the latest closed trades. Save reports to a private history and download current or saved reports as PDFs.
