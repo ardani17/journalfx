@@ -214,6 +214,17 @@ for (const viewport of [
         }
         await frequency.fill("3");
 
+        const capital = page.getByLabel("Modal awal (USD)", { exact: true });
+        await capital.fill("");
+        await trades.fill("12");
+        await frequency.fill("5");
+        await expect(page.getByText("Estimasi durasi 3 hari kalender.")).toBeVisible();
+        await expect(page.getByRole("img", { name: /Hari 1 hingga Hari 3/ })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Simpan skenario", exact: true })).toBeDisabled();
+        await capital.fill("200");
+        await trades.fill("10");
+        await frequency.fill("3");
+
         await page.getByRole("button", { name: "Simpan skenario", exact: true }).click();
         const save = page.getByRole("dialog", { name: "Simpan skenario" });
         await save.getByLabel("Nama skenario").fill("Eksplorasi uji");

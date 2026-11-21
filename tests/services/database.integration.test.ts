@@ -133,6 +133,12 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
 
     const closed = await closeReview(owner.userId, "DAILY", undefined, selection);
     expect(closed.snapshot).toMatchObject({ tradesCount: 2, netPnl: "10", dailyTradeBreakdown: facts.dailyTradeBreakdown });
+    const closeEvent = await prisma.auditLog.findFirstOrThrow({
+      where: { userId: owner.userId, entityId: closed.id, entity: "PeriodReview", action: "close" },
+      select: { after: true },
+    });
+    expect(closeEvent.after).toMatchObject({ tradesCount: 2, netPnl: "10" });
+    expect(closeEvent.after).not.toHaveProperty("dailyTradeBreakdown");
     await prisma.accountTransaction.create({ data: { ...rowData, type: "FEE", amount: -2 } });
     expect((await collectFacts(owner.userId, window, { includeDailyTrades: true })).netPnl.toString()).toBe("8");
     expect((await getOrCreateReview(owner.userId, "DAILY", { reviewId: closed.id })).snapshot).toEqual(closed.snapshot);

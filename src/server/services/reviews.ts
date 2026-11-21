@@ -187,7 +187,7 @@ export async function closeReview(userId: string, kind: ReviewKind, req?: Reques
   if (review.status === "CLOSED") throw new ApiError(400, "Review sudah ditutup");
   const facts = await collectFacts(userId, window, { includeDailyTrades: kind === "DAILY" });
   const closedAt = new Date();
-  const snapshot = {
+  const summary = {
     closedAt: closedAt.toISOString(),
     tradesCount: facts.tradesCount,
     netPnl: facts.netPnl.toString(),
@@ -198,6 +198,9 @@ export async function closeReview(userId: string, kind: ReviewKind, req?: Reques
     compoundedAmount: facts.compoundedAmount.toString(),
     budgetCoveragePct: facts.budgetCoveragePct,
     discipline: facts.discipline,
+  };
+  const snapshot = {
+    ...summary,
     ...(facts.dailyTradeBreakdown ? { dailyTradeBreakdown: facts.dailyTradeBreakdown } : {}),
   };
   const [updated] = await prisma.periodReview.updateManyAndReturn({
@@ -214,7 +217,7 @@ export async function closeReview(userId: string, kind: ReviewKind, req?: Reques
     },
   });
   if (!updated) throw new ApiError(400, "Review sudah ditutup");
-  await audit({ userId, action: "close", entity: "PeriodReview", entityId: review.id, after: snapshot, req });
+  await audit({ userId, action: "close", entity: "PeriodReview", entityId: review.id, after: summary, req });
   return updated;
 }
 

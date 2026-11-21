@@ -83,8 +83,8 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId, qu
   const [notice, setNotice] = useState("");
   const storageKey = "horizon-journal:exploration:" + userId;
   const current = readForm(form);
-  const { capital, target, trades, winRate: simulatedWinRate, winReturn, lossReturn, withdrawal, withdrawalRate,
-    withdrawalAmount, fee } = useDeferredValue(parameters);
+  const { capital, target, trades, tradesPerDay, winRate: simulatedWinRate, winReturn, lossReturn, withdrawal,
+    withdrawalRate, withdrawalAmount, fee } = useDeferredValue(parameters);
   const result = useMemo(() => simulateExploration({
     capital, target, trades, winRate: simulatedWinRate, winReturn, lossReturn, withdrawal, withdrawalRate, withdrawalAmount, fee,
   }, seed), [capital, target, trades, simulatedWinRate, winReturn, lossReturn, withdrawal, withdrawalRate, withdrawalAmount, fee, seed]);
@@ -94,8 +94,7 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId, qu
   const chartTarget = Number(target);
   const targetOnScale = chartTarget <= chartPeak * 1.5;
   const winRate = parseSimulationNumber(form.winRate);
-  const { tradesPerDay } = parameters;
-  const duration = explorationTradeDay(trades, tradesPerDay);
+  const duration = explorationTradeDay(parameters.trades, parameters.tradesPerDay);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -118,7 +117,18 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId, qu
   function update(next: ExplorationForm) {
     setForm(next);
     const parsed = readForm(next);
-    if (parsed.success) setParameters(parsed.data);
+    if (parsed.success) {
+      setParameters(parsed.data);
+      return;
+    }
+
+    const tradeCount = explorationSchema.shape.trades.safeParse(parseField("trades", next.trades)).data;
+    const frequency = explorationSchema.shape.tradesPerDay.safeParse(parseField("tradesPerDay", next.tradesPerDay) ?? null).data;
+    setParameters((previous) => ({
+      ...previous,
+      trades: tradeCount ?? previous.trades,
+      tradesPerDay: frequency ?? previous.tradesPerDay,
+    }));
   }
 
   function openScenarios() {

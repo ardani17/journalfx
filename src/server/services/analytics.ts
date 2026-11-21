@@ -57,7 +57,7 @@ export async function coreMetrics(
   { includeDailyTrades = false }: { includeDailyTrades?: boolean } = {},
 ): Promise<CoreMetrics> {
   const journal = filter?.journal;
-  const trades = await prisma.trade.findMany({
+  const tradesQuery = prisma.trade.findMany({
     where: journal ? tradeFilterWhere(userId, journal) : {
       userId,
       status: { in: ["CLOSED", "PARTIAL"] },
@@ -84,6 +84,10 @@ export async function coreMetrics(
       instrument: includeDailyTrades ? { select: { symbol: true } } : undefined,
     },
   });
+  const ledgerQuery = queryRealizedTradingRows(userId, filter);
+  const [trades, ledger] = includeDailyTrades
+    ? await prisma.$transaction([tradesQuery, ledgerQuery], { isolationLevel: "RepeatableRead" })
+    : await Promise.all([tradesQuery, ledgerQuery]);
 
   const closed = trades.filter((t) => t.status === "CLOSED" && t.realizedPnl !== null);
   let wins = 0;
@@ -136,7 +140,7 @@ export async function coreMetrics(
   const n = closed.length;
   const journalTradeIds = journal ? new Set(trades.map((trade) => trade.id)) : null;
   const hasTradeSpecificFilter = journal?.status || journal?.result || journal?.strategyId;
-  const periodLedger = (await realizedTradingRows(userId, filter)).filter((r) => {
+  const periodLedger = normalizeRealizedTradingRows(ledger).filter((r) => {
     if (!journalTradeIds) return true;
     if (r.sourceTradeId) return journalTradeIds.has(r.sourceTradeId);
 
@@ -247,9 +251,11 @@ export interface DayPnl {
   hasRealizedPnl: boolean;
 }
 
-export async function realizedTradingRows(userId: string, filter?: { from?: Date; to?: Date; accountId?: string }) {
+type LedgerScope = { from?: Date; to?: Date; accountId?: string };
+
+function queryRealizedTradingRows(userId: string, filter?: LedgerScope) {
   const pnlTypes: LedgerEntryType[] = ["REALIZED_PNL", "FEE"];
-  const rows = await prisma.accountTransaction.findMany({
+  return prisma.accountTransaction.findMany({
     where: {
       userId,
       accountId: filter?.accountId,
@@ -264,7 +270,14 @@ export async function realizedTradingRows(userId: string, filter?: { from?: Date
       reversalOf: { select: { type: true, sourceTradeId: true } },
     },
   });
+}
+
+function normalizeRealizedTradingRows(rows: Awaited<ReturnType<typeof queryRealizedTradingRows>>) {
   return rows.map(({ reversalOf, ...row }) => reversalOf ? { ...row, ...reversalOf } : row);
+}
+
+export async function realizedTradingRows(userId: string, filter?: LedgerScope) {
+  return normalizeRealizedTradingRows(await queryRealizedTradingRows(userId, filter));
 }
 
 /** Daily realized P&L grouped by ledger date in the user's local time. */
