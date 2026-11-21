@@ -8,7 +8,7 @@ import { balanceSeries, computeBalance, reverseTransaction, weeklySummary } from
 import { dailyPnl, coreMetrics } from "@/server/services/analytics";
 import { allocateProfit, budgetOverview, payDebt } from "@/server/services/finance";
 import { cancelWithdrawal, completeWithdrawal, getRecommendation, listWithdrawalSourceAccounts, listWithdrawals, requestWithdrawal } from "@/server/services/withdrawals";
-import { closeReview, correctReview, getOrCreateReview, saveReviewFields } from "@/server/services/reviews";
+import { closeReview, collectFacts, correctReview, getOrCreateReview, saveReviewFields } from "@/server/services/reviews";
 import { reviewPeriodForDate } from "@/lib/review-period";
 import { importStatement } from "@/server/services/imports";
 import { mt5Sync, mt5SyncStatus } from "@/server/services/mt5-sync";
@@ -84,6 +84,58 @@ describe.skipIf(process.env.RUN_DB_TESTS !== "1")("PostgreSQL financial integrat
     for (const kind of ["DAILY", "MONTHLY"] as const) {
       expect(await getOrCreateReview(owner.userId, kind, first)).toMatchObject({ status: "OPEN", kind });
     }
+  });
+
+  it("reconciles the daily review trade breakdown and freezes it at close", async () => {
+    const owner = await fixture();
+    const other = await fixture();
+    const selection = { date: "2026-11-02" };
+    const window = reviewPeriodForDate("DAILY", selection.date, "Asia/Jakarta");
+    const cent = await prisma.tradingAccount.create({
+      data: { userId: owner.userId, projectId: owner.projectId, name: "QA Cent", currency: "USC" },
+    });
+    await prisma.user.update({ where: { id: owner.userId }, data: { timezone: "Asia/Jakarta" } });
+
+    const tradeData = { userId: owner.userId, accountId: owner.accountId, instrumentId, lot: 0.01,
+      entryAt: new Date("2026-11-01T01:00:00Z"), entryPrice: 2000, status: "CLOSED" as const, direction: "LONG" as const };
+    const first = await prisma.trade.create({ data: { ...tradeData, realizedPnl: 12, exitAt: window.start } });
+    const second = await prisma.trade.create({ data: { ...tradeData, accountId: cent.id,
+      direction: "SHORT", realizedPnl: -250, exitAt: new Date("2026-11-02T01:00:00Z") } });
+    const partial = await prisma.trade.create({ data: { ...tradeData, realizedPnl: 9, exitAt: window.end } });
+    const foreign = await prisma.trade.create({ data: { ...tradeData, userId: other.userId,
+      accountId: other.accountId, realizedPnl: 50, exitAt: window.start } });
+
+    const rowData = { userId: owner.userId, accountId: owner.accountId, occurredAt: window.start };
+    const prior = await prisma.accountTransaction.create({ data: {
+      ...rowData, type: "REALIZED_PNL", amount: "0.5", occurredAt: new Date(window.start.getTime() - 1),
+    } });
+    await prisma.accountTransaction.createMany({ data: [
+      { ...rowData, type: "REALIZED_PNL", amount: 12, sourceTradeId: first.id },
+      { ...rowData, type: "FEE", amount: -2, sourceTradeId: first.id },
+      { ...rowData, type: "REALIZED_PNL", amount: -250, currency: "USC", accountId: cent.id, sourceTradeId: second.id },
+      { ...rowData, type: "REALIZED_PNL", amount: 4, sourceTradeId: partial.id },
+      { ...rowData, type: "REALIZED_PNL", amount: 5, sourceTradeId: partial.id, occurredAt: window.end },
+      { ...rowData, type: "FEE", amount: -1 },
+      { ...rowData, type: "REVERSAL", amount: "-0.5", reversalOfId: prior.id },
+      { ...rowData, type: "REALIZED_PNL", amount: 50, userId: other.userId, accountId: other.accountId, sourceTradeId: foreign.id },
+    ] });
+
+    const facts = await collectFacts(owner.userId, window, { includeDailyTrades: true });
+    expect(facts.tradesCount).toBe(2);
+    expect(facts.netPnl.toString()).toBe("10");
+    expect(facts.dailyTradeBreakdown).toEqual({
+      trades: [
+        { id: second.id, symbol, direction: "SHORT", closedAt: second.exitAt!.toISOString(), netPnl: "-2.5" },
+        { id: first.id, symbol, direction: "LONG", closedAt: window.start.toISOString(), netPnl: "10" },
+      ],
+      additionalPnl: { otherTrades: "4", accountFees: "-1", unlinkedPnl: "-0.5" },
+    });
+
+    const closed = await closeReview(owner.userId, "DAILY", undefined, selection);
+    expect(closed.snapshot).toMatchObject({ tradesCount: 2, netPnl: "10", dailyTradeBreakdown: facts.dailyTradeBreakdown });
+    await prisma.accountTransaction.create({ data: { ...rowData, type: "FEE", amount: -2 } });
+    expect((await collectFacts(owner.userId, window, { includeDailyTrades: true })).netPnl.toString()).toBe("8");
+    expect((await getOrCreateReview(owner.userId, "DAILY", { reviewId: closed.id })).snapshot).toEqual(closed.snapshot);
   });
 
   it("provisions one empty private journal per Google subject even with concurrent sign-ins or shared email text", async () => {
