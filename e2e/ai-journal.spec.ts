@@ -10,6 +10,7 @@ const db = new PrismaClient();
 const fixtureIds: string[] = [];
 let mockProvider: Server | undefined;
 let stallProvider = false;
+const seenExports: { metrics: { netPnlUsd: string }; coverage: { withJournal: number } }[] = [];
 
 test.beforeAll(async () => {
   requireLocalTestDatabase();
@@ -21,10 +22,17 @@ test.beforeAll(async () => {
       for await (const chunk of request) raw += String(chunk);
       if (stallProvider) return;
       const { messages } = JSON.parse(raw);
-      const { evidence } = JSON.parse(messages[1].content) as { evidence: Array<{ id: string; actionIds: string[] }> };
-      const item = evidence.find(({ id }) => id === "session") ?? evidence[0];
-      if (!item) throw new Error("Missing provider evidence");
-      const content = JSON.stringify([{ evidenceId: item.id, actionId: item.actionIds[0] }]);
+      const data = JSON.parse(messages[1].content);
+      seenExports.push(data);
+      const sessions: { id: string; netPnlUsd: string }[] = data.breakdowns.session;
+      const winner = sessions.find(({ netPnlUsd }) => Number(netPnlUsd) > 0);
+      const loser = sessions.find(({ netPnlUsd }) => Number(netPnlUsd) < 0);
+      const content = JSON.stringify({
+        summary: "Evaluasi seluruh trade tertutup.",
+        strengths: winner ? [{ text: "Pertahankan eksekusi yang konsisten pada kelompok dengan hasil positif.", evidenceIds: [winner.id] }] : [],
+        mistakes: loser ? [{ text: "Tinjau ada tidaknya pola kesalahan dalam kelompok ini.", evidenceIds: [loser.id] }] : [],
+        actionPlan: [{ text: "Tinjau alasan entry dan exit selama sesi berikutnya.", evidenceIds: ["overview"] }],
+      });
       response.writeHead(200, { "Content-Type": "application/json" });
       response.end(JSON.stringify({ choices: [{ message: { content } }] }));
     } catch {
@@ -40,6 +48,7 @@ test.beforeAll(async () => {
 
 test.afterEach(async () => {
   stallProvider = false;
+  seenExports.length = 0;
   if (fixtureIds.length > 0) {
     const ids = fixtureIds.splice(0);
     await db.aiJournalRateLimit.deleteMany({ where: { key: { in: ids.map((id) => `user:${id}`) } } });
@@ -56,14 +65,14 @@ test.afterAll(async () => {
   await db.$disconnect();
 });
 
-async function openReports(page: Page, sample: Array<{ pnl: number; session?: string }>) {
+async function openReports(page: Page, sample: Array<{ pnl: number; session?: string; actualR?: number }>) {
   const run = randomUUID();
   const user = await db.user.create({ data: { email: `ai-qa-${run}@example.invalid`, name: "AI Journal QA", googleSubject: `ai-qa-${run}` } });
   fixtureIds.push(user.id);
   const project = await db.project.create({ data: { userId: user.id, name: "QA", initialCapital: 100 } });
   const account = await db.tradingAccount.create({ data: { userId: user.id, projectId: project.id, name: "QA" } });
   const instrument = await db.instrument.create({ data: { ownerId: user.id, symbol: "QAAI", name: "Synthetic instrument", category: "metal" } });
-  await db.trade.createMany({ data: sample.map(({ pnl, session }) => ({
+  await db.trade.createMany({ data: sample.map(({ pnl, session, actualR }) => ({
     userId: user.id,
     accountId: account.id,
     instrumentId: instrument.id,
@@ -73,6 +82,7 @@ async function openReports(page: Page, sample: Array<{ pnl: number; session?: st
     entryPrice: 100,
     initialStopLoss: 90,
     realizedPnl: pnl,
+    actualR,
     entryAt: new Date("2020-01-01T09:00:00Z"),
     exitAt: new Date("2020-01-01T10:00:00Z"),
     session,
@@ -87,11 +97,11 @@ async function openReports(page: Page, sample: Array<{ pnl: number; session?: st
     sameSite: "Lax",
   }]);
   await page.goto("/analytics");
-  await expect(page.getByRole("heading", { name: /^AI Journal Insights/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Hasil Analisis AI", exact: true })).toBeVisible();
   return user.id;
 }
 
-async function generate(page: Page, button = "Buat insight AI") {
+async function generate(page: Page, button = "Buat analisis AI") {
   const response = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/analytics/journal-insights", {
     timeout: 25_000,
   });
@@ -99,11 +109,11 @@ async function generate(page: Page, button = "Buat insight AI") {
   return response;
 }
 
-const journalFreeSample = [{ pnl: 30 }, { pnl: -10 }, { pnl: 0 }];
+const journalFreeSample = [{ pnl: 30, actualR: 2 }, { pnl: -10, actualR: -1 }, { pnl: 0 }];
 
 test("explains why AI needs more closed trades", async ({ page }) => {
   await openReports(page, [{ pnl: 30 }]);
-  await expect(page.getByRole("button", { name: "Buat insight AI" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Buat analisis AI" })).toBeDisabled();
   await expect(page.getByText("Analisis AI membutuhkan minimal 3 trade tertutup dengan P/L tercatat.")).toBeVisible();
 });
 
@@ -129,7 +139,7 @@ test("records an explicit noncompliant trade and clears a prior journal answer",
 test("explains unavailable configuration and keeps rule-based insights visible", async ({ page }) => {
   test.skip(mode !== "disabled", "Run with AI_JOURNAL_E2E_MODE=disabled.");
   await openReports(page, journalFreeSample);
-  await expect(page.getByRole("button", { name: "Buat insight AI" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Buat analisis AI" })).toBeDisabled();
   await expect(page.getByText("Penyedia AI belum dikonfigurasi.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Insight berbasis aturan" })).toBeVisible();
   expect((await page.request.post("/api/analytics/journal-insights")).status()).toBe(503);
@@ -147,11 +157,14 @@ test("compares opposite sessions using each signed-in account's full history", a
     ]);
     const response = await generate(page);
     expect(response.status(), await response.text()).toBe(200);
-    const findings = page.getByRole("region", { name: "Hasil insight AI" });
-    await expect(findings.getByText("6 trade dianalisis · 0 dengan data kepatuhan atau FOMO")).toBeVisible();
-    await expect(findings.getByText(`Sesi ${winner} punya rata-rata P/L per trade lebih tinggi daripada Sesi ${loser}.`)).toBeVisible();
-    await expect(findings.getByText(`Sesi ${winner} · 3 trade · P/L trade tertutup ${winnerTotal}`, { exact: false })).toBeVisible();
-    await expect(findings.getByText(`Sesi ${loser} · 3 trade · P/L trade tertutup ${loserTotal}`, { exact: false })).toBeVisible();
+    const findings = page.getByRole("region", { name: "Laporan analisis AI" });
+    await expect(findings.getByText("6 trade dianalisis", { exact: false })).toBeVisible();
+    await expect(findings.getByRole("heading", { name: "Apa yang Sudah Benar" })).toBeVisible();
+    await expect(findings.getByRole("heading", { name: "Apa yang Salah" })).toBeVisible();
+    if (mode === "mock") {
+      await expect(findings.getByText(`${winner} · 3 trade · P/L ${winnerTotal}`, { exact: false })).toBeVisible();
+      await expect(findings.getByText(`${loser} · 3 trade · P/L ${loserTotal}`, { exact: false })).toBeVisible();
+    }
   }
 });
 
@@ -160,22 +173,44 @@ test("shows evidence and a review action for closed trades without journal entri
   await openReports(page, journalFreeSample);
   const response = await generate(page);
   expect(response.status(), await response.text()).toBe(200);
-  const findings = page.getByRole("region", { name: "Hasil insight AI" });
-  await expect(findings.getByText("3 trade dianalisis · 0 dengan data kepatuhan atau FOMO")).toBeVisible();
-  await expect(findings.getByText("P/L trade tertutup $20,00", { exact: false })).toBeVisible();
-  await expect(findings.getByText("win rate 33,33%", { exact: false })).toBeVisible();
-  await expect(findings.getByText(/Tinjau alasan entry dan exit|Periksa trade dengan P\/L paling ekstrem/)).toBeVisible();
+  const report = page.getByRole("region", { name: "Laporan analisis AI" });
+  await expect(report.getByText("3 trade dianalisis", { exact: false })).toBeVisible();
+  await expect(report.getByText("$20,00", { exact: true })).toBeVisible();
+  await expect(report.getByText("33,33%", { exact: true })).toBeVisible();
+  await expect(report.getByText("Rata-rata R 0,50R dari 2 trade.")).toBeVisible();
+  await expect(report.getByRole("heading", { name: "Evaluasi & Rencana Perbaikan" })).toBeVisible();
+});
+
+test("requests a new analysis for unchanged data and reflects the next saved database change", async ({ page }) => {
+  test.skip(mode !== "mock", "Requires provider payload observations.");
+  const userId = await openReports(page, journalFreeSample);
+  const clearQuota = () => db.aiJournalRateLimit.delete({ where: { key: "user:" + userId } });
+  expect((await generate(page)).status()).toBe(200);
+  await clearQuota();
+  expect((await generate(page)).status()).toBe(200);
+  await clearQuota();
+  const trade = await db.trade.findFirstOrThrow({ where: { userId, realizedPnl: 30 } });
+  await db.trade.update({ where: { id: trade.id }, data: {
+    realizedPnl: 40, journal: { create: { compliant: false } },
+  } });
+  expect((await generate(page)).status()).toBe(200);
+  expect(seenExports.map((snapshot) => [snapshot.metrics.netPnlUsd, snapshot.coverage.withJournal]))
+    .toEqual([["20", 0], ["20", 0], ["30", 1]]);
+  await expect(page.getByRole("region", { name: "Laporan analisis AI" }).getByText("$30,00", { exact: true })).toBeVisible();
 });
 
 test("shows a timeout, explains quota, and allows retry", async ({ page }) => {
   test.skip(mode !== "mock", "Requires the mock provider to produce a controlled timeout.");
   const userId = await openReports(page, journalFreeSample);
   const key = `user:${userId}`;
+  expect((await generate(page)).status()).toBe(200);
+  await db.aiJournalRateLimit.delete({ where: { key } });
   stallProvider = true;
   const timedOut = generate(page);
   await expect(page.getByText("Analisis transaksi sedang diproses.")).toBeVisible();
   expect((await timedOut).status()).toBe(504);
   await expect(page.getByRole("alert").filter({ hasText: "Penyedia AI terlalu lama merespons." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Hasil terakhir", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Insight berbasis aturan" })).toBeVisible();
 
   stallProvider = false;
@@ -185,5 +220,5 @@ test("shows a timeout, explains quota, and allows retry", async ({ page }) => {
 
   await db.aiJournalRateLimit.delete({ where: { key } });
   expect((await generate(page, "Coba lagi")).status()).toBe(200);
-  await expect(page.getByRole("heading", { name: "Hasil insight AI", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Laporan analisis AI", exact: true })).toBeVisible();
 });
