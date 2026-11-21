@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type Prisma } from "@prisma/client";
 import { SESSION_COOKIE, signSession } from "../src/lib/session";
 import { requireLocalTestDatabase } from "./test-database";
 
@@ -59,7 +59,7 @@ test("selects historical days, weeks, and months and keeps each review separate"
     await expect(page.getByLabel("Refleksi")).toHaveValue("");
     await expect(page.getByText("+$20,00", { exact: true })).toBeVisible();
     await choose("DAILY", "2026-11-02", "2 Nov 2026");
-    await expect(page.getByText("−$10,00", { exact: true })).toBeVisible();
+    await expect(page.getByText("Transaksi / P&L Neto", { exact: true }).locator("..")).toContainText("−$10,00");
     await choose("MONTHLY", "2026-11", "1 Nov 2026 – 30 Nov 2026");
     await expect(page.getByText("+$35,00", { exact: true })).toBeVisible();
 
@@ -69,6 +69,84 @@ test("selects historical days, weeks, and months and keeps each review separate"
     await page.getByRole("link", { name: "2 Nov 2026 – 8 Nov 2026", exact: true }).click();
     await expect(page.getByLabel("Refleksi")).toHaveValue("Catatan minggu pertama");
     await expect(page.getByLabel("Refleksi")).toBeDisabled();
+  });
+});
+
+test("expands daily trades in place and displays saved and legacy details", async ({ page, baseURL }, testInfo) => {
+  await withJournal(page, baseURL!, async (userId) => {
+    const account = await prisma.tradingAccount.findFirstOrThrow({ where: { userId } });
+    const instrument = await prisma.instrument.create({
+      data: { ownerId: userId, symbol: "EURUSD", name: "EUR/USD", category: "forex" },
+    });
+    const exitAt = new Date("2026-11-02T03:05:00Z");
+    const trade = await prisma.trade.create({ data: {
+      userId, accountId: account.id, instrumentId: instrument.id, direction: "LONG", status: "CLOSED",
+      lot: 0.01, entryPrice: 1.10, entryAt: new Date("2026-11-01T03:00:00Z"), exitAt, realizedPnl: 12,
+    } });
+    const row = { userId, accountId: account.id, type: "REALIZED_PNL" as const, occurredAt: exitAt, sourceTradeId: trade.id };
+    await prisma.accountTransaction.create({ data: { ...row, amount: 12 } });
+
+    await page.goto("/reviews/daily?date=2026-11-02&calendar=2026-11-02");
+    const panel = page.locator("details").filter({ hasText: "Tampilkan Daftar Trade" });
+    const toggle = panel.locator("summary");
+    const tradeList = panel.getByRole("list", { name: "Trade selesai" });
+    const reflection = page.getByLabel("Refleksi");
+    await expect(toggle).toBeVisible();
+    await expect(panel.locator("xpath=following-sibling::*[1]").getByRole("heading", { name: "Rincian Disiplin" })).toBeVisible();
+    await expect(tradeList).toBeHidden();
+    await reflection.fill("Evaluasi disiplin yang belum disimpan");
+    await toggle.focus();
+    await toggle.press("Enter");
+    await expect(toggle.getByText("Tutup Daftar Trade", { exact: true })).toBeVisible();
+    await expect(panel.getByText("1 trade", { exact: true })).toBeVisible();
+    await expect(tradeList.getByRole("listitem")).toContainText("EURUSD · Beli");
+    await expect(tradeList.getByRole("listitem")).toContainText("10.05");
+    await expect(tradeList.getByRole("listitem")).toContainText("+$12,00");
+    await expect(panel.getByText("−$10,00", { exact: true })).toBeVisible();
+    await expect(panel.getByText("+$2,00", { exact: true })).toBeVisible();
+    await toggle.click();
+    await expect(tradeList).toBeHidden();
+    await expect(reflection).toHaveValue("Evaluasi disiplin yang belum disimpan");
+    await expect(page).toHaveURL(/date=2026-11-02&calendar=2026-11-02$/);
+    expect(await prisma.periodReview.count({ where: { userId } })).toBe(0);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await toggle.click();
+    await expect(tradeList).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+    await panel.evaluate((element) => element.scrollIntoView({ block: "center" }));
+    await panel.screenshot({ path: testInfo.outputPath("daily-review-trades-mobile.png") });
+    await page.getByRole("button", { name: "Simpan Catatan" }).click();
+    await expect(page.getByRole("status")).toHaveText("Catatan tersimpan.");
+    await page.getByRole("button", { name: "Tutup Periode" }).click();
+    const snapshotLabel = page.getByText("Transaksi / P&L saat ditutup", { exact: true });
+    await expect(snapshotLabel.locator("..")).toContainText("1 · +$2,00");
+    await prisma.accountTransaction.create({ data: { ...row, amount: 5 } });
+    await page.reload();
+    await toggle.click();
+    await expect(tradeList.getByRole("listitem")).toContainText("+$12,00");
+    await expect(panel.getByText("+$2,00", { exact: true })).toBeVisible();
+
+    const review = await prisma.periodReview.findFirstOrThrow({ where: { userId, kind: "DAILY" } });
+    const legacySnapshot = { ...review.snapshot as Prisma.InputJsonObject };
+    delete legacySnapshot.dailyTradeBreakdown;
+    await prisma.periodReview.update({ where: { id: review.id }, data: { snapshot: legacySnapshot } });
+    await page.reload();
+    await toggle.click();
+    await expect(snapshotLabel.locator("..")).toContainText("1 · +$2,00");
+    await expect(panel.getByText("Rincian berdasarkan ledger terkini")).toBeVisible();
+    await expect(tradeList.getByRole("listitem")).toContainText("+$17,00");
+    await expect(panel.getByText("+$7,00", { exact: true })).toBeVisible();
+
+    await page.goto("/reviews/daily?date=2026-11-05");
+    await toggle.click();
+    await expect(panel.getByText("0 trade", { exact: true })).toBeVisible();
+    await expect(panel.getByText("Tidak ada trade pada tanggal ini")).toBeVisible();
+    for (const kind of ["weekly", "monthly"]) {
+      await page.goto(`/reviews/${kind}?date=2026-11-02`);
+      await expect(page.getByRole("heading", { name: "Rincian Disiplin" })).toBeVisible();
+      await expect(panel).toHaveCount(0);
+    }
   });
 });
 
@@ -88,7 +166,7 @@ test("connects calendar status, live P&L, and review snapshots", async ({ page, 
     await expect(cell("05")).toContainText("Tanpa transaksi");
     await page.screenshot({ path: testInfo.outputPath("calendar-review-desktop.png") });
     await cell("02").click();
-    await expect(page.getByText("−$10,00", { exact: true })).toBeVisible();
+    await expect(page.getByText("Transaksi / P&L Neto", { exact: true }).locator("..")).toContainText("−$10,00");
     await page.getByRole("button", { name: "Tutup Periode" }).click();
     await expect(page.getByText("Transaksi / P&L saat ditutup", { exact: true })).toBeVisible();
     await page.getByRole("link", { name: "Kembali ke Kalender" }).click();
