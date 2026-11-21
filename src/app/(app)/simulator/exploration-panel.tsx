@@ -9,7 +9,7 @@ import { Dialog } from "@/components/ui/misc";
 import { Table, TableWrap, TBody, TD, THead, TH, TR } from "@/components/ui/table";
 import { formatFxEstimate, type JisdorQuote } from "@/lib/finance/exchange";
 import {
-  explorationFieldNames, explorationFields, explorationPaths, explorationSchema, explorationTradesPerCycle,
+  explorationFieldNames, explorationFields, explorationPaths, explorationSchema, explorationTradeDay, explorationTradesPerCycle,
   simulateExploration, type ExplorationField, type ExplorationInput, type ExplorationTrade,
 } from "@/lib/finance/exploration-monte-carlo";
 import { monteCarloEquityStorageKey, parseMonteCarloEquity } from "@/lib/finance/trading-capital";
@@ -24,6 +24,12 @@ const primaryFields = ["capital", "target", "trades", "winRate", "winReturn", "l
 const groupedAmounts = new Set<ExplorationField>(["capital", "target", "withdrawalAmount", "fee"]);
 
 function parseField(name: ExplorationField, value: string) {
+  if (name === "tradesPerDay") {
+    const normalized = normalizeNumericInput(value, true);
+    if (!normalized || !/^\d+$/.test(normalized)) return undefined;
+    const number = Number(normalized);
+    return Number.isSafeInteger(number) ? number : undefined;
+  }
   return groupedAmounts.has(name) ? normalizeNumericInput(value, true) : parseSimulationNumber(value);
 }
 
@@ -38,6 +44,7 @@ function readForm(form: ExplorationForm) {
   const numbers = Object.fromEntries(explorationFieldNames.map((key) => [key, parseField(key, form[key])]));
   return explorationSchema.safeParse({
     ...numbers,
+    tradesPerDay: numbers.tradesPerDay ?? null,
     withdrawal: form.withdrawal,
     withdrawalRate: form.withdrawal === "DYNAMIC" ? numbers.withdrawalRate : explorationFields.withdrawalRate.initial,
     withdrawalAmount: form.withdrawal === "FIXED" ? numbers.withdrawalAmount : explorationFields.withdrawalAmount.initial,
@@ -76,15 +83,19 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId, qu
   const [notice, setNotice] = useState("");
   const storageKey = "horizon-journal:exploration:" + userId;
   const current = readForm(form);
-  const displayed = useDeferredValue(parameters);
-  const result = useMemo(() => simulateExploration(displayed, seed), [displayed, seed]);
+  const { capital, target, trades, winRate: simulatedWinRate, winReturn, lossReturn, withdrawal, withdrawalRate,
+    withdrawalAmount, fee } = useDeferredValue(parameters);
+  const result = useMemo(() => simulateExploration({
+    capital, target, trades, winRate: simulatedWinRate, winReturn, lossReturn, withdrawal, withdrawalRate, withdrawalAmount, fee,
+  }, seed), [capital, target, trades, simulatedWinRate, winReturn, lossReturn, withdrawal, withdrawalRate, withdrawalAmount, fee, seed]);
   const chance = formatTarget(result.reachedCount * 100 / explorationPaths) + "%";
   const last = result.chart.at(-1)!;
   const chartPeak = Math.max(...result.chart.map(({ bounds, sample }) => Math.max(bounds[1], sample)));
-  const chartTarget = Number(displayed.target);
+  const chartTarget = Number(target);
   const targetOnScale = chartTarget <= chartPeak * 1.5;
   const winRate = parseSimulationNumber(form.winRate);
-  const cycleHint = axis === "cycle" ? "1 siklus = " + explorationTradesPerCycle + " trade." : "1 trade per hari kalender.";
+  const { tradesPerDay } = parameters;
+  const duration = explorationTradeDay(trades, tradesPerDay);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -150,16 +161,19 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId, qu
     const { label, min, max } = explorationFields[name];
     const id = "exploration-" + name;
     const invalid = !current.success && current.error.issues.some((issue) => issue.path[0] === name);
-    const unit = name === "trades" ? "bilangan bulat" : "angka";
+    const isTradeCount = name === "trades" || name === "tradesPerDay";
+    const unit = isTradeCount ? "bilangan bulat" : "angka";
     const isUsd = groupedAmounts.has(name);
     const precision = isUsd ? " dengan maksimal dua desimal" : "";
     const amount = isUsd && !invalid ? normalizeNumericInput(form[name], true) : undefined;
     const estimate = amount === undefined ? null : formatFxEstimate(amount, "USD", quote)?.replace("≈ Rp", "≈ Rp ");
-    const descriptionId = name === "trades" ? "exploration-trade-scale" : estimate ? `${id}-idr` : undefined;
+    const descriptionId = isTradeCount ? "exploration-trade-scale" : estimate ? `${id}-idr` : undefined;
+    const error = name === "tradesPerDay" ? "Masukkan bilangan bulat positif."
+      : `Masukkan ${unit} ${formatTarget(min)}–${formatTarget(max)}${precision}.`;
     return (
       <Field key={name} label={label} htmlFor={id}
-        error={invalid ? `Masukkan ${unit} ${formatTarget(min)}–${formatTarget(max)}${precision}.` : undefined}>
-        <Input id={id} name={name} type="text" inputMode={name === "trades" ? "numeric" : "decimal"}
+        error={invalid ? error : undefined}>
+        <Input id={id} name={name} type="text" inputMode={isTradeCount ? "numeric" : "decimal"}
           aria-invalid={invalid || undefined}
           aria-describedby={descriptionId}
           value={form[name]} onChange={(event) => update({ ...form, [name]: event.target.value })}
@@ -180,7 +194,7 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId, qu
             <div aria-live="polite" aria-atomic="true">
               <h2 className="text-sm font-medium text-muted">Peluang menyentuh target</h2>
               <p className="tnum mt-1 text-4xl font-bold tracking-tight sm:text-5xl">{chance}</p>
-              <p className="mt-1 text-xs text-muted">{result.reachedCount} dari {explorationPaths} jalur dalam {displayed.trades} trade.</p>
+              <p className="mt-1 text-xs text-muted">{result.reachedCount} dari {explorationPaths} jalur dalam {trades} trade.</p>
             </div>
             <div className="rounded-lg border border-primary/25 bg-primary/5 px-3 py-2">
               <p className="text-[11px] text-muted">Target saldo</p>
@@ -198,7 +212,8 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId, qu
                 ))}
               </div>
             </div>
-            <ExplorationChart chart={result.chart} target={targetOnScale ? chartTarget : undefined} axis={axis} startDate={startDate || initialDate} />
+            <ExplorationChart chart={result.chart} target={targetOnScale ? chartTarget : undefined}
+              axis={axis} startDate={startDate || initialDate} tradesPerDay={tradesPerDay} />
             <figcaption className="flex flex-wrap justify-end gap-x-3 gap-y-1 text-[11px] text-muted">
               <span className="inline-flex items-center gap-1.5"><i aria-hidden className="h-2 w-3 rounded-sm bg-primary/30" />Rentang P10–P90</span>
               <span className="inline-flex items-center gap-1.5"><i aria-hidden className="w-3 border-t-2 border-primary" />Jalur contoh</span>
@@ -233,13 +248,17 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId, qu
           </Button>
         </div>
         <p className="mt-1 text-xs text-muted">Laba dan rugi dihitung dari saldo sebelum setiap trade.</p>
-        <div className="mt-4 grid grid-cols-2 items-start gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="mt-4 grid grid-cols-2 items-start gap-3 md:grid-cols-4 xl:grid-cols-7">
           {primaryFields.map((name) => name === "trades" ? (
-            <div key={name} className="space-y-1">
+            <div key={name} className="col-span-2 grid grid-cols-2 items-start gap-x-3 gap-y-2">
               {field(name)}
-              <p className="text-[11px] text-faint" id="exploration-trade-scale">{cycleHint}</p>
+              {field("tradesPerDay")}
+              <p className="col-span-2 text-[11px] text-faint" id="exploration-trade-scale">
+                Estimasi durasi {formatTarget(duration)} hari kalender.
+                {axis === "cycle" ? ` 1 siklus = ${explorationTradesPerCycle} trade.` : null}
+              </p>
               {axis === "date" ? (
-                <Field label="Tanggal awal grafik" htmlFor="exploration-date" className="pt-2">
+                <Field label="Tanggal awal grafik" htmlFor="exploration-date" className="col-span-2">
                   <Input id="exploration-date" type="date" min="0001-01-01" max="9999-12-31" value={startDate}
                     onChange={(event) => { if (event.target.validity.valid) setStartDate(event.target.value); }}
                     onBlur={() => { if (!startDate) setStartDate(initialDate); }} />
