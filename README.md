@@ -86,11 +86,11 @@ Bot menampilkan tombol **Ringkasan Trading** dan **Tugas Hari Ini** setelah akun
 
 Untuk pengujian lokal, jalankan aplikasi dengan `APP_ORIGIN` loopback. Di terminal kedua, jalankan `node --env-file=.env scripts/poll-telegram-local.mjs` dan biarkan berjalan selama pengujian. Jika menjalankan beberapa checkout, arahkan `APP_ORIGIN` poller ke port checkout yang ingin diuji. Gunakan satu poller per bot dan hentikan poller sebelum mendaftarkan webhook HTTPS.
 
-### AI Journal Insights
+### Hasil Analisis AI
 
 Jalankan migrasi, lalu isi `AI_BASE_URL`, `AI_API_KEY`, dan `AI_MODEL` untuk penyedia dengan API Chat Completions non-streaming. Gunakan base URL yang menyertakan path versi API, misalnya `https://provider.example/v1`, atau URL endpoint lengkap yang berakhir dengan `/chat/completions`. Mulai ulang proses aplikasi setelah mengubah konfigurasi.
 
-Di **Laporan & Analisis**, pilih **Buat insight AI** setelah tersedia minimal tiga trade tertutup dengan P&L tercatat. Trade yang belum memiliki catatan jurnal tetap berkontribusi pada statistik performa. Aplikasi mengirim statistik agregat dan label tetap ke penyedia AI. Analisis berbasis aturan tersedia tanpa konfigurasi AI. Jika pembuatan insight gagal, periksa tahap kegagalan di log server bertanda `[ai-journal]`.
+Di **Laporan & Analisis**, pilih **Buat analisis AI** setelah tersedia minimal tiga trade tertutup dengan P&L tercatat. Setiap permintaan membaca ulang data PostgreSQL milik pengguna yang masuk, membuat satu JSON ringkas, dan meminta laporan baru dari penyedia AI. Trade tanpa jurnal tetap dihitung. JSON berisi statistik, indikator jurnal, pengaturan risiko, dan contoh berkode anonim. Analisis berbasis aturan tersedia tanpa konfigurasi AI. Jika permintaan gagal, periksa tahap kegagalan di log server bertanda `[ai-journal]`.
 
 ## Arsitektur
 
@@ -133,7 +133,7 @@ npm run e2e
 
 Playwright menjalankan build produksi pada port `3210` dan membuat sesi dari fixture sintetis. Suite visual juga menulis tangkapan layar ke `e2e/visual/`.
 
-Jalankan `npm run e2e -- e2e/ai-journal.spec.ts` untuk memeriksa AI Journal Insights dengan penyedia tiruan. Set `AI_JOURNAL_E2E_MODE=disabled` untuk memeriksa kondisi tanpa konfigurasi AI, atau `AI_JOURNAL_E2E_MODE=live` untuk menguji akun sintetis dengan penyedia yang dikonfigurasi.
+Jalankan `npm run e2e -- e2e/ai-journal.spec.ts` untuk memeriksa Hasil Analisis AI dengan penyedia tiruan. Set `AI_JOURNAL_E2E_MODE=disabled` untuk memeriksa kondisi tanpa konfigurasi AI, atau `AI_JOURNAL_E2E_MODE=live` untuk menguji akun sintetis dengan penyedia yang dikonfigurasi.
 
 GitHub Actions menjalankan lint, pemeriksaan tipe, tes Vitest dengan PostgreSQL, serta build. Pipeline rilis turut menjalankan Playwright.
 

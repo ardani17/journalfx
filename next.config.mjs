@@ -37,7 +37,7 @@ const nextConfig = {
     ];
   },
   outputFileTracingRoot: fileURLToPath(new URL(".", import.meta.url)),
-  serverExternalPackages: ["@prisma/client"],
+  serverExternalPackages: ["@prisma/client", "pdfkit"],
 };
 
 export default nextConfig;

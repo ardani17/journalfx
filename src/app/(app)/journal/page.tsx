@@ -65,7 +65,7 @@ export default async function JournalPage({
   const offset = (page - 1) * pageSize;
   const [{ items, total }, metrics, accounts, strategies] = await Promise.all([
     listTrades(user.id, { ...tradeFilters, limit: pageSize, offset }, { includeJournalCompletion: true }),
-    coreMetrics(user.id, { accountId: filters.accountId, journal: hasDateRange ? tradeFilters : undefined }),
+    coreMetrics(user.id, { accountId: filters.accountId, journal: tradeFilters }),
     listAccounts(user.id),
     listStrategies(user.id),
   ]);
