@@ -231,6 +231,20 @@ describe("AI journal report endpoint", () => {
     }
   });
 
+  it.each([
+    ["https://api.z.ai/api/coding/paas/v4", "1113", "Z.ai melaporkan saldo tidak mencukupi atau paket API belum tersedia (kode 1113)."],
+    ["https://api.z.ai/api/coding/paas/v4", "1302", "Penyedia AI membatasi permintaan. Coba lagi nanti."],
+    ["https://provider.example/v1", "1113", "Penyedia AI membatasi permintaan. Coba lagi nanti."],
+  ])("returns the provider limit from %s with code %s", async (baseUrl, code, message) => {
+    vi.stubEnv("AI_BASE_URL", baseUrl);
+    const { provider } = captureProvider();
+    provider.mockResolvedValueOnce(Response.json({ error: { code, message: "Private provider detail" } }, { status: 429 }));
+    const response = await request();
+    expect(response.status).toBe(429);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).toEqual({ ok: false, error: message });
+  });
+
   it("rejects unknown references, malformed reports and oversized responses, and distinguishes provider failures", async () => {
     const { provider } = captureProvider();
     provider.mockImplementationOnce(async () => providerResponse({ actionPlan: [{ ...finding, evidenceIds: ["invented"] }] }))

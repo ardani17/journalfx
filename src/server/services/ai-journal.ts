@@ -76,8 +76,15 @@ const REPORT_FORMAT = [
 
 type ProviderStage = "provider_network" | "provider_http" | "provider_response" | "provider_timeout";
 
-function providerFailure(stage: ProviderStage, status?: number) {
-  console.warn("[ai-journal]", status === undefined ? { stage } : { stage, status });
+function providerFailure(stage: ProviderStage, status?: number, zaiBalanceUnavailable = false) {
+  console.warn("[ai-journal]", status === undefined ? { stage } : {
+    stage, status, ...(zaiBalanceUnavailable ? { providerCode: "1113" } : {}),
+  });
+  if (status === 429) {
+    return new ApiError(429, zaiBalanceUnavailable
+      ? "Z.ai melaporkan saldo tidak mencukupi atau paket API belum tersedia (kode 1113)."
+      : "Penyedia AI membatasi permintaan. Coba lagi nanti.");
+  }
   return stage === "provider_timeout"
     ? new ApiError(504, "Penyedia AI terlalu lama merespons. Silakan coba lagi.")
     : new ApiError(502, "Insight AI gagal dibuat. Silakan coba lagi.");
@@ -121,8 +128,15 @@ export async function generateAiJournal(
       }),
     });
     if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
-      throw providerFailure("provider_http", response.status);
+      let zaiBalanceUnavailable = false;
+      if (response.status === 429 && config.url.hostname === "api.z.ai") {
+        const details = await readProviderResponse(response).catch(() => null);
+        const code: unknown = details?.error?.code;
+        zaiBalanceUnavailable = code === "1113" || code === 1113;
+      } else {
+        await response.body?.cancel().catch(() => {});
+      }
+      throw providerFailure("provider_http", response.status, zaiBalanceUnavailable);
     }
     stage = "provider_response";
     const body = await readProviderResponse(response);
