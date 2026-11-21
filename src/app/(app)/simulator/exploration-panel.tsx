@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Dialog } from "@/components/ui/misc";
 import { Table, TableWrap, TBody, TD, THead, TH, TR } from "@/components/ui/table";
+import { formatFxEstimate, type JisdorQuote } from "@/lib/finance/exchange";
 import {
   explorationFieldNames, explorationFields, explorationPaths, explorationSchema, explorationTradesPerCycle,
   simulateExploration, type ExplorationField, type ExplorationInput, type ExplorationTrade,
@@ -57,11 +58,12 @@ function readScenarios(key: string): SavedScenario[] {
   });
 }
 
-export function ExplorationPanel({ initial, initialSeed, initialDate, userId }: {
+export function ExplorationPanel({ initial, initialSeed, initialDate, userId, quote }: {
   initial: ExplorationInput;
   initialSeed: number;
   initialDate: string;
   userId: string;
+  quote: JisdorQuote | null;
 }) {
   const [form, setForm] = useState(() => toForm(initial));
   const [parameters, setParameters] = useState(initial);
@@ -149,18 +151,23 @@ export function ExplorationPanel({ initial, initialSeed, initialDate, userId }: 
     const id = "exploration-" + name;
     const invalid = !current.success && current.error.issues.some((issue) => issue.path[0] === name);
     const unit = name === "trades" ? "bilangan bulat" : "angka";
-    const precision = groupedAmounts.has(name) ? " dengan maksimal dua desimal" : "";
+    const isUsd = groupedAmounts.has(name);
+    const precision = isUsd ? " dengan maksimal dua desimal" : "";
+    const amount = isUsd && !invalid ? normalizeNumericInput(form[name], true) : undefined;
+    const estimate = amount === undefined ? null : formatFxEstimate(amount, "USD", quote)?.replace("≈ Rp", "≈ Rp ");
+    const descriptionId = name === "trades" ? "exploration-trade-scale" : estimate ? `${id}-idr` : undefined;
     return (
       <Field key={name} label={label} htmlFor={id}
         error={invalid ? `Masukkan ${unit} ${formatTarget(min)}–${formatTarget(max)}${precision}.` : undefined}>
         <Input id={id} name={name} type="text" inputMode={name === "trades" ? "numeric" : "decimal"}
           aria-invalid={invalid || undefined}
-          aria-describedby={name === "trades" ? "exploration-trade-scale" : undefined}
+          aria-describedby={descriptionId}
           value={form[name]} onChange={(event) => update({ ...form, [name]: event.target.value })}
           onBlur={() => {
             const number = parseField(name, form[name]);
             if (number !== undefined) setForm((previous) => ({ ...previous, [name]: formatTarget(number) }));
           }} />
+        {estimate ? <p id={descriptionId} className="tnum break-words text-[11px] text-faint">{estimate}</p> : null}
       </Field>
     );
   }

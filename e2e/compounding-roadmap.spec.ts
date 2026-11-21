@@ -93,6 +93,28 @@ test("estimates capital from the active budget and prefills Monte Carlo", async 
     await page.getByRole("button", { name: "Acak ulang" }).click();
     await expect(equity).toHaveValue(transferred);
     expect(await page.evaluate((key) => sessionStorage.getItem(key), storageKey)).toBeNull();
+    if (href) {
+      const estimate = page.locator("#exploration-capital-idr");
+      await expect(estimate).toHaveText(/^≈ Rp [\d.]+$/);
+      await equity.fill("1.250,75");
+      await expect(estimate).toHaveText(/^≈ Rp [\d.]+$/);
+      const preview = await estimate.innerText();
+      await equity.fill("250,75");
+      await expect(estimate).not.toHaveText(preview);
+      await equity.fill("");
+      await expect(estimate).toHaveCount(0);
+      await equity.fill("tidak valid");
+      await expect(estimate).toHaveCount(0);
+      await equity.fill(transferred);
+      await page.getByText("Penarikan & biaya", { exact: true }).click();
+      await expect(page.getByLabel("Biaya per trade (USD)", { exact: true })).toHaveAccessibleDescription("≈ Rp 0");
+      const withdrawalMode = page.getByLabel("Mode penarikan per trade");
+      await expect(page.getByLabel("Nominal ditarik (USD)", { exact: true })).toHaveCount(0);
+      await withdrawalMode.selectOption("FIXED");
+      await expect(page.getByLabel("Nominal ditarik (USD)", { exact: true })).toHaveAccessibleDescription("≈ Rp 0");
+      await withdrawalMode.selectOption("NONE");
+      await expect(page.locator("#exploration-withdrawalAmount-idr")).toHaveCount(0);
+    }
     await page.reload();
     await expect(equity).toHaveValue("200");
     await expect(page.getByRole("heading", { name: "Peluang menyentuh target" })).toBeVisible();

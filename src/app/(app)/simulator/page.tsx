@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/server/auth";
+import { getJisdorQuote } from "@/server/services/jisdor";
 import { getDefaultProject } from "@/server/services/projects";
 import { getScenario, listScenarios, savedScenarioParameters } from "@/server/services/scenarios";
 import { PageHeader, PageShell } from "@/components/ui/page-header";
@@ -20,10 +21,11 @@ export default async function SimulatorPage({ searchParams }: {
   if (scenarioId !== undefined && typeof scenarioId !== "string") notFound();
   if (scenarioId === undefined && mode !== undefined) redirect("/simulator");
 
-  const [project, scenarios, selected] = await Promise.all([
+  const [project, scenarios, selected, quote] = await Promise.all([
     getDefaultProject(user.id),
     listScenarios(user.id),
     scenarioId === undefined ? null : getScenario(user.id, scenarioId),
+    getJisdorQuote(),
   ]);
   if (scenarioId !== undefined && !selected) notFound();
 
@@ -40,6 +42,7 @@ export default async function SimulatorPage({ searchParams }: {
         initialSeed={randomInt(2 ** 32)}
         initialDate={calendarDate(new Date(), user.timezone).toISOString().slice(0, 10)}
         userId={user.id}
+        quote={quote}
       />
       <details key={selected?.id ?? "new"} id="rencana-tersimpan" open={Boolean(selected)} className="scroll-mt-20 rounded-lg border border-line bg-panel">
         <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Rencana tersimpan dan Monte Carlo lanjutan</summary>
