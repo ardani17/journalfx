@@ -1,12 +1,11 @@
 import { readFile } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { join } from "node:path";
 import { buffer } from "node:stream/consumers";
 import PDFDocument from "pdfkit";
 import type { AiJournalAnalysis } from "@/lib/ai-journal";
 import { AI_JOURNAL_EMPTY_FINDINGS, AI_JOURNAL_OVERVIEW_TITLE, AI_JOURNAL_REPORT_TITLE, presentAiJournalReport } from "@/lib/ai-journal-report";
 
-const loadDependency = createRequire(join(process.cwd(), "package.json"));
+const fontDirectory = join(process.cwd(), "node_modules", "@fontsource", "noto-sans", "files");
 const INK = "#172b3d";
 const MUTED = "#475a6c";
 const MARGIN = 48;
@@ -19,8 +18,8 @@ function writeHeading(doc: PDFKit.PDFDocument, title: string) {
 
 export async function renderAiJournalPdf(analysis: AiJournalAnalysis) {
   const [regular, bold] = await Promise.all([
-    readFile(loadDependency.resolve("@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff")),
-    readFile(loadDependency.resolve("@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff")),
+    readFile(join(fontDirectory, "noto-sans-latin-400-normal.woff")),
+    readFile(join(fontDirectory, "noto-sans-latin-700-normal.woff")),
   ]);
   const report = presentAiJournalReport(analysis);
   const doc = new PDFDocument({
